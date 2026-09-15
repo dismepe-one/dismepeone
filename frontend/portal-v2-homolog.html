@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <script>
-window.__DISMEPE_V2_HOMOLOG = true;
+window.__DISMEPE_V2_HOMOLOG = false;
 window.__v2Authenticated = false;
 window.__v2LegacyReady = false;
 </script>
@@ -6106,9 +6106,9 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
         async function postApi(body) {
             const action=String(body?.acao||body?.action||'').toUpperCase();
 
-            // FASE 1B — homologação é somente leitura.
-            // Evita qualquer alteração acidental na produção enquanto testamos
-            // login, navegação e leitura dos módulos.
+            // Trava de segurança da antiga homologação.
+            // Em produção __DISMEPE_V2_HOMOLOG permanece false, portanto
+            // as escritas seguem o fluxo legado já homologado, sem repetição automática.
             if(
                 window.__DISMEPE_V2_HOMOLOG === true &&
                 action &&
@@ -29205,7 +29205,7 @@ body > header.card-glass > div:first-child > .shrink-0 img{
     pointer-events:none;
   }
 </style>
-<div id="v2HomologBadge">HOMOLOGAÇÃO 2.0 • I2 • SOMENTE LEITURA</div>
+<div id="v2HomologBadge">DISMEPE ONE 2.0 • PRODUÇÃO</div>
 
 <script id="v2-phase1b-shell">
 (function(){
@@ -29462,7 +29462,7 @@ body > header.card-glass > div:first-child > .shrink-0 img{
     window.logout=wrapped;
   }
 
-  console.log('[DISMEPE ONE 2.0] Fase 1B homologação ativa.');
+  console.log('[DISMEPE ONE 2.0] Produção 2I.2 PROD1 ativa.');
 })();
 </script>
 
