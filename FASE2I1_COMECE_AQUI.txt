@@ -1,0 +1,10 @@
+DISMEPE ONE 2.0 — FASE 2I.1
+
+Escopo:
+- Campanhas Extras / modal administrativo: lista de campanhas via /data/campanhas-extras?id=LIST.
+- Lista de Vendedores/Televendas via /data/extras-users (snapshot USUARIOS).
+- Criar/editar/ocultar/excluir/observações continuam no fluxo existente.
+- Fallback legado apenas para indisponibilidade 5xx/rede quando token legado existir.
+- 401/403 nunca fazem fallback.
+
+Base: FASE 2H.12 homologada.

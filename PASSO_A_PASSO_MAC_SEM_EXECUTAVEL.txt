@@ -1,0 +1,69 @@
+DISMEPE ONE 2.0 — FASE 1
+MAC — EXECUÇÃO SEM ARQUIVOS .command
+
+IMPORTANTE
+- Não desative as proteções do macOS.
+- Não use xattr, Gatekeeper bypass ou "abrir mesmo assim".
+- Este método usa apenas o Terminal e comandos visíveis.
+
+1) Extraia o ZIP para uma pasta, por exemplo:
+   Downloads/dismepe-one-2.0-fase1-login
+
+2) Se você já preencheu o .env na pasta anterior,
+   copie esse .env preenchido para esta nova pasta.
+   NÃO envie o .env para ninguém.
+
+3) Abra o Terminal.
+
+4) Entre na pasta. Exemplo:
+   cd ~/Downloads/dismepe-one-2.0-fase1-login
+
+5) Crie o ambiente Python:
+   python3 -m venv .venv
+
+6) Ative:
+   source .venv/bin/activate
+
+7) Instale as dependências:
+   python -m pip install --upgrade pip
+   python -m pip install -r requirements.txt
+
+8) Valide o .env:
+   python scripts/validar_env.py
+
+   Resultado esperado:
+   OK: .env preenchido e formato básico validado.
+
+9) Inicie a API:
+   uvicorn api.main:app --host 127.0.0.1 --port 8000
+
+10) DEIXE esse Terminal aberto.
+
+11) Abra um SEGUNDO Terminal e execute:
+    cd ~/Downloads/dismepe-one-2.0-fase1-login/frontend
+    ../.venv/bin/python -m http.server 8080 --bind 127.0.0.1
+
+12) Abra no Safari/Chrome:
+    http://localhost:8080/login-v2.html
+
+13) Faça login com um usuário real.
+
+14) Depois do teste manual, abra um TERCEIRO Terminal:
+    cd ~/Downloads/dismepe-one-2.0-fase1-login
+    source .venv/bin/activate
+    python scripts/benchmark_login.py
+
+META
+- 0 falhas
+- Mediana < 1000 ms
+- P95 < 2000 ms
+
+PARAR
+Nos Terminais da API e do frontend pressione:
+Ctrl + C
+
+PRODUÇÃO
+- Não alterar FRONTEND_RELEASE
+- Não alterar Código.gs
+- Não alterar diagnosticoV216
+- Não reinstalar WorkerV216

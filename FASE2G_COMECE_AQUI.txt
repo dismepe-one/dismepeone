@@ -1,0 +1,44 @@
+DISMEPE ONE 2.0 — FASE 2G
+
+CORREÇÕES DESTA FASE
+
+1. CRIAR USUÁRIO
+O card "Criar Usuário" não aciona mais a tela global "Preparando informações...".
+O modal abre imediatamente.
+O mesmo vale para Permissões e Alterar Senha.
+
+2. OVERLAY GLOBAL
+Mesmo nos módulos de dados, o listener genérico agora possui liberação automática
+após a pintura da tela. Ele não depende mais de outro wrapper para desaparecer.
+
+3. CARDS / CABEÇALHO APÓS LOGIN
+A camada de permissões estrita V210.13 escondia botões antes do login usando
+display:none!important.
+O login 2.0 não passava pelo LOGIN/DADOS legado, então alguns botões só reapareciam
+quando a sessão legada finalmente ficava pronta.
+
+Agora as permissões estritas são reaplicadas imediatamente:
+- ao aplicar o bootstrap;
+- ao abrir a Home;
+- ao montar a navegação depois do login.
+
+Vendedores, Televendas, Visão Geral, Campanhas Extras e Campanhas Mensais
+não devem mais esperar o token legado para aparecer.
+
+4. CAMPANHAS EXTRAS
+Medição recebida: 23.454 ms.
+
+O login já lê o snapshot EXTRAS em paralelo. Antes, ao abrir Campanhas Extras,
+o backend fazia uma NOVA leitura e ainda consultava USUARIOS para montar a lista.
+
+Agora:
+- o snapshot EXTRAS lido no login é reaproveitado por até 120 segundos;
+- LIST/overview não consulta USUARIOS;
+- USUARIOS só é lido quando uma parcial realmente precisa ser calculada.
+
+5. MEDIÇÃO
+A métrica homeNavigationMs registra quanto o navegador gastou para deixar Home
+e navegação prontas após a autenticação.
+
+PRODUÇÃO
+Não alterada.

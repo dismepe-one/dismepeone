@@ -1,0 +1,30 @@
+DISMEPE ONE 2.0 — CORREÇÃO DO LOGIN "LOAD FAILED"
+
+O problema era a tela na porta 8080 chamando a API na porta 8000.
+No Safari isso ficou sujeito a CORS/origem diferente.
+
+Esta correção coloca TUDO na mesma origem:
+  http://127.0.0.1:8000
+
+SUBSTITUA SOMENTE:
+  api/main.py
+  frontend/login-v2.html
+
+MANTENHA SEU .env PREENCHIDO ATUAL. NÃO SUBSTITUA O .env.
+
+PASSOS:
+1. Pare os dois servidores com Ctrl+C.
+2. Substitua os dois arquivos acima.
+3. Na pasta principal:
+   source .venv/bin/activate
+   python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+4. NÃO inicie mais a porta 8080.
+5. Abra:
+   http://127.0.0.1:8000/login-v2.html
+6. Confira também:
+   http://127.0.0.1:8000/health
+
+Esperado:
+  "ok": true
+
+Produção atual NÃO é alterada.

@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DISMEPE ONE 2.0 — Homologação Login</title>
+  <style>
+    :root{
+      font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      color:#0f172a;background:#f8fafc
+    }
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}
+    .card{width:min(440px,100%);background:#fff;border:1px solid #e2e8f0;border-radius:20px;padding:28px;box-shadow:0 18px 60px rgba(15,23,42,.08)}
+    h1{font-size:24px;margin:0 0 4px}
+    .sub{color:#64748b;margin:0 0 24px}
+    label{display:block;font-size:13px;font-weight:700;margin:14px 0 6px}
+    input{width:100%;padding:13px 14px;border:1px solid #cbd5e1;border-radius:12px;font:inherit}
+    button{width:100%;margin-top:18px;padding:13px 16px;border:0;border-radius:12px;background:#0f766e;color:white;font:inherit;font-weight:800;cursor:pointer}
+    button:disabled{opacity:.6;cursor:wait}
+    .error{margin-top:14px;padding:10px 12px;background:#fff1f2;border:1px solid #fecdd3;color:#9f1239;border-radius:10px}
+    .ok{margin-top:14px;padding:10px 12px;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:10px}
+    .hidden{display:none}
+    .home p{margin:8px 0}
+    .metric{font-size:30px;font-weight:900;margin:12px 0 4px}
+    .muted{color:#64748b;font-size:13px}
+    .secondary{background:#334155}
+  </style>
+</head>
+<body>
+  <section class="card" id="loginCard">
+    <h1>DISMEPE ONE 2.0</h1>
+    <p class="sub">Homologação — Fase 1: Login rápido</p>
+
+    <form id="loginForm">
+      <label for="usuario">Usuário</label>
+      <input id="usuario" autocomplete="username" required>
+
+      <label for="senha">Senha</label>
+      <input id="senha" type="password" autocomplete="current-password" required>
+
+      <button id="entrar" type="submit">ENTRAR</button>
+    </form>
+
+    <div id="erro" class="error hidden"></div>
+    <div class="muted" style="margin-top:16px">
+      Esta página é isolada e não altera a produção atual.
+    </div>
+  </section>
+
+  <section class="card home hidden" id="homeCard">
+    <h1>Home 2.0</h1>
+    <p id="saudacao"></p>
+    <div class="metric" id="tempo">—</div>
+    <div class="muted">tempo do endpoint de login</div>
+    <div id="status" class="ok">Sessão 2.0 ativa.</div>
+    <button id="sair" class="secondary">SAIR</button>
+  </section>
+
+<script>
+  // HOMOLOGAÇÃO: altere apenas esta URL depois que a API FastAPI estiver publicada.
+  const API_V2_URL = '';
+
+  const $ = id => document.getElementById(id);
+
+  function showLogin(){
+    $('homeCard').classList.add('hidden');
+    $('loginCard').classList.remove('hidden');
+  }
+
+  function showHome(user, elapsedMs){
+    $('loginCard').classList.add('hidden');
+    $('homeCard').classList.remove('hidden');
+    $('saudacao').textContent = `Bem-vindo, ${user.nome || user.vendedor || user.usuario}.`;
+    $('tempo').textContent = Number.isFinite(elapsedMs) ? `${elapsedMs} ms` : 'sessão restaurada';
+  }
+
+  async function api(path, options={}){
+    const response = await fetch(API_V2_URL + path, {
+      credentials:'include',
+      headers:{'Content-Type':'application/json', ...(options.headers||{})},
+      ...options
+    });
+    let data={};
+    try{ data=await response.json(); }catch(e){}
+    if(!response.ok){
+      throw new Error(
+        typeof data?.detail === 'string'
+          ? data.detail
+          : (data?.detail?.codigo || `HTTP ${response.status}`)
+      );
+    }
+    return data;
+  }
+
+  async function restoreSession(){
+    try{
+      const me = await api('/auth/me');
+      if(me?.autenticado && me?.usuario){
+        showHome(me.usuario, null);
+        return;
+      }
+    }catch(e){}
+    showLogin();
+  }
+
+  $('loginForm').addEventListener('submit', async ev=>{
+    ev.preventDefault();
+    $('erro').classList.add('hidden');
+    $('entrar').disabled=true;
+    $('entrar').textContent='ENTRANDO…';
+
+    const started=performance.now();
+
+    try{
+      const result=await api('/auth/login',{
+        method:'POST',
+        body:JSON.stringify({
+          usuario:$('usuario').value.trim(),
+          senha:$('senha').value
+        })
+      });
+
+      const browserElapsed=Math.round(performance.now()-started);
+      const elapsed=Number(result.elapsedMs || browserElapsed);
+
+      showHome(result.usuario, elapsed);
+    }catch(e){
+      const msg = e?.message || 'Não foi possível entrar.';
+      $('erro').textContent =
+        msg === 'Load failed'
+          ? 'Falha de comunicação com a API local. Confirme que http://127.0.0.1:8000/health está com ok=true.'
+          : msg;
+      $('erro').classList.remove('hidden');
+    }finally{
+      $('entrar').disabled=false;
+      $('entrar').textContent='ENTRAR';
+    }
+  });
+
+  $('sair').addEventListener('click', async ()=>{
+    try{ await api('/auth/logout',{method:'POST'}); }catch(e){}
+    showLogin();
+  });
+
+  restoreSession();
+</script>
+</body>
+</html>

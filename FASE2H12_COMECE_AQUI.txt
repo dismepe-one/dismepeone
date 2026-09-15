@@ -1,0 +1,12 @@
+DISMEPE ONE 2.0 — FASE 2H.12
+
+Objetivo: limpeza visual de carregamentos passivos.
+Base: 2H.11, com rollback 2H.10 congelado preservado.
+
+Alterações visuais apenas:
+- indicador verde global permanece desativado;
+- overlay global de preparação desativado;
+- textos/spinners passivos de abertura de módulos removidos;
+- feedbacks de ação (Salvar, Excluir, Atualizar, Enviar, Processar) preservados.
+
+Health esperado: 2.0.0-phase2h12

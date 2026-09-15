@@ -1,0 +1,52 @@
+DISMEPE ONE 2.0 — REINÍCIO LIMPO NO MAC
+
+OBJETIVO
+Rodar apenas UM servidor:
+http://127.0.0.1:8000
+
+1) Extraia esta pasta para Downloads.
+
+2) Abra o Terminal e execute:
+   cd ~/Downloads/DISMEPE_ONE_2_0_REINICIO_LIMPO
+
+3) Crie o .env:
+   cp .env.example .env
+
+4) Abra o .env no TextEdit:
+   open -e .env
+
+5) Preencha:
+   DISMEPE_SUPABASE_PUBLISHABLE_KEY
+   DISMEPE_EDGE_TOKEN
+   DISMEPE_AUTH_PEPPER
+   DISMEPE_JWT_SECRET
+
+6) Crie o ambiente:
+   python3 -m venv .venv
+
+7) Ative:
+   source .venv/bin/activate
+
+8) Instale:
+   python -m pip install --upgrade pip
+   python -m pip install -r requirements.txt
+
+9) Inicie:
+   python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+
+10) Abra no navegador:
+    http://127.0.0.1:8000/health
+
+    Esperado:
+    "ok": true
+
+11) Depois abra:
+    http://127.0.0.1:8000/login-v2.html
+
+IMPORTANTE
+- NÃO usar porta 8080.
+- NÃO abrir segundo servidor.
+- NÃO alterar a produção atual.
+- NÃO alterar FRONTEND_RELEASE.
+- NÃO alterar Código.gs.
+- NÃO alterar diagnosticoV216.

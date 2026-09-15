@@ -1,0 +1,35 @@
+DISMEPE ONE 2.0 — FASE 2A.1
+
+PROBLEMA OBSERVADO
+Na primeira abertura de Clientes PED:
+- tela abria;
+- meta aparecia "Não definida";
+- clientes = 0;
+- última atualização = —;
+- ao clicar manualmente em ATUALIZAR, os dados apareciam.
+
+DIAGNÓSTICO
+O primeiro GET podia coincidir com uma fotografia ainda não inicializada.
+O botão Atualizar repetia a MESMA leitura e então recebia o snapshot pronto.
+
+CORREÇÃO
+Somente o primeiro carregamento de Clientes PED foi alterado.
+
+Agora:
+1. faz GET /data/clientes-ped;
+2. se a resposta vier estruturalmente vazia E sem timestamp,
+   espera 650 ms e tenta novamente;
+3. no máximo 3 tentativas;
+4. se houver timestamp, mesmo que a lista esteja realmente vazia,
+   NÃO fica repetindo indefinidamente;
+5. não usa gateway, Apps Script ou /exec.
+
+NÃO ALTERADO
+- Login 2.0
+- Vendedores
+- Televendas
+- Visão Geral
+- Campanhas Extras
+- Resumo de Ganhos
+- backend legado
+- produção

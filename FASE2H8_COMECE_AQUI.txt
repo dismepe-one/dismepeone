@@ -1,0 +1,15 @@
+DISMEPE ONE 2.0 — FASE 2H.8
+
+Correção cirúrgica do pós-RESTORED no F5.
+
+Causa encontrada na H7:
+/auth/me restaurava corretamente, mas o shell final chamava helpers locais do IIFE anterior sem window.*, causando ReferenceError depois de RESTORED e ativando o fallback DADOS.
+
+H8:
+- expõe os helpers 2.0 já existentes no window;
+- shell usa window.v2OpenHomeImmediately / v2RenderImmediateNavigation / v2SetPortalStatus / v2AwaitLegacySession;
+- mantém o helper v2ShellApi da H7;
+- não altera regras, bootstrap, DADOS ou autenticação backend.
+
+Health: 2.0.0-phase2h8
+Badge: HOMOLOGAÇÃO 2.0 • H8 • SOMENTE LEITURA

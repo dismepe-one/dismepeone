@@ -1,0 +1,22 @@
+DISMEPE ONE 2.0 — FASE 1 APROVADA
+
+Resultado real informado pelo usuário:
+- Sucessos: 20
+- Falhas: 0
+- Mediana: 614 ms
+- P95: 714 ms
+- Mínimo: 488 ms
+- Máximo: 715 ms
+- Servidor mediana: 588 ms
+- Status: APROVADA
+
+Critérios definidos:
+- Falhas = 0
+- Mediana < 1000 ms
+- P95 < 2000 ms
+
+Situação:
+- Fase 1 atende aos critérios.
+- Produção 1.x permanece inalterada.
+- Este snapshot NÃO inclui .env nem qualquer segredo.
+- Próxima etapa: Fase 1B — integrar autenticação 2.0 ao frontend principal em HOMOLOGAÇÃO.

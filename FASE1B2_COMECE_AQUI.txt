@@ -1,0 +1,27 @@
+DISMEPE ONE 2.0 — FASE 1B.2
+
+BASE:
+Esta versão volta EXATAMENTE para a Fase 1B estável que funcionou no teste real.
+
+NÃO mantém as alterações da Fase 1B.1 que:
+- tentavam hidratar a Home antecipadamente;
+- faziam preload de Clientes PED;
+- aumentaram a disputa de carregamento inicial.
+
+ALTERAÇÃO ÚNICA:
+Clientes PED.
+
+COMPORTAMENTO:
+1. Home, Mensal, Extras, Vendedores, Televendas e Resumo = lógica da Fase 1B estável.
+2. Clientes PED faz a primeira consulta normal.
+3. Se a primeira resposta vier no estado vazio/indefinido que antes exigia
+   clicar em ATUALIZAR, o sistema faz UMA segunda consulta automaticamente.
+4. Enquanto a primeira consulta não termina, a meta mostra "Carregando..."
+   em vez de "Não definida".
+5. O botão ATUALIZAR continua existindo e funcionando normalmente.
+
+OBJETIVO:
+Corrigir somente o primeiro acesso a Clientes PED, sem mexer na carga geral.
+
+PRODUÇÃO:
+NÃO alterada.

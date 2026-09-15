@@ -1,0 +1,33 @@
+DISMEPE ONE 2.0 — FASE 2G.6
+
+CORREÇÕES
+
+CONTROLE DE ACESSOS
+- Pré-carrega silenciosamente após login e após restauração por F5.
+- Ao abrir, usa a fotografia pré-carregada imediatamente.
+- Se o preload ainda estiver em andamento, aguarda e aplica os dados.
+- Primeira abertura tem até 3 tentativas silenciosas apenas em caso de falha.
+- Uma resposta válida é desenhada uma única vez.
+- Sem indicador verde "Processando..." nesta tela.
+- Botão Atualizar continua disponível.
+
+F5 / SESSÃO
+- Um marcador local NÃO sensível registra somente que havia sessão 2.0 recente.
+- O boot legado não interpreta mais ausência de token antigo como logout.
+- /auth/me é tentado novamente em 0/120/350/800 ms.
+- Só volta definitivamente ao login se a sessão 2.0 não puder ser confirmada
+  e também não houver sessão legada válida.
+- Após restauração, bootstrap, horários e preload de Acessos voltam sozinhos.
+- Logout apaga o marcador.
+
+SEGURANÇA
+- O marcador não autentica ninguém.
+- A autenticação real continua no cookie HttpOnly + /auth/me.
+- Permissões continuam validadas pelo backend.
+
+NÃO ALTERADO
+- Atualizações de bases
+- Pedidos
+- Escritas administrativas
+- Campanhas/regras
+- Workers/gatilhos

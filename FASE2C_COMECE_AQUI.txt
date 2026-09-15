@@ -1,0 +1,68 @@
+DISMEPE ONE 2.0 — FASE 2C
+BOOTSTRAP COMERCIAL IMEDIATO
+
+PROBLEMA RESOLVIDO NESTA FASE
+Após o login rápido, o sistema ainda esperava a sessão legada e a ação DADOS.
+Enquanto isso:
+- Home ficava vazia;
+- Vendedores não aparecia/preenchia;
+- Televendas não aparecia/preenchia;
+- Visão Geral não aparecia/preenchia;
+- horários Mensal/Extras demoravam;
+- o usuário via uma aplicação aparentemente travada.
+
+NOVA ARQUITETURA
+LOGIN:
+Frontend -> FastAPI -> Supabase Auth
+
+BOOTSTRAP:
+Frontend -> FastAPI -> CACHE_GET MENSAL/EXTRAS -> PostgreSQL
+
+NÃO passa por:
+- dismepe-gateway
+- Apps Script
+- ação DADOS
+- HORARIOS_BASE
+
+O bootstrap retorna:
+- usuário/permissões
+- Vendedores
+- Televendas
+- Visão Geral
+- competência ativa
+- regras públicas
+- dias úteis
+- horário Mensal
+- horário Extras
+
+A sessão legada continua sendo criada em background SOMENTE para módulos ainda
+não migrados, como partes de Campanhas Extras/Mensais administrativas.
+
+MÓDULOS JÁ DIRETOS
+- Login
+- Home/bootstrap
+- Vendedores
+- Televendas
+- Visão Geral
+- Resumo de Ganhos
+- Clientes PED
+- Horários Mensal/Extras
+
+MEDIÇÃO
+Existe um botão "TEMPOS 2.0" no canto inferior esquerdo.
+Ele mostra:
+- tempo do Login
+- tempo do Bootstrap no navegador
+- tempo do Bootstrap no servidor
+- quantidade de registros carregados
+
+OBJETIVO
+Depois do login, os menus aparecem imediatamente.
+A fotografia comercial deve chegar em poucos centenas de milissegundos / poucos
+segundos, sem esperar o Apps Script.
+
+PRODUÇÃO
+NÃO alterada.
+Não alterar FRONTEND_RELEASE.
+Não alterar Código.gs.
+Não alterar diagnosticoV216.

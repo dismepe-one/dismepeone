@@ -1,0 +1,26 @@
+DISMEPE ONE 2.0 — FASE 2G.2
+
+CORREÇÃO PONTUAL:
+Controle de Acessos abria muito rápido (ex.: 9 ms), porém em alguns casos
+a primeira abertura mostrava a tela sem os dados e só aparecia após ATUALIZAR.
+
+CAUSA:
+Na proteção contra carregamentos repetidos da Fase 2G.1 existia um caminho em
+que uma fotografia recente retornava "sucesso" sem reaplicar os dados no DOM.
+Além disso, quando a API respondia em poucos milissegundos, os gráficos podiam
+ser renderizados antes de o módulo visível terminar seu primeiro layout.
+
+CORREÇÃO:
+1. Toda fotografia válida passa pela função única renderAccessSnapshot().
+2. Se houver cache recente, ele é REAPLICADO à tela antes de retornar.
+3. Ao abrir Controle de Acessos, o módulo fica visível primeiro.
+4. A carga aguarda duas pinturas do navegador antes de aplicar o primeiro render.
+5. Se existir fotografia em memória, ela aparece imediatamente.
+6. A primeira abertura sem cache continua fazendo apenas UMA consulta.
+7. O botão Atualizar continua forçando uma única atualização.
+8. Mantida a proteção da Fase 2G.1 contra gráficos carregando várias vezes.
+
+NENHUMA outra lógica do sistema foi alterada.
+
+PRODUÇÃO:
+Não alterada.

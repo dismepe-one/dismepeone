@@ -1,0 +1,46 @@
+DISMEPE ONE 2.0 — FASE 2G.8
+
+REVISÃO COMPLETA FEITA SOBRE G7 + COMPARAÇÃO COM FASE 2F.
+
+CAUSA 1 — TELAS UMA POR BAIXO DA OUTRA
+O CSS de restauração do F5 usa:
+  html.v67-local-session[data-v68-screen="..."] #modulo {
+    display:block !important;
+  }
+
+Quando v67-local-session/data-v68-screen permaneciam após o F5, esse
+display:block!important vencia a classe .hidden. Por isso Televendas/Vendedores
+podiam continuar visíveis por baixo de Premiações, Extras e Mensais.
+
+CORREÇÃO:
+- libera v67-local-session e data-v68-screen assim que /auth/me confirma a sessão;
+- novo router exclusivo G8 mantém apenas UM módulo de página ativo;
+- módulos não ativos recebem display:none!important inline;
+- qualquer rotina assíncrona antiga que tente reabrir outro módulo é contida.
+
+CAUSA 2 — CONTROLE DE ACESSOS
+Na Fase 2F, quando funcionava, o fluxo era simples:
+  openAccessLog -> loadAccessLog -> v2FetchAccessLog -> render.
+
+Entre G1 e G7 foram adicionadas camadas de preload/cache/observer/retry que
+tornaram a primeira abertura dependente de vários estados concorrentes.
+
+CORREÇÃO:
+- removido preload de Acessos;
+- removido observer específico G7;
+- restaurado fluxo direto da Fase 2F;
+- single-flight mantido apenas para impedir duas consultas simultâneas;
+- router G8 possui uma garantia de primeira carga caso uma rota antiga apenas
+  torne o módulo visível sem executar openAccessLog corretamente;
+- uma resposta válida é renderizada uma única vez;
+- botão Atualizar continua funcionando;
+- indicador verde Processando continua removido.
+
+PRESERVADO:
+- correções de F5/sessão da G6;
+- no-cache da G7;
+- Campanhas Extras direta;
+- Resumo direto;
+- Clientes PED direto;
+- bootstrap/login rápido;
+- atualizações de bases, pedidos, workers e escritas não foram alterados.

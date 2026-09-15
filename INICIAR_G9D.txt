@@ -1,0 +1,23 @@
+DISMEPE ONE 2.0 — G9D
+
+VERSAO ESPERADA:
+2.0.0-phase2g9d
+
+No Mac:
+
+cd ~/Downloads/DISMEPE_ONE_2_0_FASE2G9D
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+cp ~/Downloads/DISMEPE_ONE_2_0_FASE2G1_ACESSOS_SEM_REPETICAO/.env .env
+set -a
+source .env
+set +a
+lsof -ti :8000 | xargs kill -9
+python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+
+Conferir:
+http://127.0.0.1:8000/health
+
+Portal:
+http://127.0.0.1:8000/?build=2g9d

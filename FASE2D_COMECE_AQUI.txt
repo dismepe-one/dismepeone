@@ -1,0 +1,44 @@
+DISMEPE ONE 2.0 — FASE 2D
+LOGIN + BOOTSTRAP EM UMA ÚNICA RESPOSTA
+
+MUDANÇA PRINCIPAL
+Na Fase 2C:
+  LOGIN terminava
+  -> Home aparecia
+  -> depois o navegador ainda chamava /data/bootstrap
+
+Na Fase 2D:
+  autenticação + MENSAL + EXTRAS começam em paralelo no servidor
+  -> uma ÚNICA resposta devolve:
+     - login
+     - permissões
+     - Vendedores
+     - Televendas
+     - Visão Geral
+     - dias úteis
+     - horários
+     - competência/regras
+  -> o frontend aplica os dados AINDA COM O LOGIN SOBRE A TELA
+  -> só depois abre a Home
+
+RESULTADO ESPERADO
+Ao desaparecer a tela de login:
+- cards já estão visíveis;
+- Vendedores já tem fotografia;
+- Televendas já tem fotografia;
+- Visão Geral já tem fotografia;
+- horários já estão preenchidos.
+
+BOTÃO DE MEDIÇÃO
+Agora fica no TOPO DIREITO:
+  ⚡ TEMPOS 2.0
+
+Ele mostra:
+- Login total
+- Autenticação
+- Bootstrap junto ao login
+- Aplicação dos dados
+- tempos por tela
+
+PRODUÇÃO
+NÃO alterada.

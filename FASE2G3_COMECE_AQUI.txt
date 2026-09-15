@@ -1,0 +1,34 @@
+DISMEPE ONE 2.0 — FASE 2G.3
+
+CORREÇÃO PONTUAL:
+Ao clicar em SAIR, o portal ficava totalmente branco em vez de voltar ao login.
+
+CAUSA:
+A classe html.v67-local-session, usada para evitar flash do login durante F5,
+esconde #loginOverlay com display:none!important.
+
+No logout:
+- V51 ocultava header/main/footer porque o usuário já não estava autenticado;
+- mas V67 ainda escondia o login;
+- resultado: nenhum conteúdo visível = tela branca.
+
+CORREÇÃO:
+1. Logout remove v67-local-session.
+2. Remove data-v68-screen e estado de restauração de F5.
+3. Mostra #loginOverlay imediatamente.
+4. Limpa possíveis estilos inline do overlay.
+5. Fecha overlays/loading pendentes.
+6. A chamada /auth/logout roda em paralelo, depois de a tela de login já aparecer.
+7. CSS final garante que, sem v51-auth-ready, o login sempre fica visível.
+
+NÃO ALTERADO:
+- autenticação;
+- Campanhas Extras;
+- Controle de Acessos;
+- Clientes PED;
+- Resumo de Ganhos;
+- permissões;
+- cálculos.
+
+PRODUÇÃO:
+Não alterada.

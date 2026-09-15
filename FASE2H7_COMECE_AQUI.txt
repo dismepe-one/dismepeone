@@ -1,0 +1,10 @@
+DISMEPE ONE 2.0 — FASE 2H.7
+
+CORREÇÃO:
+- corrige `Can't find variable: v2Api` no F5;
+- o shell 2.0 agora possui seu próprio helper HTTP (`v2ShellApi`);
+- /auth/me finalmente é chamado de verdade durante as tentativas de restauração;
+- preserva no-store, retries progressivos, PostgreSQL e fallback DADOS.
+
+Health esperado: 2.0.0-phase2h7
+Badge esperado: HOMOLOGAÇÃO 2.0 • H7 • SOMENTE LEITURA

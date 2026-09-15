@@ -1,0 +1,21 @@
+DISMEPE ONE 2.0 — FASE 2F.1
+
+ALTERAÇÃO ÚNICA:
+A tela global "Preparando ..." foi desativada completamente.
+
+MOTIVO:
+O conteúdo das telas já estava aberto por trás do overlay, mas a camada
+continuava sobre o portal e bloqueava cliques/navegação.
+
+AGORA:
+- o conteúdo aparece imediatamente;
+- o overlay nunca fica visível;
+- o overlay nunca captura cliques;
+- Campanhas Extras continua carregando seus dados em segundo plano;
+- Controle de Acessos mantém a leitura direta da Fase 2F;
+- Clientes PED, Resumo, Vendedores, Televendas e Visão Geral não foram alterados.
+
+A rota /tempos-2-0 continua disponível normalmente.
+
+PRODUÇÃO:
+NÃO alterada.

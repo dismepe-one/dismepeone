@@ -1,0 +1,17 @@
+DISMEPE ONE 2.0 — FASE 2H.5
+
+OBJETIVO
+Evitar fallback DADOS no F5 por falha transitória de /auth/me.
+
+ALTERAÇÃO
+- /auth/me recebe janela progressiva de restauração de até ~6 s no F5.
+- Sessão ausente/rede/5xx: retry.
+- Sessão expirada ou inválida: falha definitiva sem espera desnecessária.
+- DADOS legado continua existindo somente após esgotar a restauração 2.0 e se a sessão legada estiver válida.
+- Nenhuma regra comercial foi alterada.
+
+HEALTH
+2.0.0-phase2h5
+
+PORTAL
+http://127.0.0.1:8000/?build=2h5

@@ -1,0 +1,35 @@
+DISMEPE ONE 2.0 — FASE 2F
+
+PROBLEMA:
+Controle de Acessos ainda usava:
+Frontend -> callAdminAction -> gateway -> Apps Script -> SQL
+
+Isso podia congelar na tela de carregamento.
+
+CORREÇÃO:
+Controle de Acessos agora usa:
+Frontend -> FastAPI -> dismepe-admin LOG_LIST / LOG_USER -> PostgreSQL
+
+SEM:
+- token legado para abrir a tela;
+- dismepe-gateway;
+- Apps Script;
+- fallback Sheets.
+
+A tela também recebe:
+- overlay claro durante a leitura;
+- cache de 60 segundos no Python;
+- medição em /tempos-2-0.
+
+CAMPANHAS EXTRAS:
+Mantém a correção da Fase 2E.1:
+a tela abre com LISTA/OVERVIEW e só calcula parcial sob demanda.
+
+OBJETIVO DE UX:
+Não pré-carregar 10.000 linhas de log no login.
+Isso deixaria o login pior.
+A tela administrativa carrega somente quando aberta, diretamente do SQL,
+e reabre instantaneamente durante 60 segundos pelo cache.
+
+PRODUÇÃO:
+NÃO alterada.

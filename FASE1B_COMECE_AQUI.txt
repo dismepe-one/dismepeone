@@ -1,0 +1,68 @@
+DISMEPE ONE 2.0 — FASE 1B HOMOLOGAÇÃO
+
+OBJETIVO
+Integrar o LOGIN 2.0 aprovado ao FRONTEND REAL, sem tocar na produção.
+
+BASES IMUTÁVEIS:
+Backup 1.x:
+SHA256 918f3834f07445230a9afea5a8d683cd6f1d6fb050878011fb42b215eb13ed8d
+
+Fase 1 aprovada:
+SHA256 64ea37fc05f1d55524371d077046b4dcb5bc26b59112b3adad70a2f75c3e615a
+
+Frontend real usado como base:
+SHA256 f8356788ce98d98d3beba840689bc6dbd60c851dd75390b177ea70d0abed75ac
+
+COMPORTAMENTO DA FASE 1B
+1. Login 2.0 autentica em ~0,5–0,7 s.
+2. Home REAL abre imediatamente.
+3. A sessão antiga necessária aos módulos 1.x é criada em segundo plano.
+4. Enquanto a sessão antiga não estiver pronta, cliques em módulos são segurados
+   com uma mensagem explícita. Não existe rodinha sem explicação.
+5. Depois que a sessão antiga fica pronta, DADOS é atualizado em segundo plano.
+6. Homologação bloqueia ações de gravação conhecidas.
+7. Produção atual NÃO é alterada.
+
+IMPORTANTE
+- Esta etapa ainda NÃO é produção.
+- Não alterar FRONTEND_RELEASE.
+- Não alterar Código.gs.
+- Não alterar diagnosticoV216.
+- Não reinstalar WorkerV216.
+- O pacote NÃO contém .env.
+
+NO MAC
+1. Extraia a pasta em Downloads.
+2. Copie o .env que já funcionou na Fase 1:
+
+   cp ~/Downloads/DISMEPE_ONE_2_0_REINICIO_LIMPO/.env \
+      ~/Downloads/DISMEPE_ONE_2_0_FASE1B_HOMOLOGACAO/.env
+
+3. Entre:
+   cd ~/Downloads/DISMEPE_ONE_2_0_FASE1B_HOMOLOGACAO
+
+4. Crie o ambiente:
+   python3 -m venv .venv
+   source .venv/bin/activate
+   python -m pip install --upgrade pip
+   python -m pip install -r requirements.txt
+
+5. Inicie:
+   python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+
+6. Abra:
+   http://127.0.0.1:8000/health
+
+   Esperado:
+   ok=true
+   version=2.0.0-phase1b
+
+7. Abra:
+   http://127.0.0.1:8000/
+
+TESTE
+- Login deve abrir a Home real imediatamente.
+- A Home deve mostrar a mensagem de preparação dos dados.
+- Aguarde a sessão comercial ficar pronta.
+- Teste Home, Vendedores, Televendas, Resumo e Clientes PED.
+- NÃO faça alterações administrativas nesta homologação.

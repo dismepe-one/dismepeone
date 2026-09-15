@@ -1,0 +1,17 @@
+DISMEPE ONE 2.0 — FASE 2H.3
+
+BASE: 2H.2 homologada
+OBJETIVO: remover apenas caminhos DADOS dormentes, mantendo fallbacks reais.
+
+MAC:
+1. cd ~/Downloads/DISMEPE_ONE_2_0_FASE2H3
+2. cp ~/Downloads/DISMEPE_ONE_2_0_FASE2G1_ACESSOS_SEM_REPETICAO/.env .env
+3. python3 -m venv .venv
+4. source .venv/bin/activate
+5. python -m pip install -r requirements.txt
+6. set -a; source .env; set +a
+7. lsof -ti :8000 | xargs kill -9
+8. python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+
+Health esperado: 2.0.0-phase2h3
+Portal: http://127.0.0.1:8000/?build=2h3

@@ -1,0 +1,37 @@
+DISMEPE ONE 2.0 — FASE 2H.1 — DADOS PRINCIPAIS DIRETOS
+
+1) Entre na pasta:
+   cd ~/Downloads/DISMEPE_ONE_2_0_FASE2H1
+
+2) Copie o .env já homologado:
+   cp ~/Downloads/DISMEPE_ONE_2_0_FASE2G1_ACESSOS_SEM_REPETICAO/.env .env
+
+3) Ambiente Python:
+   python3 -m venv .venv
+   source .venv/bin/activate
+   python -m pip install -r requirements.txt
+
+4) Carregue o .env:
+   set -a
+   source .env
+   set +a
+
+5) Pare o servidor anterior:
+   lsof -ti :8000 | xargs kill -9
+
+6) Inicie:
+   python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+
+7) Confira:
+   http://127.0.0.1:8000/health
+   versão esperada: 2.0.0-phase2h1
+
+8) Portal:
+   http://127.0.0.1:8000/?build=2h1
+
+TESTE DE HOMOLOGAÇÃO:
+- Login e Home continuam iguais.
+- Abra Vendedores, Televendas e Visão Geral.
+- Troque a competência e confirme que a tela atualiza sem espera do DADOS legado.
+- Histórico automático/manual deve continuar funcionando como na G9D1.
+- Se o PostgreSQL ficar indisponível, o sistema pode usar DADOS apenas como fallback.

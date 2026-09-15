@@ -1,0 +1,38 @@
+DISMEPE ONE 2.0 — FASE 2E.1
+
+PROBLEMA IDENTIFICADO
+A Fase 2E eliminou gateway/Apps Script da leitura das Campanhas Extras.
+Porém, ao abrir a tela, o frontend fazia:
+
+1. carregar LISTA de campanhas;
+2. imediatamente selecionar "ALL";
+3. calcular TODAS AS CAMPANHAS;
+4. só então encerrar o overlay de "Preparando Campanhas Extras".
+
+Ou seja, a tela rápida ficava bloqueada esperando a consulta mais pesada.
+
+CORREÇÃO
+Agora:
+1. Campanhas Extras abre apenas a LISTA + VISÃO GERAL.
+2. A tela fica disponível imediatamente.
+3. A parcial só é calculada quando o usuário:
+   - escolhe uma campanha; ou
+   - escolhe "Todas as campanhas (carregar sob demanda)"; ou
+   - clica em VISUALIZAR na visão geral.
+4. A mesma parcial fica em cache por 60 segundos no Python.
+
+A tela não deve mais ficar presa em "Preparando Campanhas Extras".
+
+MEDIÇÃO
+/tempos-2-0 passa a diferenciar:
+- Campanhas Extras = tempo para abrir lista/overview
+- Extras — Parcial = tempo de uma campanha
+- Extras — Todas = agregação de todas, somente se solicitada
+
+BOTÃO TEMPOS
+Continua removido do portal.
+Use:
+http://127.0.0.1:8000/tempos-2-0
+
+PRODUÇÃO
+NÃO alterada.

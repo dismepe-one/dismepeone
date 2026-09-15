@@ -1,0 +1,27 @@
+DISMEPE ONE 2.0 — FASE 2G.4
+
+CORREÇÃO PONTUAL:
+Controle de Acessos abria a tela, mas os números só apareciam depois de clicar
+manualmente em ATUALIZAR.
+
+AJUSTE:
+1. A primeira abertura agora usa EXATAMENTE o mesmo caminho funcional do botão:
+   loadAccessLog({force:true}).
+2. O single-flight continua ativo, portanto dois gatilhos simultâneos não geram
+   duas consultas nem dois desenhos de gráfico.
+3. O Home Card "Controle de Acessos" foi marcado também como módulo 2.0 migrado.
+   Ele não espera mais token/sessão legada.
+4. Foi adicionada uma única verificação de segurança 250 ms após a abertura.
+   Se a fotografia ainda não tiver sido aplicada, a mesma atualização funcional
+   é disparada automaticamente uma vez.
+5. O botão ATUALIZAR continua funcionando normalmente.
+6. Mantidas as proteções contra múltiplos redraws de gráficos.
+
+MANTIDO:
+- logout corrigido da Fase 2G.3;
+- navegação rápida da Fase 2G;
+- Campanhas Extras otimizada;
+- Clientes PED / Resumo / demais módulos sem alterações.
+
+PRODUÇÃO:
+Não alterada.

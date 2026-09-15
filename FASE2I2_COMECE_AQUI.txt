@@ -1,0 +1,10 @@
+DISMEPE ONE 2.0 — FASE 2I.2
+
+Escopo:
+- Regras/Métricas da Campanha Mensal: leitura de laboratórios e regras existentes via /data/monthly-rule-options.
+- Fonte: snapshot MENSAL no PostgreSQL.
+- Cadastrar/editar/duplicar/excluir métricas continuam no fluxo de escrita existente.
+- Fallback legado CM70_LISTARMODELOSREGRAS apenas para indisponibilidade da leitura direta quando houver token legado.
+- 401/403 nunca fazem fallback.
+
+Base: FASE 2I.1 homologada.

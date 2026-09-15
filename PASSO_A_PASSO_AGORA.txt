@@ -1,0 +1,39 @@
+DISMEPE ONE 2.0 — FAÇA AGORA
+
+1. Use o pacote atualizado desta mensagem.
+2. Confirme que o .env preenchido está dentro da pasta principal.
+3. No Mac, dê duplo clique em:
+   INICIAR_FASE1_MAC.command
+
+4. Se o macOS bloquear:
+   - clique com botão direito no arquivo
+   - escolha ABRIR
+   - confirme ABRIR
+
+5. O script:
+   - cria .venv
+   - instala dependências
+   - valida o .env sem mostrar segredos
+   - inicia FastAPI na porta 8000
+   - inicia o login de homologação na porta 8080
+   - abre o navegador automaticamente
+
+6. Faça um login real.
+
+7. Se entrar:
+   abra Terminal na pasta e execute:
+   .venv/bin/python scripts/benchmark_login.py
+
+8. O benchmark fará 20 logins.
+   A senha é pedida interativamente e NÃO é gravada.
+
+META:
+- 0 falhas
+- mediana < 1000 ms
+- P95 < 2000 ms
+
+IMPORTANTE:
+- Produção atual continua intocada.
+- Não altere FRONTEND_RELEASE.
+- Não altere Código.gs.
+- Não altere diagnosticoV216.

@@ -1,0 +1,35 @@
+DISMEPE ONE 2.0 — FASE 2E
+
+MEDIÇÃO RECEBIDA:
+- Login total: 877 ms
+- Autenticação: 841 ms
+- Bootstrap no login: 36 ms
+- Aplicação dos dados: 47 ms
+- Canal: 130 ms
+- Visão Geral: 82 ms
+- Resumo de Ganhos: 84 ms
+- Campanhas Extras: 66.473 ms
+
+CONCLUSÃO:
+O gargalo real era Campanhas Extras.
+
+CORREÇÃO:
+A leitura de Campanhas Extras não usa mais:
+- dismepe-gateway
+- Apps Script
+- LISTARCAMPANHASEXTRAS
+- PARCIALCAMPANHAEXTRA
+- PARCIALTODASCAMPANHASEXTRAS
+
+Agora:
+Frontend -> FastAPI -> snapshots EXTRAS + USUARIOS -> PostgreSQL
+
+O cálculo da parcial é feito em Python sobre a fotografia pronta.
+
+TEMPOS 2.0:
+O botão foi REMOVIDO do portal para não cobrir Clientes PED.
+A página permanece disponível em:
+http://127.0.0.1:8000/tempos-2-0
+
+PRODUÇÃO:
+NÃO alterada.

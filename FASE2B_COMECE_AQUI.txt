@@ -1,0 +1,38 @@
+DISMEPE ONE 2.0 — FASE 2B
+RESUMO DE GANHOS MIGRADO PARA SNAPSHOT DIRETO
+
+PROBLEMA
+Resumo de Ganhos ainda dependia de:
+  frontend -> sessão legada -> callAdminAction -> gateway/Apps Script
+
+Mesmo já existindo um snapshot RESUMO_PREMIACOES pronto no PostgreSQL.
+
+CORREÇÃO
+Resumo agora usa:
+  frontend
+    -> FastAPI
+    -> dismepe-admin / CACHE_GET
+    -> RESUMO_PREMIACOES pronto no PostgreSQL
+
+NÃO EXISTE RECÁLCULO NO CLIQUE.
+NÃO EXISTE SEGUNDA CONFIRMAÇÃO NO SERVIDOR.
+NÃO ESPERA O APPS SCRIPT.
+
+REABERTURA
+Se o navegador já tem a fotografia com menos de 60 segundos:
+  abre imediatamente com ela.
+
+Se a fotografia está mais antiga:
+  mostra imediatamente a última fotografia e atualiza em segundo plano.
+
+PERMISSÕES
+Somente:
+- gestão/admin
+- financeiro/contas a pagar
+- usuário com RESUMO_PREMIACOES ou PREMIAÇÕES_VISUALIZAR
+
+CLIENTES PED
+Mantém a migração direta da Fase 2A.1.
+
+PRODUÇÃO
+Não alterada.

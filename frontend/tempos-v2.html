@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DISMEPE ONE 2.0 — Tempos</title>
+  <style>
+    :root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0f172a;background:#f8fafc}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;padding:28px}
+    .wrap{max-width:760px;margin:0 auto}
+    .card{background:#fff;border:1px solid #e2e8f0;border-radius:20px;padding:24px;box-shadow:0 18px 50px rgba(15,23,42,.08)}
+    h1{font-size:22px;margin:0 0 4px}
+    .sub{color:#64748b;font-size:13px;margin-bottom:20px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+    .metric{padding:16px;border:1px solid #e2e8f0;border-radius:14px;background:#f8fafc}
+    .metric span{display:block;color:#64748b;font-size:12px}
+    .metric b{display:block;margin-top:5px;font-size:22px}
+    .screens{margin-top:18px}
+    .row{display:flex;justify-content:space-between;gap:18px;padding:10px 0;border-bottom:1px solid #e2e8f0}
+    .btn{display:inline-block;margin-top:18px;padding:11px 14px;border:0;border-radius:12px;background:#0f766e;color:white;font-weight:800;cursor:pointer}
+    .muted{color:#64748b;font-size:12px;margin-top:12px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>⚡ TEMPOS 2.0</h1>
+    <div class="sub">Medições do último uso da DISMEPE ONE 2.0 neste navegador.</div>
+
+    <div class="grid">
+      <div class="metric"><span>Login total</span><b id="login">—</b></div>
+      <div class="metric"><span>Autenticação</span><b id="auth">—</b></div>
+      <div class="metric"><span>Bootstrap no login</span><b id="bootstrapLogin">—</b></div>
+      <div class="metric"><span>Aplicação dos dados</span><b id="apply">—</b></div>
+      <div class="metric"><span>Bootstrap fallback</span><b id="bootstrapFallback">—</b></div>
+    </div>
+
+    <div class="screens">
+      <b>Tempos por tela</b>
+      <div id="screens" class="muted">Ainda não há medições.</div>
+    </div>
+
+    <button class="btn" onclick="location.href='/'">Voltar ao sistema</button>
+    <button class="btn" onclick="render()" style="background:#334155">Atualizar tempos</button>
+    <div class="muted">A página lê somente métricas locais do navegador. Nenhuma senha ou chave é exibida.</div>
+  </div>
+</div>
+
+<script>
+function ms(v){
+  const n=Number(v||0);
+  return n ? `${Math.round(n)} ms` : '—';
+}
+function render(){
+  let p={};
+  try{
+    p=JSON.parse(localStorage.getItem('DISMEPE_V2_PERF_LAST')||'{}')||{};
+  }catch(e){}
+
+  document.getElementById('login').textContent=ms(p.loginMs);
+  document.getElementById('auth').textContent=ms(p.authMs);
+  document.getElementById('bootstrapLogin').textContent=ms(p.bootstrapLoginServerMs);
+  document.getElementById('apply').textContent=ms(p.bootstrapApplyMs);
+  document.getElementById('bootstrapFallback').textContent=ms(p.bootstrapServerMs);
+
+  const screens=p.screens&&typeof p.screens==='object'?p.screens:{};
+  const entries=Object.entries(screens);
+  document.getElementById('screens').innerHTML=entries.length
+    ? entries.map(([k,v])=>`<div class="row"><span>${k}</span><b>${ms(v)}</b></div>`).join('')
+    : 'Ainda não há medições por tela.';
+}
+render();
+setInterval(render,1000);
+</script>
+
+<script id="v2-tempos-home-navigation">
+(function(){
+  try{
+    const raw=localStorage.getItem('DISMEPE_V2_PERF_LAST');
+    const p=raw?JSON.parse(raw):{};
+    const ms=Number(p?.homeNavigationMs);
+    if(!Number.isFinite(ms))return;
+
+    const heading=[...document.querySelectorAll('h1,h2,h3')]
+      .find(x=>/Tempos por tela/i.test(x.textContent||''));
+    if(!heading)return;
+
+    const container=heading.parentElement;
+    if(!container || container.querySelector('[data-v2-home-nav]'))return;
+
+    const row=document.createElement('div');
+    row.dataset.v2HomeNav='1';
+    row.style.cssText='display:flex;justify-content:space-between;gap:20px;padding:16px 0;border-bottom:1px solid #dbe3ee;color:#60708d;font-size:18px;';
+    row.innerHTML='<span>Home / menus prontos</span><strong style="color:#60708d">'+Math.round(ms)+' ms</strong>';
+    container.appendChild(row);
+  }catch(e){}
+})();
+</script>
+
+</body>
+</html>

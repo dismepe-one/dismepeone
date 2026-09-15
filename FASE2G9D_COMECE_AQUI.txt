@@ -1,0 +1,14 @@
+DISMEPE ONE 2.0 — FASE 2G.9D
+
+OBJETIVO
+Corrigir exclusivamente o disparo automático do Histórico de Atualizações.
+
+ALTERAÇÃO
+- Login 2.0 chama explicitamente hist39KickAutoRefresh após abrir a Home.
+- Restauração /auth/me chama o mesmo gatilho.
+- O botão manual permanece inalterado.
+- A rota rápida FastAPI/PostgreSQL permanece inalterada.
+- Single-flight e retries da G9C permanecem ativos.
+
+VERSÃO /health
+2.0.0-phase2g9d

@@ -1,0 +1,55 @@
+AUDITORIA DISMEPE ONE 2.0 — FASE 1B
+
+BACKUP 1.x SHA256:
+918f3834f07445230a9afea5a8d683cd6f1d6fb050878011fb42b215eb13ed8d
+
+FASE 1 APROVADA SHA256:
+64ea37fc05f1d55524371d077046b4dcb5bc26b59112b3adad70a2f75c3e615a
+
+FRONTEND BASE SHA256:
+f8356788ce98d98d3beba840689bc6dbd60c851dd75390b177ea70d0abed75ac
+
+ALTERAÇÕES SOMENTE NA HOMOLOGAÇÃO:
+- FastAPI serve o frontend real.
+- Login usa /auth/login 2.0.
+- Sessão legada é obtida em background via gateway atual.
+- Home abre antes da sessão legada.
+- Cliques de módulos são protegidos até o token legado ficar pronto.
+- Ações com nomes de gravação são bloqueadas na homologação.
+- Logout encerra cookie 2.0.
+- F5 pode restaurar a sessão 2.0.
+
+NÃO ALTERADO:
+- Backup funcional 1.x.
+- FRONTEND_RELEASE.
+- Código.gs.
+- diagnosticoV216.
+- WorkerV216.
+- Banco de produção.
+- Regras de campanhas.
+- Aparência base do frontend real (exceto selo de HOMOLOGAÇÃO).
+
+VALIDAÇÃO PYTHON:
+[["main.py", 0], ["legacy_bridge.py", 0], ["security.py", 0], ["supabase_edge.py", 0]]
+
+BLOCOS JS TESTADOS:
+62
+Falhas JS:
+0
+
+PYTEST:
+returncode=0
+[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m                                                                 [100%][0m
+[32m[32m[1m8 passed[0m[32m in 0.48s[0m[0m
+
+Spreadsheet runtime warmup failed during python startup
+Traceback (most recent call last):
+  File "/tmp/tmp.L2TH2Y5coc/artifact_tool_v2-2.8.22/artifact_tool/patches/warm_spreadsheet_runtime_on_startup.py", line 26, in warm_spreadsheet_runtime_on_startup
+  File "/tmp/tmp.L2TH2Y5coc/artifact_tool_v2-2.8.22/artifact_tool/spreadsheet_warmup.py", line 785, in warm_spreadsheet_runtime
+  File "/tmp/tmp.L2TH2Y5coc/artifact_tool_v2-2.8.22/artifact_tool/spreadsheet_warmup.py", line 720, in _warm_feature_flows
+  File "/tmp/tmp.L2TH2Y5coc/artifact_tool_v2-2.8.22/artifact_tool/spreadsheet_warmup.py", line 704, in _warm_collaboration_flows
+  File "/tmp/tmp.L2TH2Y5coc/artifact_tool_v2-2.8.22/artifact_tool/generated/interface/models.py", line 32317, in hydrate_crdt_from_proto
+  File "/tmp/tmp.L2TH2Y5coc/artifact_tool_v2-2.8.22/artifact_tool/rpc/remote.py", line 749, in __call__
+  File "/tmp/tmp.L2TH2Y5coc/artifact_tool_v2-2.8.22/artifact_tool/rpc/client.py", line 150, in call
+artifact_tool.rpc.client.RemoteError: hydrateCrdtFromProto requires an empty collaborative document.
+

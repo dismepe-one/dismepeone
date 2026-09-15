@@ -1,0 +1,22 @@
+DISMEPE ONE — BACKUP FIXO IMUTÁVEL ANTES DA 2.0
+
+Arquivo original:
+DISMEPE_ONE_BACKUP_FIXO_ANTES_PERFORMANCE_2026-09-14.zip
+
+SHA256:
+918f3834f07445230a9afea5a8d683cd6f1d6fb050878011fb42b215eb13ed8d
+
+Cópia imutável criada:
+DISMEPE_ONE_BACKUP_IMUTAVEL_PRE_2_0_2026-09-14.zip
+
+SHA256 da cópia:
+918f3834f07445230a9afea5a8d683cd6f1d6fb050878011fb42b215eb13ed8d
+
+Byte a byte idêntico:
+True
+
+REGRA:
+- Este backup NÃO é arquivo de desenvolvimento.
+- Nunca sobrescrever.
+- Nunca aplicar patches nele.
+- Em rollback, restaurar o conteúdo exatamente conforme RESTAURAR.txt interno.

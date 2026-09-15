@@ -1,0 +1,23 @@
+DISMEPE ONE 2.0 — FASE 2F.2
+
+AJUSTE DE EXPERIÊNCIA:
+A tela "Preparando..." foi mantida, mas ela não espera mais a consulta de dados.
+
+NOVO COMPORTAMENTO:
+1. usuário clica em Campanhas Extras / Controle de Acessos / Clientes PED etc.;
+2. "Preparando..." pode aparecer imediatamente;
+3. a tela do módulo é aberta;
+4. assim que o navegador pinta o conteúdo aberto, o overlay desaparece;
+5. os dados que ainda estiverem chegando continuam atualizando por trás,
+   sem bloquear cliques ou navegação.
+
+PROTEÇÃO:
+Existe um limite de segurança de 350 ms para o overlay.
+Mesmo se algum evento de pintura falhar, ele não pode ficar preso na tela.
+
+IMPORTANTE:
+Não foi alterada a lógica de dados da Fase 2F.
+Campanhas Extras e Controle de Acessos continuam nos caminhos diretos já migrados.
+
+PRODUÇÃO:
+NÃO alterada.

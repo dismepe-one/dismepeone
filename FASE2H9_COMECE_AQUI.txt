@@ -1,0 +1,23 @@
+DISMEPE ONE 2.0 — FASE 2H.9
+
+Objetivo desta fase:
+- corrigir exclusivamente o erro V44 de gráfico no Safari:
+  RangeError: Maximum call stack size exceeded.
+
+Alteração:
+- o adaptador mobile dos gráficos passou a ser idempotente;
+- proteção contra reentrada por gráfico;
+- removida chamada explícita chart.resize() do V44;
+- Chart.js responsive=true continua responsável pelo redimensionamento nativo;
+- chart.update('none') só roda quando opções visuais realmente mudam.
+
+Preservado sem alteração funcional:
+- autenticação/F5 2H.8;
+- FastAPI/PostgreSQL;
+- fallback DADOS;
+- histórico;
+- acessos;
+- regras comerciais e cálculos.
+
+Health: 2.0.0-phase2h9
+Badge: HOMOLOGAÇÃO 2.0 • H9 • SOMENTE LEITURA

@@ -1,0 +1,18 @@
+DISMEPE ONE 2.0 — FASE 2H.10
+
+OBJETIVO
+Corrigir a abertura de uma atualização anterior no Histórico de Atualizações.
+
+ALTERAÇÃO
+- A lista continua em /data/history-list via FastAPI/PostgreSQL.
+- A fotografia selecionada passa a usar /data/history-get via FastAPI/PostgreSQL.
+- Sessão 2.0 HttpOnly é suficiente; não depende do authToken legado.
+- HIST39_OBTER legado permanece somente como fallback se o snapshot direto estiver indisponível e houver token legado.
+- Escopo individual de vendedor/televendas é preservado no backend.
+- F5, autenticação, bootstrap, V44/gráficos e regras comerciais não foram alterados.
+
+HEALTH
+2.0.0-phase2h10
+
+PORTAL
+http://127.0.0.1:8000/?build=2h10

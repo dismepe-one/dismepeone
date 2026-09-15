@@ -1,0 +1,19 @@
+CHECKLIST FASE 1B
+
+[ ] /health = ok:true e version 2.0.0-phase1b
+[ ] Login abre a Home real em menos de 1 segundo na maioria dos testes
+[ ] Sem Load failed no login
+[ ] Home abre antes de DADOS terminar
+[ ] Mensagem explica que dados estão sendo preparados
+[ ] Sessão dos módulos antigos fica READY
+[ ] Vendedores abre
+[ ] Televendas abre
+[ ] Resumo de Ganhos abre
+[ ] Clientes PED abre
+[ ] F5 restaura a sessão
+[ ] Logout encerra sessão 2.0
+[ ] Nenhuma gravação realizada na homologação
+
+SE UM MÓDULO FICAR LENTO:
+não corrigir o login.
+Esse módulo será migrado individualmente na Fase 2.

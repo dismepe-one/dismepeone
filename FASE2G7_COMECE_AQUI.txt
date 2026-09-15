@@ -1,0 +1,36 @@
+DISMEPE ONE 2.0 — FASE 2G.7
+
+REVISÃO COMPLETA DO CONTROLE DE ACESSOS
+
+Problemas estruturais encontrados:
+1. Preload e abertura usavam Promises diferentes, permitindo corrida entre consultas.
+2. A primeira carga dependia diretamente de openAccessLog; qualquer rota antiga que
+   apenas tornasse o módulo visível podia deixar a tela sem disparar a consulta.
+3. Depois de uma falha transitória, não existia uma garantia ligada à VISIBILIDADE
+   real do módulo.
+4. O HTML do portal era servido sem Cache-Control no-store. Safari podia reutilizar
+   uma cópia da fase anterior mesmo com /health mostrando a versão nova.
+
+Correções:
+- preload, primeira abertura e Atualizar agora compartilham UM single-flight;
+- fotografia pré-carregada é aplicada automaticamente;
+- preload escondido não cria gráficos;
+- primeira abertura tem retries silenciosos;
+- um observador acompanha somente a transição oculto -> visível do Controle de Acessos;
+- se qualquer caminho do sistema abrir a tela sem chamar openAccessLog corretamente,
+  o carregamento automático é garantido;
+- uma resposta válida é renderizada uma única vez;
+- indicador verde "Processando..." continua desativado;
+- HTML e /health agora usam no-store/no-cache;
+- badge visual mostra G7 para confirmar que o navegador carregou o frontend correto.
+
+F5 / sessão:
+- todas as correções da G6 foram preservadas.
+
+NÃO ALTERADO:
+- atualizações de bases;
+- pedidos;
+- regras e cálculos comerciais;
+- workers/gatilhos;
+- escritas administrativas;
+- Supabase/PostgreSQL.

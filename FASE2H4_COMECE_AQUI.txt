@@ -1,0 +1,26 @@
+DISMEPE ONE 2.0 — FASE 2H.4
+OBSERVABILIDADE DE DADOS COMERCIAIS
+
+Base: FASE 2H.3 homologada.
+
+Escopo desta fase:
+- NÃO altera regra comercial;
+- NÃO altera decisão de fallback;
+- NÃO altera autenticação;
+- NÃO altera navegação;
+- adiciona apenas observabilidade em memória/logs.
+
+Navegador:
+- logs prefixados por [2H4 OBS]
+- window.v2ObservabilitySnapshot() retorna os contadores atuais
+- mede bootstrap cliente/servidor
+- registra single-flight reutilizado
+- alerta overlap residual quando force=true encontra bootstrap ativo
+- registra início/sucesso/falha de fallback DADOS legado
+
+FastAPI/Terminal:
+- logs [2H4 OBS] para /data/bootstrap
+- X-DISMEPE-Bootstrap-Ms
+- X-DISMEPE-Bootstrap-Competencia
+
+Health esperado: 2.0.0-phase2h4

@@ -1,0 +1,19 @@
+DISMEPE ONE 2.0 — FASE 2H.2
+
+Objetivo:
+- impedir DADOS/Apps Script automático no F5 antes de /auth/me;
+- manter FastAPI/PostgreSQL como primeira fotografia da sessão 2.0;
+- preservar DADOS somente como fallback após falha real da restauração 2.0.
+
+INICIAR NO MAC
+1. cd ~/Downloads/DISMEPE_ONE_2_0_FASE2H2
+2. python3 -m venv .venv
+3. source .venv/bin/activate
+4. python -m pip install -r requirements.txt
+5. cp ~/Downloads/DISMEPE_ONE_2_0_FASE2G1_ACESSOS_SEM_REPETICAO/.env .env
+6. set -a; source .env; set +a
+7. lsof -ti :8000 | xargs kill -9
+8. python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+
+Health esperado: 2.0.0-phase2h2
+Portal: http://127.0.0.1:8000/?build=2h2

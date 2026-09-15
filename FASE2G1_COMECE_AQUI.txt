@@ -1,0 +1,37 @@
+DISMEPE ONE 2.0 — FASE 2G.1
+
+PROBLEMA CORRIGIDO:
+Controle de Acessos parecia estar recebendo vários cliques em "Atualizar":
+os gráficos eram destruídos e recriados repetidamente.
+
+CAUSA ENCONTRADA:
+Ainda existiam duas camadas legadas de autoload:
+- V70 Access Log Auto Load
+- V210.8 Access Autoload Resiliente
+
+Além do carregamento normal do openAccessLog, essas camadas podiam disparar
+novas cargas por:
+- abertura do módulo;
+- MutationObserver;
+- evento load;
+- visibilitychange;
+- retries com timers.
+
+CORREÇÃO:
+1. V70 desativado.
+2. V210.8 desativado.
+3. loadAccessLog agora usa single-flight:
+   múltiplos disparos simultâneos compartilham uma única Promise.
+4. A abertura normal evita nova carga imediatamente após uma carga bem-sucedida.
+5. O botão ATUALIZAR continua funcionando e força uma única atualização.
+6. Os gráficos não são destruídos/recriados se a fotografia dos dados for igual.
+7. Animação dos gráficos desativada para evitar efeito visual de vários refreshes.
+
+MANTIDO:
+- Controle de Acessos direto via FastAPI/PostgreSQL.
+- Correções de navegação/cards da Fase 2G.
+- Campanhas Extras reutilizando snapshot do login.
+- Overlay saindo após a tela abrir.
+
+PRODUÇÃO:
+Não alterada.

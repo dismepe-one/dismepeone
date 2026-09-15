@@ -1,0 +1,28 @@
+DISMEPE ONE 2.0 — FASE 2G.5
+
+CORREÇÕES:
+
+1) CONTROLE DE ACESSOS
+- A primeira abertura faz UMA única leitura automática.
+- A leitura não é mais abortada por uma permissão frontend que ainda esteja
+  sincronizando; a segurança continua garantida pelo backend.
+- Removido o watchdog/reload adicional de 250 ms.
+- Removido o indicador verde legado "Processando..." desta tela.
+- O botão Atualizar permanece disponível para atualização manual.
+- As proteções contra redraw duplicado de gráficos continuam ativas.
+
+2) F5 / HORÁRIOS
+- O F5 sempre recupera a sessão 2.0 pelo cookie HttpOnly, mesmo quando também
+  existe uma sessão legada local.
+- O bootstrap PostgreSQL é sempre recarregado após F5.
+- horarioMensal e horarioExtras são restaurados imediatamente da última
+  fotografia visual local e confirmados logo depois pelo PostgreSQL.
+- Se EXTRAS falhar momentaneamente no bootstrap, o backend preserva o último
+  timestamp válido em memória.
+
+3) ARQUITETURA
+- Escritas e Centro de Atualizações permanecem no fluxo já existente.
+- Esta fase não muda processos de atualização de bases.
+- As mudanças são de leitura, sessão e experiência de navegação.
+
+PRODUÇÃO NÃO ALTERADA.

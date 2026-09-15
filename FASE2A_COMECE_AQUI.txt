@@ -1,0 +1,48 @@
+DISMEPE ONE 2.0 — FASE 2A
+
+CORREÇÕES DESTA VERSÃO
+
+1) TELA BRANCA
+Antes:
+  clicava em Vendedores / Televendas / Visão Geral / Extras
+  e a área central ficava totalmente branca até os dados chegarem.
+
+Agora:
+  existe um overlay GLOBAL de carregamento.
+  Ele não depende do módulo estar visível no DOM.
+
+Exemplos:
+  Preparando Vendedores...
+  Preparando Televendas...
+  Preparando Visão Geral...
+  Preparando Campanhas Extras...
+
+Quando os dados existentes terminam de carregar, o overlay desaparece.
+
+2) CLIENTES PED
+Antes:
+  navegador -> dismepe-gateway -> Apps Script
+  e, em falha, /exec antigo -> HTTP 404.
+
+Agora:
+  navegador -> FastAPI -> dismepe-admin CACHE_GET -> PostgreSQL
+
+A leitura de Clientes PED NÃO usa mais:
+- dismepe-gateway
+- Apps Script
+- /exec
+
+Permissões continuam aplicadas:
+- gestão: snapshot completo, somente leitura na homologação
+- vendedor/televendas: escopo conservador por setor/colaborador
+- sem permissão: HTTP 403
+
+IMPORTANTE
+Esta versão parte da Fase 1B.2 estável.
+Ela NÃO traz o preload agressivo da Fase 1B.1.
+
+PRODUÇÃO
+Não alterada.
+Não alterar FRONTEND_RELEASE.
+Não alterar Código.gs.
+Não alterar diagnosticoV216.
