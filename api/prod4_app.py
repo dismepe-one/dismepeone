@@ -13,7 +13,7 @@ from .legacy_bridge import get_state
 from .update_center import UpdateCenterBridgeError, call_update_center_legacy
 
 
-BUILD = "2.0.0-phase2i2-prod4.2"
+BUILD = "2.0.0-phase2i2-prod4.3"
 ROOT = Path(__file__).resolve().parents[1]
 PORTAL_FILE = ROOT / "frontend" / "portal-v2-homolog.html"
 PATCH_FILE = ROOT / "frontend" / "update-center-prod4.js"
@@ -62,14 +62,77 @@ def _allowed(profile: dict) -> bool:
     )
 
 
-def _time_from_status(modules: list, module_name: str) -> str:
+def _time_value(item: dict) -> str:
+    if not isinstance(item, dict):
+        return ""
+
+    for key in (
+        "atualizadoEm",
+        "atualizado_em",
+        "horario",
+        "dataHoraFormatado",
+        "dataHoraISO",
+        "dataHora",
+        "timestamp",
+        "updatedAt",
+        "updated_at",
+    ):
+        value = item.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+
+    nested = item.get("historico")
+    if isinstance(nested, dict):
+        return _time_value(nested)
+
+    return ""
+
+
+def _time_from_collection(items: list, module_name: str) -> str:
     target = str(module_name or "").strip().upper()
-    for item in modules or []:
+
+    for item in items or []:
         if not isinstance(item, dict):
             continue
-        if str(item.get("modulo") or "").strip().upper() != target:
+
+        name = str(
+            item.get("modulo")
+            or item.get("nomeModulo")
+            or item.get("label")
+            or ""
+        ).strip().upper()
+
+        if name != target and target not in name:
             continue
-        return str(item.get("atualizadoEm") or item.get("atualizado_em") or "").strip()
+
+        value = _time_value(item)
+        if value:
+            return value
+
+    return ""
+
+
+def _time_from_result(result: dict, module_name: str) -> str:
+    if not isinstance(result, dict):
+        return ""
+
+    target = str(module_name or "").strip().upper()
+
+    if target == "MENSAL":
+        direct = result.get("horarioMensal") or result.get("horarioMensalISO")
+    else:
+        direct = result.get("horarioExtras") or result.get("horarioExtrasISO")
+
+    if direct is not None and str(direct).strip():
+        return str(direct).strip()
+
+    for key in ("resultados", "modulos"):
+        items = result.get(key)
+        if isinstance(items, list):
+            value = _time_from_collection(items, target)
+            if value:
+                return value
+
     return ""
 
 
@@ -171,35 +234,60 @@ async def prod4_update_center(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     # Confirma a atualização com uma leitura STATUS. Nunca repete a escrita.
+    # O horário da própria resposta da atualização tem prioridade; o STATUS
+    # entra como confirmação/fallback.
     if action == "OPCACHE_ATUALIZAR" and (
         result.get("sucesso") is True
         or result.get("ok") is True
         or result.get("success") is True
     ):
+        requested = (
+            payload.get("acoes")
+            if isinstance(payload.get("acoes"), list)
+            else []
+        )
+        names = {
+            str(item.get("modulo") or "").strip().upper()
+            for item in requested
+            if isinstance(item, dict)
+        }
+        immediate_times = {
+            name: _time_from_result(result, name)
+            for name in names
+        }
+
+        status = {}
         try:
             status = await call_update_center_legacy(
                 action="OPCACHE_STATUS",
                 payload={"acao": "OPCACHE_STATUS"},
                 legacy_token=legacy_token,
             )
-            modules = status.get("modulos") if isinstance(status.get("modulos"), list) else []
+            modules = (
+                status.get("modulos")
+                if isinstance(status.get("modulos"), list)
+                else []
+            )
             if modules:
                 result["modulos"] = modules
-            requested = payload.get("acoes") if isinstance(payload.get("acoes"), list) else []
-            names = {
-                str(item.get("modulo") or "").strip().upper()
-                for item in requested if isinstance(item, dict)
-            }
-            if "MENSAL" in names:
-                value = _time_from_status(modules, "MENSAL")
-                if value:
-                    result["horarioMensal"] = value
-            if "EXTRAS" in names:
-                value = _time_from_status(modules, "EXTRAS")
-                if value:
-                    result["horarioExtras"] = value
         except UpdateCenterBridgeError:
-            pass
+            status = {}
+
+        if "MENSAL" in names:
+            value = (
+                immediate_times.get("MENSAL")
+                or _time_from_result(status, "MENSAL")
+            )
+            if value:
+                result["horarioMensal"] = value
+
+        if "EXTRAS" in names:
+            value = (
+                immediate_times.get("EXTRAS")
+                or _time_from_result(status, "EXTRAS")
+            )
+            if value:
+                result["horarioExtras"] = value
 
     result["transporte"] = "FASTAPI_UPDATE_CENTER_DIRECT"
     return result

@@ -688,11 +688,58 @@ def scope_mensal_dashboard(
             regras.append(row)
 
     comps_raw = (
-        result.get("competencias")
-        if isinstance(result.get("competencias"), list)
-        else []
+        result.get("competenciasDisponiveis")
+        if isinstance(result.get("competenciasDisponiveis"), list)
+        else (
+            result.get("competencias")
+            if isinstance(result.get("competencias"), list)
+            else []
+        )
     )
     competencias_disponiveis = copy.deepcopy(comps_raw)
+
+    monthly_perms = (
+        profile.get("permissoes")
+        if isinstance(profile.get("permissoes"), dict)
+        else {}
+    )
+    can_manage_monthly = _is_management(profile) or any(
+        monthly_perms.get(key) is True
+        for key in (
+            "CAMPANHAS_MENSAIS_VISUALIZAR",
+            "CAMPANHAS_MENSAIS_CRIAR",
+            "CAMPANHAS_MENSAIS_EDITAR",
+            "CAMPANHAS_MENSAIS_AGENDAR",
+            "CADASTRO_CAMPANHAS_MENSAIS",
+        )
+    )
+
+    gestao_campanhas_mensais = (
+        copy.deepcopy(result.get("gestaoCampanhasMensaisLista"))
+        if can_manage_monthly
+        and isinstance(result.get("gestaoCampanhasMensaisLista"), list)
+        else []
+    )
+
+    if competencia and comp:
+        competencias_selecionadas = [comp]
+    else:
+        competencias_selecionadas = (
+            copy.deepcopy(result.get("competenciasSelecionadas"))
+            if isinstance(result.get("competenciasSelecionadas"), list)
+            else ([comp] if comp else [])
+        )
+
+    campanha_mensal_atual = (
+        copy.deepcopy(result.get("campanhaMensalAtual"))
+        if isinstance(result.get("campanhaMensalAtual"), dict)
+        else {}
+    )
+    campanha_original_comp = _competencia_value(
+        campanha_mensal_atual.get("competencia") or ""
+    )
+    if competencia and campanha_original_comp and campanha_original_comp != comp:
+        campanha_mensal_atual = {}
 
     dias_map = (
         result.get("diasUteisPorCompetencia")
@@ -714,6 +761,33 @@ def scope_mensal_dashboard(
             )
             break
 
+    if not dias:
+        dias = _num(
+            campanha_mensal_atual.get("diasUteisRestantes")
+            or 0
+        )
+
+    campanha_mensal_atual["competencia"] = (
+        comp
+        or _competencia_value(campanha_mensal_atual.get("competencia") or "")
+    )
+    campanha_mensal_atual["diasUteisRestantes"] = dias
+
+    if not (
+        isinstance(campanha_mensal_atual.get("competencias"), list)
+        and campanha_mensal_atual.get("competencias")
+    ):
+        original_active = (
+            result.get("competenciasAtivas")
+            if isinstance(result.get("competenciasAtivas"), list)
+            else []
+        )
+        campanha_mensal_atual["competencias"] = (
+            copy.deepcopy(original_active)
+            if original_active
+            else ([comp] if comp else [])
+        )
+
     return {
         "sucesso": True,
         "banco": "SUPABASE",
@@ -732,13 +806,12 @@ def scope_mensal_dashboard(
             else {}
         ),
         "competenciasAtivas": [comp] if comp else [],
+        "competenciasSelecionadas": competencias_selecionadas,
         "competenciasDisponiveis": competencias_disponiveis,
         "competencias": competencias_disponiveis,
         "competenciaPrincipal": comp,
-        "campanhaMensalAtual": {
-            "competencia": comp,
-            "diasUteisRestantes": dias,
-        },
+        "gestaoCampanhasMensaisLista": gestao_campanhas_mensais,
+        "campanhaMensalAtual": campanha_mensal_atual,
         "diasUteisRestantes": dias,
         "diasUteisPorCompetencia": copy.deepcopy(dias_map),
         "dadosVendedores": vend,
