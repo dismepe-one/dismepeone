@@ -13,7 +13,7 @@ from .legacy_bridge import get_state
 from .update_center import UpdateCenterBridgeError, call_update_center_legacy
 
 
-BUILD = "2.0.0-phase2i2-prod4.1"
+BUILD = "2.0.0-phase2i2-prod4.2"
 ROOT = Path(__file__).resolve().parents[1]
 PORTAL_FILE = ROOT / "frontend" / "portal-v2-homolog.html"
 PATCH_FILE = ROOT / "frontend" / "update-center-prod4.js"
