@@ -13,7 +13,7 @@ from .legacy_bridge import get_state
 from .update_center import UpdateCenterBridgeError, call_update_center_legacy
 
 
-BUILD = "2.0.0-phase2i2-prod4"
+BUILD = "2.0.0-phase2i2-prod4.1"
 ROOT = Path(__file__).resolve().parents[1]
 PORTAL_FILE = ROOT / "frontend" / "portal-v2-homolog.html"
 PATCH_FILE = ROOT / "frontend" / "update-center-prod4.js"
@@ -31,7 +31,11 @@ def _portal_response() -> HTMLResponse:
     html = PORTAL_FILE.read_text(encoding="utf-8")
     tag = f'<script src="/update-center-prod4.js?v={BUILD}"></script>'
     if tag not in html:
-        html = html.replace("</body>", tag + "\n</body>", 1)
+        marker = "</body>"
+        pos = html.lower().rfind(marker)
+        if pos < 0:
+            raise RuntimeError("Fechamento </body> não encontrado no portal.")
+        html = html[:pos] + tag + "\n" + html[pos:]
     return HTMLResponse(
         html,
         headers={
