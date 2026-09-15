@@ -75,6 +75,22 @@ function v171MetricRows(regras){return regras.map(r=>{
   return {condicao:`${r.competencia}: ${condicao}`,premio,observacao:''};
 });}
 function v171Escape(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function v171IsIntegralProductPoints(item){
+  const labKey=v171Key(item?.lab||item?.laboratorio||'');
+  if(labKey!=='INTEGRALMEDICA') return false;
+
+  const componentes=item?.metricasParcial?.componentes;
+  if(
+    Array.isArray(componentes) &&
+    componentes.some(c=>String(c?.metrica||'').toUpperCase()==='PONTUACAO_PRODUTO')
+  ){
+    return true;
+  }
+
+  const canal=item?.canal||item?.setor||'';
+  return v171Rules(item?.lab||item?.laboratorio||'',canal)
+    .some(r=>String(r?.metrica||'').toUpperCase()==='PONTUACAO_PRODUTO');
+}
 function v171Details(item){
   const calc=item?.metricasParcial;
   if(!calc||!Array.isArray(calc.componentes))return '';
@@ -7254,6 +7270,7 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
                 const tableRows = filtered.map(item => {
                     const ating = item.percentual * 100;
                     const isItemFoco = isFoco(item);
+                    const isIntegralProductPoints = v171IsIntegralProductPoints(item);
                     const baseLab = getBaseLab(item.lab);
                     const focoCode = getFocoCode(item);
 
@@ -7276,10 +7293,10 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
                             <td class="p-3.5 text-slate-300 flex items-center gap-2">
                                 <span class="lab-focus-label${isItemFoco ? ' lab-focus-highlight' : ''}">${formatLabFocusLabel(item, isItemFoco).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}</span>
                             </td>
-                            <td class="p-3.5 text-right font-mono">${formatValue(item.objetivo, isItemFoco)}</td>
-                            <td class="p-3.5 text-right font-mono ${metricClass}">${formatValue(item.venda, isItemFoco)}</td>
-                            <td class="p-3.5 text-right font-mono font-bold text-slate-700">${venderPorDia(item.objetivo,item.venda,isItemFoco)}</td>
-                            <td class="p-3.5 text-center ${metricClass}">${ating.toFixed(1)}%</td>
+                            <td class="p-3.5 text-right font-mono">${isIntegralProductPoints ? '—' : formatValue(item.objetivo, isItemFoco)}</td>
+                            <td class="p-3.5 text-right font-mono ${isIntegralProductPoints ? 'text-slate-500' : metricClass}">${isIntegralProductPoints ? '—' : formatValue(item.venda, isItemFoco)}</td>
+                            <td class="p-3.5 text-right font-mono font-bold text-slate-700">${isIntegralProductPoints ? '—' : venderPorDia(item.objetivo,item.venda,isItemFoco)}</td>
+                            <td class="p-3.5 text-center ${isIntegralProductPoints ? 'text-slate-500' : metricClass}">${isIntegralProductPoints ? '—' : ating.toFixed(1)+'%'}</td>
                             <td class="p-3.5 text-center min-w-[140px] whitespace-nowrap"><span class="inline-flex min-w-[118px] items-center justify-center whitespace-nowrap px-3 py-1.5 rounded-full text-[11px] leading-none font-medium border ${badgeClass}">${badgeText}</span></td>
                         </tr>`;
                 }).join('');
@@ -29194,19 +29211,6 @@ body > header.card-glass > div:first-child > .shrink-0 img{
 
 <!-- V211.39: patch exclusivo INTEGRAL MEDICA (BRG SUPLEMENTOS). -->
 
-<style id="v2-homolog-badge-style">
-  #v2HomologBadge{
-    position:fixed;right:14px;bottom:14px;z-index:999999;
-    padding:7px 10px;border-radius:999px;
-    background:rgba(15,23,42,.94);color:#e2e8f0;
-    border:1px solid rgba(148,163,184,.35);
-    font:700 10px/1.2 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-    box-shadow:0 8px 26px rgba(15,23,42,.16);
-    pointer-events:none;
-  }
-</style>
-<div id="v2HomologBadge">DISMEPE ONE 2.0 • PRODUÇÃO</div>
-
 <script id="v2-phase1b-shell">
 (function(){
   // FASE 2H.7 — helper HTTP local do shell 2.0.
@@ -29462,7 +29466,7 @@ body > header.card-glass > div:first-child > .shrink-0 img{
     window.logout=wrapped;
   }
 
-  console.log('[DISMEPE ONE 2.0] Produção 2I.2 PROD1 ativa.');
+  console.log('[DISMEPE ONE 2.0] Produção 2I.2 PROD2 ativa.');
 })();
 </script>
 

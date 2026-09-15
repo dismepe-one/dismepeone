@@ -63,7 +63,7 @@ _EXTRAS_RESULT_TTL_SECONDS = 60.0
 
 app = FastAPI(
     title=settings.app_name,
-    version="2.0.0-phase2i2-prod1",
+    version="2.0.0-phase2i2-prod3",
 )
 
 app.add_middleware(
@@ -104,7 +104,7 @@ def _html_no_cache(file_path: Path) -> FileResponse:
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
             "Expires": "0",
-            "X-DISMEPE-Build": "2.0.0-phase2i2-prod1",
+            "X-DISMEPE-Build": "2.0.0-phase2i2-prod3",
         },
     )
 
@@ -132,12 +132,12 @@ async def tempos_page():
 @app.get("/health")
 async def health(response: Response):
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["X-DISMEPE-Build"] = "2.0.0-phase2i2-prod1"
+    response.headers["X-DISMEPE-Build"] = "2.0.0-phase2i2-prod3"
     missing = settings.validate_required_secrets()
     return {
         "ok": len(missing) == 0,
         "service": "dismepe-one-2-auth",
-        "version": "2.0.0-phase2i2-prod1",
+        "version": "2.0.0-phase2i2-prod3",
         "environment": settings.environment,
         "missingConfig": missing,
     }
