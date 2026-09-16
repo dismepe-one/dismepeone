@@ -120,8 +120,8 @@ function renderKpis(view){
 
   let l1='Venda Geral',l2='Objetivo Geral',l3='% Atendimento Geral';
   let v1=r.vendaTotal,v2=r.objetivoTotal,v3=r.atingimentoTotal;
-  let s1=r.fonteVendaTotal==='BASE_GERAL'?'Base OBJETIVO X VENDA':'Venda Geral não atualizada';
-  let s2=r.objetivoTotal!=null?'Base OBJETIVO X VENDA':'Objetivo Geral não informado';
+  let s1=r.fonteVendaTotal==='BASE_GERAL'?'Base OBJETIVO X VENDA':'';
+  let s2=r.objetivoTotal!=null?'Base OBJETIVO X VENDA':'';
   let s3=(r.atingimentoTotal!=null&&Number.isFinite(Number(r.atingimentoTotal)))?'Venda Geral ÷ Objetivo Geral':'—';
 
   if(active==='vendedores'){
@@ -132,6 +132,16 @@ function renderKpis(view){
     s1='Somente vendedores';
     s2='Somente vendedores';
     s3='Venda dos vendedores ÷ objetivo dos vendedores';
+  }
+
+  if(active==='televendas'){
+    l1='Objetivo';l2='Venda';l3='% Atingida';
+    v1=r.objetivoTelevendas;
+    v2=r.televendas;
+    v3=Number(v1)>0?(Number(v2||0)/Number(v1)*100):null;
+    s1='Somente televendas';
+    s2='Somente televendas';
+    s3='Venda do televendas ÷ objetivo do televendas';
   }
 
   document.getElementById('kMetric1Label').textContent=l1;
