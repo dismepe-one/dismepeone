@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import jwt
 from fastapi import Cookie, HTTPException, Request, Response
@@ -190,8 +192,10 @@ def _time_from_result(result: dict, module_name: str) -> str:
 
     if target == "MENSAL":
         direct = result.get("horarioMensal") or result.get("horarioMensalISO")
-    else:
+    elif target == "EXTRAS":
         direct = result.get("horarioExtras") or result.get("horarioExtrasISO")
+    else:
+        direct = None
 
     if direct is not None and str(direct).strip():
         return str(direct).strip()
@@ -204,6 +208,57 @@ def _time_from_result(result: dict, module_name: str) -> str:
                 return value
 
     return ""
+
+
+def _update_center_now() -> tuple[str, str]:
+    now = datetime.now(ZoneInfo("America/Recife"))
+    return now.strftime("%d/%m/%Y %H:%M:%S"), now.isoformat()
+
+
+def _module_name(item: dict) -> str:
+    if not isinstance(item, dict):
+        return ""
+    return str(
+        item.get("modulo")
+        or item.get("nomeModulo")
+        or item.get("label")
+        or ""
+    ).strip().upper()
+
+
+def _match_requested_module(name: str, requested: set[str]) -> str:
+    current = str(name or "").strip().upper()
+    if not current:
+        return ""
+    for target in requested:
+        normalized = str(target or "").strip().upper()
+        if normalized and (
+            current == normalized
+            or normalized in current
+            or current in normalized
+        ):
+            return normalized
+    return ""
+
+
+def _stamp_requested_modules(
+    result: dict,
+    requested_times: dict[str, str],
+) -> None:
+    if not isinstance(result, dict) or not requested_times:
+        return
+
+    requested = set(requested_times)
+    for key in ("resultados", "modulos"):
+        rows = result.get(key)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            target = _match_requested_module(_module_name(row), requested)
+            if target:
+                row["atualizadoEm"] = requested_times[target]
 
 
 # Substitui somente as rotas de apresentação/health; o restante continua vindo
@@ -388,6 +443,12 @@ async def prod4_update_center(
             for name in names
         }
 
+        completed_display, completed_iso = _update_center_now()
+        requested_times = {
+            name: immediate_times.get(name) or completed_display
+            for name in names
+        }
+
         status = {}
         try:
             status = await call_update_center_legacy(
@@ -405,21 +466,17 @@ async def prod4_update_center(
         except UpdateCenterBridgeError:
             status = {}
 
+        _stamp_requested_modules(result, requested_times)
+
         if "MENSAL" in names:
-            value = (
-                immediate_times.get("MENSAL")
-                or _time_from_result(status, "MENSAL")
-            )
-            if value:
-                result["horarioMensal"] = value
+            result["horarioMensal"] = requested_times["MENSAL"]
+            if not immediate_times.get("MENSAL"):
+                result["horarioMensalISO"] = completed_iso
 
         if "EXTRAS" in names:
-            value = (
-                immediate_times.get("EXTRAS")
-                or _time_from_result(status, "EXTRAS")
-            )
-            if value:
-                result["horarioExtras"] = value
+            result["horarioExtras"] = requested_times["EXTRAS"]
+            if not immediate_times.get("EXTRAS"):
+                result["horarioExtrasISO"] = completed_iso
 
     result["transporte"] = "FASTAPI_UPDATE_CENTER_DIRECT"
     return result

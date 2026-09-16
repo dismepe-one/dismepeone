@@ -101,9 +101,12 @@
   function moduleTime(result,moduleName){
     if(!result || typeof result!=='object')return '';
     const target=String(moduleName||'').toUpperCase();
-    const top=target==='MENSAL'
-      ?(result.horarioMensal||result.horarioMensalISO)
-      :(result.horarioExtras||result.horarioExtrasISO);
+    let top='';
+    if(target==='MENSAL'){
+      top=result.horarioMensal||result.horarioMensalISO;
+    }else if(target==='EXTRAS'){
+      top=result.horarioExtras||result.horarioExtrasISO;
+    }
     if(top)return String(top).trim();
 
     for(const key of ['resultados','modulos']){
@@ -119,18 +122,52 @@
     return '';
   }
 
+  function timeMillis(value){
+    const s=String(value||'').trim();
+    if(!s)return NaN;
+    const br=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if(br){
+      return new Date(
+        Number(br[3]), Number(br[2])-1, Number(br[1]),
+        Number(br[4]), Number(br[5]), Number(br[6]||0)
+      ).getTime();
+    }
+    const parsed=Date.parse(s);
+    return Number.isFinite(parsed)?parsed:NaN;
+  }
+
+  function newerTime(incoming,current){
+    const next=String(incoming||'').trim();
+    const prev=String(current||'').trim();
+    if(!next)return prev;
+    if(!prev)return next;
+    const nextMs=timeMillis(next);
+    const prevMs=timeMillis(prev);
+    if(Number.isFinite(nextMs) && Number.isFinite(prevMs)){
+      return nextMs>=prevMs?next:prev;
+    }
+    return next;
+  }
+
   function persistTimes(result){
     if(!result || typeof result!=='object')return;
     const mensal=moduleTime(result,'MENSAL');
     const extras=moduleTime(result,'EXTRAS');
     if(!mensal && !extras)return;
 
-    const current=(window.__v2BootstrapHorarios && typeof window.__v2BootstrapHorarios==='object')
+    let current=(window.__v2BootstrapHorarios && typeof window.__v2BootstrapHorarios==='object')
       ?window.__v2BootstrapHorarios:{};
 
+    if(!String(current.mensal||'').trim() && !String(current.extras||'').trim()){
+      try{
+        const saved=JSON.parse(localStorage.getItem('DISMEPE_V2_HOME_TIMES')||'{}');
+        if(saved && typeof saved==='object')current=saved;
+      }catch(e){}
+    }
+
     window.__v2BootstrapHorarios={
-      mensal:mensal || String(current.mensal||''),
-      extras:extras || String(current.extras||'')
+      mensal:newerTime(mensal,current.mensal),
+      extras:newerTime(extras,current.extras)
     };
 
     try{
