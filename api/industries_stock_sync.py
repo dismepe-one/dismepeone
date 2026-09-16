@@ -242,18 +242,30 @@ def _drive_filename_key(value: Any) -> str:
 
 def _target_pdf(service: Any, folder_id: str) -> dict[str, Any] | None:
     safe_folder = folder_id.replace("'", "\\'")
+    safe_name = TARGET_PDF_NAME.replace("'", "\\'")
     query = (
         f"'{safe_folder}' in parents and trashed = false and "
-        "mimeType = 'application/pdf'"
+        "mimeType = 'application/pdf' and "
+        f"name = '{safe_name}'"
     )
-    result = service.files().list(
+    request = service.files().list(
         q=query,
         orderBy="modifiedTime desc",
-        pageSize=100,
+        pageSize=10,
         fields="files(id,name,mimeType,modifiedTime,size,md5Checksum)",
         supportsAllDrives=True,
         includeItemsFromAllDrives=True,
-    ).execute()
+    )
+    try:
+        result = request.execute(num_retries=5)
+    except Exception as exc:
+        status = getattr(getattr(exc, "resp", None), "status", None)
+        if status == 429:
+            raise RuntimeError(
+                "Google Drive limitou temporariamente a leitura (HTTP 429) "
+                "mesmo após tentativas automáticas. A última base válida permanece ativa."
+            ) from exc
+        raise
     target_key = _drive_filename_key(TARGET_PDF_NAME)
     for item in result.get("files") or []:
         if _drive_filename_key(item.get("name")) == target_key:
@@ -271,7 +283,7 @@ def _download_drive_file(service: Any, file_id: str) -> bytes:
     downloader = MediaIoBaseDownload(out, request, chunksize=1024 * 1024)
     done = False
     while not done:
-        _, done = downloader.next_chunk()
+        _, done = downloader.next_chunk(num_retries=5)
         if out.tell() > 30 * 1024 * 1024:
             raise RuntimeError("PDF do mapa excede o limite de 30 MB do piloto.")
     return out.getvalue()
