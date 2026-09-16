@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ FALLBACK_FILE = DATA_DIR / "mapa_estoque_2026-09-16.json"
 STATE_FILE = DATA_DIR / "drive_sync_state.json"
 FOLDER_CONFIG_FILE = DATA_DIR / "drive_folder_config.json"
 HISTORY_DIR = DATA_DIR / "history"
+TARGET_PDF_NAME = "Sugestão de compras com EAN.pdf"
 
 _TASK: asyncio.Task | None = None
 _SYNC_LOCK: asyncio.Lock | None = None
@@ -157,6 +159,7 @@ def drive_sync_config() -> dict[str, Any]:
         "configured": bool(folder_id and has_credentials),
         "folderConfigured": bool(folder_id),
         "credentialsConfigured": has_credentials,
+        "targetFileName": TARGET_PDF_NAME,
         "scheduleHour": hour,
         "scheduleMinute": minute,
         "timezone": timezone_name,
@@ -231,7 +234,13 @@ def _build_drive_service():
     return build("drive", "v3", credentials=credentials, cache_discovery=False)
 
 
-def _newest_pdf(service: Any, folder_id: str) -> dict[str, Any] | None:
+def _drive_filename_key(value: Any) -> str:
+    # Google Drive, macOS e Windows podem representar o mesmo acento com
+    # sequências Unicode diferentes. NFC evita que isso quebre a rotina diária.
+    return unicodedata.normalize("NFC", str(value or "")).strip().casefold()
+
+
+def _target_pdf(service: Any, folder_id: str) -> dict[str, Any] | None:
     safe_folder = folder_id.replace("'", "\\'")
     query = (
         f"'{safe_folder}' in parents and trashed = false and "
@@ -240,15 +249,16 @@ def _newest_pdf(service: Any, folder_id: str) -> dict[str, Any] | None:
     result = service.files().list(
         q=query,
         orderBy="modifiedTime desc",
-        pageSize=20,
+        pageSize=100,
         fields="files(id,name,mimeType,modifiedTime,size,md5Checksum)",
         supportsAllDrives=True,
         includeItemsFromAllDrives=True,
     ).execute()
-    files = result.get("files") or []
-    if not files:
-        return None
-    return files[0]
+    target_key = _drive_filename_key(TARGET_PDF_NAME)
+    for item in result.get("files") or []:
+        if _drive_filename_key(item.get("name")) == target_key:
+            return item
+    return None
 
 
 def _download_drive_file(service: Any, file_id: str) -> bytes:
@@ -430,12 +440,12 @@ def _sync_stock_once_blocking(force: bool = False) -> dict[str, Any]:
     folder_id = _configured_folder_id()
     _state_update(lastStatus="CHECKING", lastAttemptAt=now_iso, lastError=None)
     service = _build_drive_service()
-    newest = _newest_pdf(service, folder_id)
+    newest = _target_pdf(service, folder_id)
     if not newest:
         return _state_update(
-            lastStatus="NO_PDF",
+            lastStatus="TARGET_PDF_NOT_FOUND",
             lastAttemptAt=now_iso,
-            lastError="Nenhum PDF foi encontrado na pasta configurada.",
+            lastError=f"Arquivo '{TARGET_PDF_NAME}' não encontrado na pasta configurada.",
         )
 
     state = _read_json(STATE_FILE, {}) or {}

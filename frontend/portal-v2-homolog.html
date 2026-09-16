@@ -4569,7 +4569,7 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
                 <button id="btnCreateUser" onclick="openCreateUserModal()" title="Criar usuário" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-user-plus"></i></button>
                 <button id="btnAccessLog" onclick="openAccessLog()" title="Controle de Acessos" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-clock-rotate-left"></i></button>
                 <button id="btnPremiacao" onclick="openPremiacao()" title="Minhas Premiações" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-trophy"></i></button>
-                <button id="btnClientesPED" onclick="openClientesPED()" title="Clientes PED" aria-label="Clientes PED" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-clipboard-check"></i></button>
+                <button id="btnClientesPED" onclick="openClientesPED()" title="Clientes PED" aria-label="Clientes PED" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-clipboard-check"></i></button><button id="btnIndustries" onclick="location.href='/industrias'" title="DISMEPE ONE INDÚSTRIAS" aria-label="DISMEPE ONE INDÚSTRIAS" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-capsules"></i></button>
                 <button id="btnResumoPremiacao" onclick="openResumoPremiacoes()" title="Resumo de Ganhos" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-sack-dollar"></i></button>
                 <button id="btnUpdateCenter" onclick="openUpdateCenter()" title="Centro de Atualizações" aria-label="Centro de Atualizações" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-arrows-rotate"></i></button>
                 <button id="btnLogout" onclick="logout()" title="Sair" class="w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-right-from-bracket"></i></button>
@@ -7751,6 +7751,10 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
 (function(){
   const ROLE = { ADMIN:'ADMINISTRADOR', COMMERCIAL:'COMERCIAL', VEND:'VENDEDOR', TLV:'TELEVENDAS', SVEND:'SUP VENDAS', STLV:'SUP TELEVENDAS', CAP:'CONTAS A PAGAR' };
   const PERMISSION_GROUPS = [
+    {title:'DISMEPE ONE INDÚSTRIAS',icon:'fa-industry',note:'Permissões operacionais do portal externo de indústrias.',items:[
+      {key:'INDUSTRIA_MAPA_ATUALIZAR',label:'Atualizar mapa de estoque',desc:'Permite usar “Atualizar mapa agora” para importar o PDF oficial do Google Drive. Não concede outras permissões administrativas.'},
+      {key:'INDUSTRIA_PORTAL_INTERNO',label:'Acessar DISMEPE ONE INDÚSTRIAS',desc:'Exibe o atalho do portal de indústrias para usuários internos e permite visualizar todos os laboratórios. Não concede permissão para atualizar o mapa de estoque.'}
+    ]},
     {title:'Painéis e canais',icon:'fa-chart-line',note:'Tabela, detalhes e gráficos ficam disponíveis automaticamente quando o usuário possui acesso ao módulo.',items:[
       {key:'VENDEDORES',label:'Acessar Vendedores',desc:'Abre o módulo Vendedores. O cargo VENDEDOR continua limitado somente ao próprio nome.'},
       {key:'TELEVENDAS',label:'Acessar Televendas',desc:'Abre o módulo Televendas. O cargo TELEVENDAS continua limitado somente ao próprio nome.'},
@@ -7916,6 +7920,7 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
     if(document.getElementById('loggedRole')) document.getElementById('loggedRole').textContent=displayRole();
     if(session){session.classList.remove('hidden');session.classList.add('flex');}
     setHidden('btnPermissions',!hasPerm('PERMISSOES_VISUALIZAR'));
+    setHidden('btnIndustries',!hasPerm('INDUSTRIA_PORTAL_INTERNO'));
     setHidden('btnCreateUser',!hasPerm('USUARIOS_CRIAR'));
     const podeCentroAtualizacoes = isAdmin(currentUser) || hasPerm('CENTRO_ATUALIZACOES') || hasPerm('MENSAL_BASE_ATUALIZADA') || hasPerm('EXTRAS_BASE_ATUALIZADA');
     setHidden('btnUpdateCenter',!podeCentroAtualizacoes);
@@ -27163,6 +27168,7 @@ async function salvarIndicadoresManuaisV174(){
 
   function apply(){
     show('btnPermissions', isAdminStrict() || strictPerm('PERMISSOES_VISUALIZAR'));
+    show('btnIndustries', strictPerm('INDUSTRIA_PORTAL_INTERNO'));
     show('btnCreateUser', isAdminStrict() || strictPerm('USUARIOS_CRIAR'));
     show('btnAccessLog', isAdminStrict() || strictPerm('CONTROLE_DE_ACESSOS'));
     show('btnPremiacao', strictPerm('PREMIACOES_VISUALIZAR'));
@@ -28080,6 +28086,7 @@ body.home-active #btnHome{
     'btnAccessLog',
     'btnPremiacao',
     'btnClientesPED',
+    'btnIndustries',
     'btnResumoPremiacao'
   ];
   const MOBILE_EXTRA_IDS=[

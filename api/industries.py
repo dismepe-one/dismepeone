@@ -34,6 +34,8 @@ ROLE_INDUSTRY = "INDUSTRIA"
 PERM_PORTAL = "INDUSTRIA_PORTAL"
 PERM_FIRST_ACCESS = "INDUSTRIA_TROCAR_SENHA"
 PERM_LABS = "INDUSTRIA_LABORATORIOS"
+PERM_STOCK_UPDATE = "INDUSTRIA_MAPA_ATUALIZAR"
+PERM_INTERNAL_PORTAL = "INDUSTRIA_PORTAL_INTERNO"
 
 
 class IndustryUserCreateRequest(BaseModel):
@@ -55,6 +57,18 @@ class IndustrySelectionRequest(BaseModel):
     laboratorio: str | None = None
 
 
+class IndustryStockPermissionRequest(BaseModel):
+    usuario: str = Field(min_length=1, max_length=120)
+    permitido: bool
+
+
+class IndustryOperatorPermissionsRequest(BaseModel):
+    usuario: str = Field(min_length=1, max_length=120)
+    tipo: str = Field(min_length=1, max_length=80)
+    permissoesGerenciadas: list[str] = Field(default_factory=list, max_length=200)
+    permissoesSelecionadas: list[str] = Field(default_factory=list, max_length=200)
+
+
 class IndustryError(RuntimeError):
     def __init__(self, message: str, *, status_code: int = 502, data: dict[str, Any] | None = None):
         super().__init__(message)
@@ -70,8 +84,18 @@ def is_industry_profile(profile: dict[str, Any] | None) -> bool:
     profile = profile or {}
     if _role(profile) == ROLE_INDUSTRY:
         return True
+    # Compatibilidade apenas para representantes antigos: PERM_PORTAL sozinho
+    # não transforma usuário interno em representante. É necessário também
+    # existir ao menos um laboratório vinculado.
     perms = profile.get("permissoes")
-    return isinstance(perms, dict) and perms.get(PERM_PORTAL) is True
+    if not isinstance(perms, dict) or perms.get(PERM_PORTAL) is not True:
+        return False
+    raw_labs = perms.get(PERM_LABS)
+    if isinstance(raw_labs, list):
+        return any(str(x or "").strip() for x in raw_labs)
+    if isinstance(raw_labs, str):
+        return bool(raw_labs.strip())
+    return False
 
 
 def _permissions(profile: dict[str, Any]) -> dict[str, Any]:
@@ -136,35 +160,148 @@ def _session_profile(session: str | None) -> dict[str, Any]:
         raise HTTPException(status_code=401, detail="Sessão inválida.") from exc
 
 
-def _industry_profile(session: str | None, *, require_password_changed: bool = False) -> dict[str, Any]:
+def _is_internal_industry_viewer(profile: dict[str, Any]) -> bool:
+    # Usuário interno permanece no DISMEPE ONE principal e só entra no portal
+    # de indústrias quando recebe esta permissão explícita.
+    return (
+        _role(profile) != ROLE_INDUSTRY
+        and _permissions(profile).get(PERM_INTERNAL_PORTAL) is True
+    )
+
+
+async def _merge_live_internal_permissions(profile: dict[str, Any]) -> dict[str, Any]:
+    """Compatibilidade PROD5.9.3.
+
+    Não existe snapshot USUARIOS no PostgreSQL. As permissões atuais do usuário
+    vêm do JWT principal e, quando o próprio usuário altera suas permissões, o
+    endpoint administrativo reemite o cookie com o novo mapa imediatamente.
+    """
+    return profile
+
+
+async def _industry_profile(session: str | None, *, require_password_changed: bool = False) -> dict[str, Any]:
     profile = _session_profile(session)
-    if not is_industry_profile(profile):
-        raise HTTPException(status_code=403, detail="Área exclusiva para usuários da indústria.")
-    if _permissions(profile).get(PERM_PORTAL) is not True:
-        raise HTTPException(status_code=403, detail="Portal da indústria não liberado para este usuário.")
-    if not industry_allowed_labs(profile):
-        raise HTTPException(status_code=403, detail="Nenhum laboratório foi vinculado a este usuário.")
-    if require_password_changed and industry_must_change_password(profile):
-        raise HTTPException(
-            status_code=428,
-            detail={
-                "codigo": "INDUSTRIA_TROCAR_SENHA",
-                "mensagem": "Troque a senha temporária antes de acessar os dados da indústria.",
-            },
-        )
+
+    # Representantes externos continuam com o mesmo isolamento por laboratório.
+    if is_industry_profile(profile):
+        if _permissions(profile).get(PERM_PORTAL) is not True:
+            raise HTTPException(status_code=403, detail="Portal da indústria não liberado para este usuário.")
+        if not industry_allowed_labs(profile):
+            raise HTTPException(status_code=403, detail="Nenhum laboratório foi vinculado a este usuário.")
+        if require_password_changed and industry_must_change_password(profile):
+            raise HTTPException(
+                status_code=428,
+                detail={
+                    "codigo": "INDUSTRIA_TROCAR_SENHA",
+                    "mensagem": "Troque a senha temporária antes de acessar os dados da indústria.",
+                },
+            )
+        return profile
+
+    # Para usuário interno, a fonte atual de permissões prevalece sobre o JWT.
+    profile = await _merge_live_internal_permissions(profile)
+    if _is_internal_industry_viewer(profile):
+        return profile
+
+    raise HTTPException(status_code=403, detail="Você não possui permissão para acessar o DISMEPE ONE INDÚSTRIAS.")
+
+
+def _is_admin_profile(profile: dict[str, Any]) -> bool:
+    return _role(profile) in {"ADMINISTRADOR", "ADMIN"}
+
+
+def _strict_admin_profile(session: str | None) -> dict[str, Any]:
+    profile = _session_profile(session)
+    if not _is_admin_profile(profile):
+        raise HTTPException(status_code=403, detail="Ação exclusiva para administrador.")
     return profile
 
 
 def _admin_profile(session: str | None) -> dict[str, Any]:
+    # Mantém a regra já existente para criação de usuários da indústria.
     profile = _session_profile(session)
-    role = _role(profile)
     perms = _permissions(profile)
-    if role not in {"ADMINISTRADOR", "ADMIN"} and perms.get("USUARIOS_CRIAR") is not True:
+    if not _is_admin_profile(profile) and perms.get("USUARIOS_CRIAR") is not True:
         raise HTTPException(status_code=403, detail="Você não possui permissão para criar usuários da indústria.")
     return profile
 
 
+def _permission_view_profile(session: str | None) -> dict[str, Any]:
+    profile = _session_profile(session)
+    perms = _permissions(profile)
+    if not (
+        _is_admin_profile(profile)
+        or perms.get("PERMISSOES_VISUALIZAR") is True
+        or perms.get("PERMISSOES_ALTERAR") is True
+    ):
+        raise HTTPException(status_code=403, detail="Você não possui permissão para visualizar permissões.")
+    return profile
+
+
+def _permission_edit_profile(session: str | None) -> dict[str, Any]:
+    profile = _session_profile(session)
+    perms = _permissions(profile)
+    if not (_is_admin_profile(profile) or perms.get("PERMISSOES_ALTERAR") is True):
+        raise HTTPException(status_code=403, detail="Você não possui permissão para alterar permissões.")
+    return profile
+
+
+async def _stock_update_profile(session: str | None) -> dict[str, Any]:
+    # A permissão do mapa é independente de criação de usuários.
+    # Administrador mantém acesso por padrão; demais usuários precisam da permissão explícita.
+    profile = _session_profile(session)
+    if _is_admin_profile(profile):
+        return profile
+    profile = await _merge_live_internal_permissions(profile)
+    if _permissions(profile).get(PERM_STOCK_UPDATE) is True:
+        return profile
+    raise HTTPException(
+        status_code=403,
+        detail="Você não possui permissão para atualizar o mapa de estoque.",
+    )
+
+
+def _permission_map(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, list):
+        return {str(key): True for key in value if str(key).strip()}
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return {}
+        try:
+            parsed = json.loads(text)
+        except (TypeError, ValueError):
+            parsed = None
+        if parsed is not None and parsed is not value:
+            return _permission_map(parsed)
+        # Compatibilidade defensiva com snapshots antigos que serializavam
+        # somente as chaves em texto separadas por vírgula/ponto e vírgula.
+        keys = [x.strip() for x in re.split(r"[,;|]", text) if x.strip()]
+        if keys and all(re.fullmatch(r"[A-Za-z0-9_\-]{2,120}", x) for x in keys):
+            return {x: True for x in keys}
+    return {}
+
+
+def _snapshot_users(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    for key in ("usuarios", "dados", "items"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+    return []
+
+
 def _choose_lab(profile: dict[str, Any], requested: str | None) -> str:
+    # Visão interna possui escopo deliberadamente global. O laboratório ainda é
+    # aplicado como filtro exato no servidor; não existe envio consolidado de
+    # todos os laboratórios numa única resposta.
+    if _is_internal_industry_viewer(profile):
+        label = _clean_lab(requested)
+        if not label:
+            raise HTTPException(status_code=400, detail="Selecione um laboratório.")
+        return label
+
     allowed = industry_allowed_labs(profile)
     if not allowed:
         raise HTTPException(status_code=403, detail="Nenhum laboratório foi vinculado a este usuário.")
@@ -828,11 +965,48 @@ def _general_sales_snapshot(lab: str, competencia: str) -> dict[str, Any] | None
     }
 
 
+async def _industry_visible_labs(profile: dict[str, Any]) -> list[str]:
+    if not _is_internal_industry_viewer(profile):
+        return industry_allowed_labs(profile)
+
+    labels: list[str] = []
+    try:
+        stock = _load_stock()
+        labels.extend(str(x) for x in stock.get("fornecedores", []) if str(x).strip())
+    except HTTPException:
+        pass
+    try:
+        payload, _ = await cache_get(modulo="MENSAL", settings=settings)
+        for row in list(payload.get("dadosVendedores") or []) + list(payload.get("dadosTelevendas") or []):
+            if isinstance(row, dict):
+                lab = _row_lab(row)
+                if lab:
+                    labels.append(lab)
+    except Exception:
+        pass
+    labs = _canonical_lab_labels(labels)
+    labs.sort(key=lambda x: normalizar(x))
+    return labs
+
+
+@router.get("/industrias/laboratorios")
+async def industries_labs(
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    profile = await _industry_profile(session, require_password_changed=True)
+    labs = await _industry_visible_labs(profile)
+    return {
+        "sucesso": True,
+        "acessoInterno": _is_internal_industry_viewer(profile),
+        "laboratorios": labs,
+    }
+
+
 @router.get("/industrias", include_in_schema=False)
 async def industries_page(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
-    _industry_profile(session, require_password_changed=False)
+    await _industry_profile(session, require_password_changed=False)
     return HTMLResponse(
         INDUSTRIES_FILE.read_text(encoding="utf-8"),
         headers={
@@ -849,7 +1023,7 @@ async def industries_data(
     competencia: str | None = Query(default=None),
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
-    profile = _industry_profile(session, require_password_changed=True)
+    profile = await _industry_profile(session, require_password_changed=True)
     lab = _choose_lab(profile, laboratorio)
     try:
         payload, row = await cache_get(modulo="MENSAL", settings=settings)
@@ -888,7 +1062,8 @@ async def industries_data(
     return {
         "sucesso": True,
         "laboratorio": lab,
-        "laboratoriosAutorizados": industry_allowed_labs(profile),
+        "laboratoriosAutorizados": (await _industry_visible_labs(profile)) if _is_internal_industry_viewer(profile) else industry_allowed_labs(profile),
+        "acessoInterno": _is_internal_industry_viewer(profile),
         "competencia": comp,
         "competencias": comps,
         "diasUteisRestantes": days,
@@ -920,7 +1095,7 @@ async def industries_stock(
     laboratorio: str | None = Query(default=None),
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
-    profile = _industry_profile(session, require_password_changed=True)
+    profile = await _industry_profile(session, require_password_changed=True)
     lab = _choose_lab(profile, laboratorio)
     data, rows = _stock_rows_for_lab(lab)
     total_stock = sum(_int(row.get("estoque")) for row in rows)
@@ -944,7 +1119,7 @@ async def industries_download_excel(
     laboratorio: str | None = Query(default=None),
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
-    profile = _industry_profile(session, require_password_changed=True)
+    profile = await _industry_profile(session, require_password_changed=True)
     lab = _choose_lab(profile, laboratorio)
     data, rows = _stock_rows_for_lab(lab)
     content = _build_xlsx(rows, lab, str(data.get("gerado_em") or ""))
@@ -961,7 +1136,7 @@ async def industries_download_pdf(
     laboratorio: str | None = Query(default=None),
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
-    profile = _industry_profile(session, require_password_changed=True)
+    profile = await _industry_profile(session, require_password_changed=True)
     lab = _choose_lab(profile, laboratorio)
     data, rows = _stock_rows_for_lab(lab)
     content = _build_pdf(rows, lab, str(data.get("gerado_em") or ""))
@@ -977,7 +1152,7 @@ async def industries_download_pdf(
 async def industries_stock_sync_status(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
-    _admin_profile(session)
+    await _stock_update_profile(session)
     return {"sucesso": True, **stock_sync_public_status()}
 
 
@@ -985,12 +1160,189 @@ async def industries_stock_sync_status(
 async def industries_stock_sync_run(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
-    _admin_profile(session)
+    await _stock_update_profile(session)
     try:
         result = await sync_stock_once(force=True)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"sucesso": True, **result}
+
+
+@router.get("/admin/industries/stock-sync/operators")
+async def industries_stock_sync_operators(
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    _permission_view_profile(session)
+    try:
+        payload, _ = await cache_get(modulo="USUARIOS", settings=settings)
+    except CacheReadError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    users: list[dict[str, Any]] = []
+    for item in _snapshot_users(payload):
+        usuario = str(item.get("usuario") or item.get("login") or item.get("USUARIO") or "").strip()
+        if not usuario:
+            continue
+        role = normalizar(item.get("tipo") or item.get("perfil") or item.get("cargo") or "")
+        if role == ROLE_INDUSTRY:
+            continue
+        raw_perms = item.get("permissoes")
+        if raw_perms is None:
+            raw_perms = item.get("PERMISSOES")
+        perms = _permission_map(raw_perms)
+        users.append({
+            "usuario": usuario,
+            "nome": str(item.get("nome") or item.get("vendedor") or usuario).strip(),
+            "tipo": str(item.get("tipo") or item.get("perfil") or item.get("cargo") or "").strip(),
+            "podeAtualizarMapa": _is_admin_profile(item) or perms.get(PERM_STOCK_UPDATE) is True,
+            "podeAcessarPortalIndustrias": perms.get(PERM_INTERNAL_PORTAL) is True,
+            "administrador": role in {"ADMINISTRADOR", "ADMIN"},
+        })
+    users.sort(key=lambda item: normalizar(item.get("nome") or item.get("usuario") or ""))
+    return {"sucesso": True, "permissao": PERM_STOCK_UPDATE, "usuarios": users}
+
+
+@router.post("/admin/industries/operator-permissions")
+async def industries_operator_permissions(
+    payload: IndustryOperatorPermissionsRequest,
+    response: Response,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    editor = _permission_edit_profile(session)
+
+    tipo = str(payload.tipo or "").strip()
+    if normalizar(tipo) == ROLE_INDUSTRY:
+        raise HTTPException(
+            status_code=400,
+            detail="Representantes da indústria usam o acesso direto ao laboratório vinculado e não usam estas permissões internas.",
+        )
+
+    selected = {str(key).strip() for key in payload.permissoesSelecionadas if str(key).strip()}
+    managed = {str(key).strip() for key in payload.permissoesGerenciadas if str(key).strip()}
+    if PERM_INTERNAL_PORTAL not in managed or PERM_STOCK_UPDATE not in managed:
+        raise HTTPException(status_code=400, detail="A tela de permissões está desatualizada. Recarregue o sistema e tente novamente.")
+
+    forbidden = {PERM_PORTAL, PERM_FIRST_ACCESS, PERM_LABS}
+    perms: dict[str, Any] = {}
+    for key in managed:
+        if key in forbidden or not re.fullmatch(r"[A-Z0-9_]{2,80}", key):
+            continue
+        perms[key] = key in selected
+
+    usuario = str(payload.usuario or "").strip()
+    if not usuario:
+        raise HTTPException(status_code=400, detail="Usuário inválido.")
+
+    try:
+        await _edge_admin_write(
+            "USUARIO_PERMISSOES_SET",
+            {
+                "usuario_norm": normalizar(usuario),
+                "tipo": tipo,
+                "permissoes": perms,
+            },
+        )
+    except IndustryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    # Se o administrador está editando o próprio usuário, reemite a sessão
+    # imediatamente para que /industrias reconheça a nova permissão sem logout.
+    editor_user = normalizar(editor.get("usuario") or editor.get("sub") or "")
+    if editor_user and editor_user == normalizar(usuario):
+        refreshed = dict(editor)
+        refreshed["tipo"] = tipo or str(editor.get("tipo") or "")
+        refreshed["permissoes"] = perms
+        token = issue_session_token(
+            usuario=str(editor.get("usuario") or editor.get("sub") or usuario),
+            profile=refreshed,
+            secret=settings.jwt_secret,
+            issuer=settings.jwt_issuer,
+            lifetime_seconds=settings.session_seconds,
+        )
+        response.set_cookie(
+            key=settings.cookie_name,
+            value=token,
+            max_age=settings.session_seconds,
+            httponly=True,
+            secure=settings.cookie_secure,
+            samesite=settings.cookie_samesite,
+            domain=settings.cookie_domain,
+            path="/",
+        )
+
+    admin_target = normalizar(tipo) in {"ADMINISTRADOR", "ADMIN"}
+    return {
+        "sucesso": True,
+        "usuario": usuario,
+        "podeAtualizarMapa": admin_target or perms.get(PERM_STOCK_UPDATE) is True,
+        "podeAcessarPortalIndustrias": perms.get(PERM_INTERNAL_PORTAL) is True,
+        "permissoes": [PERM_INTERNAL_PORTAL, PERM_STOCK_UPDATE],
+        "mensagem": "Permissões do DISMEPE ONE INDÚSTRIAS gravadas diretamente no serviço de usuários.",
+    }
+
+
+@router.post("/admin/industries/stock-sync/operator-permission")
+async def industries_stock_sync_operator_permission(
+    payload: IndustryStockPermissionRequest,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    _permission_edit_profile(session)
+    try:
+        users_payload, _ = await cache_get(modulo="USUARIOS", settings=settings)
+    except CacheReadError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    target_key = normalizar(payload.usuario)
+    target = next(
+        (item for item in _snapshot_users(users_payload)
+         if normalizar(item.get("usuario") or item.get("login") or item.get("USUARIO") or "") == target_key),
+        None,
+    )
+    if not target:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado na base de permissões.")
+
+    role = normalizar(target.get("tipo") or target.get("perfil") or target.get("cargo") or "")
+    if role == ROLE_INDUSTRY:
+        raise HTTPException(status_code=400, detail="Essa permissão é destinada a usuários internos que atualizam o mapa.")
+    if role in {"ADMINISTRADOR", "ADMIN"} and not payload.permitido:
+        return {
+            "sucesso": True,
+            "usuario": str(target.get("usuario") or payload.usuario),
+            "podeAtualizarMapa": True,
+            "mensagem": "Administradores já possuem essa autorização por padrão.",
+        }
+
+    if "permissoes" not in target:
+        raise HTTPException(
+            status_code=409,
+            detail="A fotografia de usuários não contém as permissões atuais; nenhuma alteração foi feita.",
+        )
+    perms = _permission_map(target.get("permissoes"))
+    perms[PERM_STOCK_UPDATE] = bool(payload.permitido)
+    usuario = str(target.get("usuario") or target.get("login") or target.get("USUARIO") or payload.usuario).strip()
+    tipo = str(target.get("tipo") or target.get("perfil") or target.get("cargo") or "").strip()
+    try:
+        await _edge_admin_write(
+            "USUARIO_PERMISSOES_SET",
+            {
+                "usuario_norm": normalizar(usuario),
+                "tipo": tipo,
+                "permissoes": perms,
+            },
+        )
+    except IndustryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return {
+        "sucesso": True,
+        "usuario": usuario,
+        "podeAtualizarMapa": bool(payload.permitido),
+        "permissao": PERM_STOCK_UPDATE,
+        "mensagem": (
+            "Permissão para atualizar o mapa concedida. Ela será aplicada no próximo login do usuário."
+            if payload.permitido
+            else "Permissão para atualizar o mapa removida. A revogação será aplicada no próximo login do usuário."
+        ),
+    }
 
 
 @router.get("/admin/industries/labs")
@@ -1140,7 +1492,7 @@ async def industries_change_password(
     response: Response,
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
-    profile = _industry_profile(session, require_password_changed=False)
+    profile = await _industry_profile(session, require_password_changed=False)
     usuario = str(profile.get("usuario") or profile.get("sub") or "").strip()
     first_access = industry_must_change_password(profile)
     if payload.novaSenha == payload.senhaAtual:
@@ -1183,7 +1535,7 @@ async def industries_complete_first_access(
     response: Response,
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
-    profile = _industry_profile(session, require_password_changed=False)
+    profile = await _industry_profile(session, require_password_changed=False)
     if not industry_must_change_password(profile):
         _refresh_session_cookie(response, profile)
         return {"sucesso": True, "trocaObrigatoria": False}

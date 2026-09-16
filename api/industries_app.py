@@ -17,7 +17,7 @@ from .industries import (
 from .industries_stock_sync import start_stock_sync, stop_stock_sync, stock_sync_public_status
 
 
-BUILD = "2.0.0-phase2i2-prod5.7-industries-publicado"
+BUILD = "2.0.0-phase2i2-prod5.9.4-publicado"
 ROOT = Path(__file__).resolve().parents[1]
 PORTAL_FILE = ROOT / "frontend" / "portal-v2-homolog.html"
 ROUTER_SCRIPT = ROOT / "frontend" / "industries-router.js"
