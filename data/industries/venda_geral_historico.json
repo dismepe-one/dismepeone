@@ -1,0 +1,332 @@
+{
+  "limiteHistorico": 3,
+  "atualizacoes": [
+    {
+      "idAtualizacao": "20260916_174507_737de5182d",
+      "fonte": "OBJETIVO X VENDA.xlsx",
+      "competencia": "09/2026",
+      "gerado_em": "16/09/2026 17:45:07",
+      "sha256": "737de5182d5d90df23f0d1297963fe1f073b625c0f0b8b10db4cff67f70a1d0a",
+      "linhas": [
+        {
+          "laboratorio": "AGAPLASTIC INDUSTRIA E COMERCIO LTDA",
+          "competencia": "09/2026",
+          "venda_total": 6068.92,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "AROMED",
+          "competencia": "09/2026",
+          "venda_total": 1428.08,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "ARTE NATIVA",
+          "competencia": "09/2026",
+          "venda_total": 38961.58,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "BALARAMAS",
+          "competencia": "09/2026",
+          "venda_total": 1708.29,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "BELFAR",
+          "competencia": "09/2026",
+          "venda_total": 41423.26,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "BIOLAB FARMA GENERICO LTDA",
+          "competencia": "09/2026",
+          "venda_total": 514.92,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "BIOLAB FARMA GENERICOS LTDA",
+          "competencia": "09/2026",
+          "venda_total": 190195.45,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "BIOLAB SANUS FARM LTDA",
+          "competencia": "09/2026",
+          "venda_total": 317.46,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "BRASTERAPICA",
+          "competencia": "09/2026",
+          "venda_total": 35593.84,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "BRG SUPLEMENTOS NUTRICIONAIS LTDA",
+          "competencia": "09/2026",
+          "venda_total": 60263.31,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "CAZI QUIMICA",
+          "competencia": "09/2026",
+          "venda_total": 17177.86,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "DELTA",
+          "competencia": "09/2026",
+          "venda_total": 49028.37,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "DESCARPACK DESCARTAVEIS DO BRASIL LTDA",
+          "competencia": "09/2026",
+          "venda_total": 1723.94,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "EMS S/A",
+          "competencia": "09/2026",
+          "venda_total": 20985.89,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "EQUILIBRIUM DISTRIBUIDORA DE MEDICAMENTOS EIR",
+          "competencia": "09/2026",
+          "venda_total": 9537.86,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "EUROFARMA LAB LTDA",
+          "competencia": "09/2026",
+          "venda_total": 4102.58,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "GEOLAB",
+          "competencia": "09/2026",
+          "venda_total": 260002.49,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "GLOBO",
+          "competencia": "09/2026",
+          "venda_total": 61718.71,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "GREENPHARMA",
+          "competencia": "09/2026",
+          "venda_total": 4074.5,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "HERBAMED",
+          "competencia": "09/2026",
+          "venda_total": 105785.47,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "IMEC",
+          "competencia": "09/2026",
+          "venda_total": 11698.19,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "LAPON",
+          "competencia": "09/2026",
+          "venda_total": 38162.02,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "MEDIX BRASIL",
+          "competencia": "09/2026",
+          "venda_total": 42373.05,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "MEDQUIMICA",
+          "competencia": "09/2026",
+          "venda_total": 63467.59,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "MERCK GEN",
+          "competencia": "09/2026",
+          "venda_total": 11977.32,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "MISSNER",
+          "competencia": "09/2026",
+          "venda_total": 38805.27,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "MULTILAB",
+          "competencia": "09/2026",
+          "venda_total": 124584.69,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "MULTILASER",
+          "competencia": "09/2026",
+          "venda_total": 30303.08,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "NATIVITA",
+          "competencia": "09/2026",
+          "venda_total": 25041.25,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "NATIVITA NOVO",
+          "competencia": "09/2026",
+          "venda_total": 114.01,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "NATULAB",
+          "competencia": "09/2026",
+          "venda_total": 326258.79,
+          "objetivo_total": 700000.0
+        },
+        {
+          "laboratorio": "NEO QUIMICA GENERICO",
+          "competencia": "09/2026",
+          "venda_total": 463436.89,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "NEO QUIMICA SMART",
+          "competencia": "09/2026",
+          "venda_total": 778954.44,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "NOVA QUIMICA GENERICO",
+          "competencia": "09/2026",
+          "venda_total": 21720.97,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "NUTIVIT MATRIZ",
+          "competencia": "09/2026",
+          "venda_total": 1159.81,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "PANPHARMA",
+          "competencia": "09/2026",
+          "venda_total": 222.1,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "PHARLAB",
+          "competencia": "09/2026",
+          "venda_total": 60474.92,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "PHARMASCIENCE",
+          "competencia": "09/2026",
+          "venda_total": 2638.38,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "PULSY MARCAS E DISTRIBUICAO",
+          "competencia": "09/2026",
+          "venda_total": 10393.87,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "RILEX",
+          "competencia": "09/2026",
+          "venda_total": 1682.15,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "SANFARMA",
+          "competencia": "09/2026",
+          "venda_total": 26294.44,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "SARAPLAST",
+          "competencia": "09/2026",
+          "venda_total": 528.79,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "SEX FREE",
+          "competencia": "09/2026",
+          "venda_total": 2073.06,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "SOBRAL",
+          "competencia": "09/2026",
+          "venda_total": 208.87,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "SPARTEX IND.",
+          "competencia": "09/2026",
+          "venda_total": 1307.94,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "TECELEGEM MINASREY LTDA",
+          "competencia": "09/2026",
+          "venda_total": 14816.52,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "TERMOGEL",
+          "competencia": "09/2026",
+          "venda_total": 3559.25,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "UNICHEM FARMACEUTICA",
+          "competencia": "09/2026",
+          "venda_total": 13445.6,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "UNIPHAR",
+          "competencia": "09/2026",
+          "venda_total": 41171.41,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "VIDORA",
+          "competencia": "09/2026",
+          "venda_total": 7286.3,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "VITAMEDIC",
+          "competencia": "09/2026",
+          "venda_total": 87327.65,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "ZIIN ZIIN",
+          "competencia": "09/2026",
+          "venda_total": 6132.53,
+          "objetivo_total": null
+        },
+        {
+          "laboratorio": "ZYDUS NIKKHO",
+          "competencia": "09/2026",
+          "venda_total": 2313.69,
+          "objetivo_total": null
+        }
+      ]
+    }
+  ]
+}

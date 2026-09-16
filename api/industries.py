@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 INDUSTRIES_FILE = ROOT / "frontend" / "industries.html"
 STOCK_FILE = STOCK_CURRENT_FILE
 GENERAL_SALES_FILE = ROOT / "data" / "industries" / "venda_geral_atual.json"
+GENERAL_SALES_HISTORY_FILE = ROOT / "data" / "industries" / "venda_geral_historico.json"
 
 ROLE_INDUSTRY = "INDUSTRIA"
 PERM_PORTAL = "INDUSTRIA_PORTAL"
@@ -613,8 +614,8 @@ def scope_industry_bootstrap(payload: dict[str, Any], profile: dict[str, Any], c
         vend: list[dict[str, Any]] = []
         tlv: list[dict[str, Any]] = []
     else:
-        vend = _filter_lab_rows(vend_all, allowed_keys, comp or None)
-        tlv = _filter_lab_rows(tlv_all, allowed_keys, comp or None)
+        vend = [row for row in _filter_lab_rows(vend_all, allowed_keys, comp or None) if not _is_focus_row(row)]
+        tlv = [row for row in _filter_lab_rows(tlv_all, allowed_keys, comp or None) if not _is_focus_row(row)]
     return {
         "sucesso": True,
         "banco": "SUPABASE",
@@ -965,6 +966,62 @@ def _general_sales_snapshot(lab: str, competencia: str) -> dict[str, Any] | None
     }
 
 
+
+def _general_sales_history(lab: str) -> list[dict[str, Any]]:
+    """Últimas 3 fotografias da base OBJETIVO X VENDA para o laboratório."""
+    if not GENERAL_SALES_HISTORY_FILE.exists():
+        return []
+    try:
+        payload = json.loads(GENERAL_SALES_HISTORY_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    snapshots = payload.get("atualizacoes") if isinstance(payload, dict) else None
+    if not isinstance(snapshots, list):
+        return []
+    lab_key = _lab_key(lab)
+    out: list[dict[str, Any]] = []
+    for snapshot in snapshots[:3]:
+        if not isinstance(snapshot, dict):
+            continue
+        rows = snapshot.get("linhas")
+        if not isinstance(rows, list):
+            continue
+        total = 0.0
+        objective = 0.0
+        found = False
+        has_objective = False
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            row_lab = row.get("laboratorio") or row.get("lab") or row.get("fornecedor") or row.get("industria")
+            if _lab_key(row_lab) != lab_key:
+                continue
+            raw_value = row.get("venda_total")
+            if raw_value is None: raw_value = row.get("venda")
+            if raw_value is None: raw_value = row.get("total")
+            if raw_value is None: raw_value = row.get("faturamento")
+            total += _num(raw_value)
+            found = True
+            raw_obj = row.get("objetivo_total")
+            if raw_obj is None: raw_obj = row.get("objetivo")
+            if raw_obj not in (None, ""):
+                objective += _num(raw_obj)
+                has_objective = True
+        if not found:
+            continue
+        objective_value = round(objective, 2) if has_objective else None
+        out.append({
+            "idAtualizacao": str(snapshot.get("idAtualizacao") or ""),
+            "competencia": str(snapshot.get("competencia") or ""),
+            "atualizadoEm": str(snapshot.get("gerado_em") or snapshot.get("atualizado_em") or ""),
+            "fonte": str(snapshot.get("fonte") or snapshot.get("arquivo_origem") or ""),
+            "vendaTotal": round(total, 2),
+            "objetivoTotal": objective_value,
+            "atingimentoTotal": round((total / objective_value * 100.0), 2) if objective_value is not None and objective_value > 0 else None,
+        })
+    return out[:3]
+
+
 async def _industry_visible_labs(profile: dict[str, Any]) -> list[str]:
     if not _is_internal_industry_viewer(profile):
         return industry_allowed_labs(profile)
@@ -1037,13 +1094,13 @@ async def industries_data(
     comp = str(competencia or "").strip() or (comps[0] if comps else "")
     days = _days_remaining(payload, comp)
     key = {_lab_key(lab)}
-    vend_raw = _filter_lab_rows(vend_all, key, comp or None)
-    tlv_raw = _filter_lab_rows(tlv_all, key, comp or None)
+    vend_raw = [row for row in _filter_lab_rows(vend_all, key, comp or None) if not _is_focus_row(row)]
+    tlv_raw = [row for row in _filter_lab_rows(tlv_all, key, comp or None) if not _is_focus_row(row)]
     vend_rows = [_sanitize_sales_row(x, "VENDEDORES", days) for x in vend_raw]
     tlv_rows = [_sanitize_sales_row(x, "TELEVENDAS", days) for x in tlv_raw]
 
-    vend_main = [x for x in vend_rows if not x["foco"]]
-    tlv_main = [x for x in tlv_rows if not x["foco"]]
+    vend_main = vend_rows
+    tlv_main = tlv_rows
     venda_v = sum(x["venda"] for x in vend_main)
     venda_t = sum(x["venda"] for x in tlv_main)
     obj_v = sum(x["objetivo"] for x in vend_main)
@@ -1085,7 +1142,7 @@ async def industries_data(
         # Campanhas usa as mesmas Regras/Métricas do snapshot MENSAL do DISMEPE ONE,
         # sempre filtradas no servidor pelo laboratório e competência autorizados.
         "campanhas": _industry_campaign_metrics(payload, lab, comp),
-        "historico": [],
+        "historico": _general_sales_history(lab),
         "oportunidades": [],
     }
 
