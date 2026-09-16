@@ -7,16 +7,71 @@ import jwt
 from fastapi import Cookie, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse
 
+from . import main as main_module
 from .main import app, settings
 from .security import decode_session_token
 from .legacy_bridge import get_state
+from .history_reads import HistoryReadError
+from .monthly_retention import (
+    MonthlyRetentionPurgeError,
+    filter_dashboard_payload,
+    purge_expired_monthly_history,
+    retained_monthly_history_list,
+)
 from .update_center import UpdateCenterBridgeError, call_update_center_legacy
 
 
-BUILD = "2.0.0-phase2i2-prod4.3"
+BUILD = "2.0.0-phase2i2-prod4.4"
 ROOT = Path(__file__).resolve().parents[1]
 PORTAL_FILE = ROOT / "frontend" / "portal-v2-homolog.html"
 PATCH_FILE = ROOT / "frontend" / "update-center-prod4.js"
+RETENTION_PATCH_FILE = ROOT / "frontend" / "monthly-retention-prod44.js"
+
+
+_ORIGINAL_SCOPE_MENSAL_DASHBOARD = main_module.scope_mensal_dashboard
+_ORIGINAL_HISTORY_LIST = main_module.history_list
+
+
+def _scope_mensal_dashboard_prod44(
+    payload: dict,
+    profile: dict,
+    competencia: str | None = None,
+):
+    result = _ORIGINAL_SCOPE_MENSAL_DASHBOARD(
+        payload,
+        profile,
+        competencia=competencia,
+    )
+    return filter_dashboard_payload(result)
+
+
+async def _history_list_prod44(
+    *,
+    kind: str,
+    profile: dict,
+    settings,
+):
+    if str(kind or "").strip().lower() != "mensal":
+        return await _ORIGINAL_HISTORY_LIST(
+            kind=kind,
+            profile=profile,
+            settings=settings,
+        )
+
+    try:
+        return await retained_monthly_history_list(
+            profile=profile,
+            settings=settings,
+        )
+    except RuntimeError as exc:
+        raise HistoryReadError(str(exc)) from exc
+
+
+# PROD4.4 — troca somente a apresentação da fotografia mensal e a listagem
+# do histórico mensal. Regras, cálculos, fechamento e gravações permanecem
+# exatamente nos fluxos existentes.
+main_module.scope_mensal_dashboard = _scope_mensal_dashboard_prod44
+main_module.history_list = _history_list_prod44
 
 
 def _remove_routes(*paths: str) -> None:
@@ -29,13 +84,17 @@ def _remove_routes(*paths: str) -> None:
 
 def _portal_response() -> HTMLResponse:
     html = PORTAL_FILE.read_text(encoding="utf-8")
-    tag = f'<script src="/update-center-prod4.js?v={BUILD}"></script>'
-    if tag not in html:
+    tags = [
+        f'<script src="/update-center-prod4.js?v={BUILD}"></script>',
+        f'<script src="/monthly-retention-prod44.js?v={BUILD}"></script>',
+    ]
+    missing = [tag for tag in tags if tag not in html]
+    if missing:
         marker = "</body>"
         pos = html.lower().rfind(marker)
         if pos < 0:
             raise RuntimeError("Fechamento </body> não encontrado no portal.")
-        html = html[:pos] + tag + "\n" + html[pos:]
+        html = html[:pos] + "\n".join(missing) + "\n" + html[pos:]
     return HTMLResponse(
         html,
         headers={
@@ -59,6 +118,17 @@ def _allowed(profile: dict) -> bool:
             "MENSAL_BASE_ATUALIZADA",
             "EXTRAS_BASE_ATUALIZADA",
         )
+    )
+
+
+def _retention_delete_allowed(profile: dict) -> bool:
+    role = str(profile.get("tipo") or "").strip().upper()
+    if role in {"ADMINISTRADOR", "ADMIN"}:
+        return True
+    perms = profile.get("permissoes") if isinstance(profile.get("permissoes"), dict) else {}
+    return (
+        perms.get("HISTORICO_MENSAL_EXCLUIR") is True
+        or perms.get("CADASTRO_CAMPANHAS_MENSAIS") is True
     )
 
 
@@ -165,6 +235,19 @@ async def prod4_update_center_script():
     )
 
 
+@app.get("/monthly-retention-prod44.js", include_in_schema=False)
+async def prod44_monthly_retention_script():
+    return FileResponse(
+        RETENTION_PATCH_FILE,
+        media_type="application/javascript",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
 @app.get("/health")
 async def prod4_health(response: Response):
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
@@ -176,7 +259,56 @@ async def prod4_health(response: Response):
         "version": BUILD,
         "environment": settings.environment,
         "missingConfig": missing,
+        "monthlyHistoryRetention": 2,
     }
+
+
+@app.post("/admin/monthly-retention")
+async def prod44_monthly_retention(
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    if not session:
+        raise HTTPException(status_code=401, detail="Sessão 2.0 ausente.")
+
+    try:
+        profile = decode_session_token(
+            session,
+            secret=settings.jwt_secret,
+            issuer=settings.jwt_issuer,
+        )
+    except jwt.ExpiredSignatureError as exc:
+        raise HTTPException(status_code=401, detail="Sessão 2.0 expirada.") from exc
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=401, detail="Sessão 2.0 inválida.") from exc
+
+    if not _retention_delete_allowed(profile):
+        raise HTTPException(
+            status_code=403,
+            detail="Você não possui permissão para limpar o Histórico Mensal.",
+        )
+
+    session_key = hashlib.sha256(session.encode("utf-8")).hexdigest()
+    legacy_state = await get_state(session_key)
+    legacy_token = (
+        str(legacy_state.get("token") or "").strip()
+        if legacy_state.get("status") == "READY"
+        else ""
+    )
+    if not legacy_token:
+        raise HTTPException(
+            status_code=409,
+            detail="A sessão de compatibilidade ainda não está pronta.",
+        )
+
+    try:
+        result = await purge_expired_monthly_history(
+            legacy_token=legacy_token,
+        )
+    except MonthlyRetentionPurgeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    result["transporte"] = "FASTAPI_RETENCAO_MENSAL_DIRECT"
+    return result
 
 
 @app.post("/admin/update-center")
