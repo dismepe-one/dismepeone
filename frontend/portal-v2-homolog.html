@@ -5165,6 +5165,7 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
               <option value="ADMINISTRADOR">Administrador</option>
               <option value="COMERCIAL">Comercial</option>
               <option value="GERENTE DE VENDAS">Gerente de Vendas</option>
+              <option value="COMPRADOR">Comprador</option>
               <option value="VENDEDOR">Vendedor</option>
               <option value="TELEVENDAS">Televendas</option>
               <option value="SUP VENDAS">Supervisor de Vendas</option>
@@ -5211,6 +5212,7 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
                         <option value="ADMINISTRADOR">ADMINISTRADOR</option>
                         <option value="COMERCIAL">COMERCIAL</option>
                         <option value="GERENTE DE VENDAS">GERENTE DE VENDAS</option>
+                        <option value="COMPRADOR">COMPRADOR</option>
                         <option value="VENDEDOR">VENDEDOR</option>
                         <option value="TELEVENDAS">TELEVENDAS</option>
                         <option value="SUP VENDAS">SUP VENDAS</option>
@@ -8780,7 +8782,36 @@ window.openCreateUserModal=function(){
     const b=document.getElementById('createUserButton'); b.disabled=true; b.innerHTML='<i class="fa-solid fa-spinner fa-spin mr-2"></i>Criando...';
     try{
       const r=await callAdminAction('CRIARUSUARIO',{usuario,tipo,vendedor});
-      showCreateUserMessage('Usuário '+(r?.usuario||usuario)+' criado com sucesso.',true);
+
+      if(norm(tipo)==='COMPRADOR'){
+        const rp=await fetch('/admin/industries/operator-permissions',{
+          method:'POST',
+          credentials:'include',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            usuario,
+            tipo:'COMPRADOR',
+            permissoesGerenciadas:['INDUSTRIA_PORTAL_INTERNO','INDUSTRIA_MAPA_ATUALIZAR'],
+            permissoesSelecionadas:['INDUSTRIA_PORTAL_INTERNO']
+          })
+        });
+        let pd={};try{pd=await rp.json();}catch(_){}
+        if(!rp.ok||pd?.sucesso===false){
+          throw new Error(
+            (typeof pd?.detail==='string'&&pd.detail)||
+            pd?.detail?.mensagem||
+            pd?.erro||
+            'Usuário criado, mas não foi possível aplicar o perfil COMPRADOR.'
+          );
+        }
+      }
+
+      showCreateUserMessage(
+        norm(tipo)==='COMPRADOR'
+          ? 'Usuário '+(r?.usuario||usuario)+' criado como COMPRADOR com acesso somente ao DISMEPE ONE INDÚSTRIAS e a todos os laboratórios.'
+          : 'Usuário '+(r?.usuario||usuario)+' criado com sucesso.',
+        true
+      );
       document.getElementById('createUserForm')?.reset();
       toggleCreateUserNameField();
       await loadPermissionsFromServer();
