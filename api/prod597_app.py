@@ -11,15 +11,51 @@ from . import main as main_module
 from . import prod4_app as prod4
 from .cache_reads import CacheReadError, cache_get
 from .industries_app import app, settings
-from .legacy_bridge import get_state
+from .legacy_bridge import clear_state, get_state
 from .security import decode_session_token
 from .update_center import UpdateCenterBridgeError, call_update_center_legacy
 
 
-BUILD = "2.0.0-phase2i2-prod5.9.7-mensal"
+BUILD = "2.0.0-phase2i2-prod5.9.7.3-legacy-cookie"
 ROOT = Path(__file__).resolve().parents[1]
 BASE_PATCH_FILE = ROOT / "frontend" / "update-center-prod4.js"
 MONTHLY_PATCH_FILE = ROOT / "frontend" / "monthly-sync-prod597.js"
+
+LEGACY_COOKIE_PREFIX = "dismepe_legacy_"
+LEGACY_COOKIE_MAX_AGE = 3 * 60 * 60
+
+
+def _legacy_cookie_name(session: str) -> str:
+    digest = hashlib.sha256(session.encode("utf-8")).hexdigest()[:24]
+    return f"{LEGACY_COOKIE_PREFIX}{digest}"
+
+
+def _legacy_cookie_value(request: Request, session: str) -> str:
+    return str(request.cookies.get(_legacy_cookie_name(session)) or "").strip()
+
+
+def _store_legacy_cookie(response: Response, session: str, token: str) -> None:
+    value = str(token or "").strip()
+    if not value:
+        return
+    response.set_cookie(
+        key=_legacy_cookie_name(session),
+        value=value,
+        max_age=LEGACY_COOKIE_MAX_AGE,
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+        domain=settings.cookie_domain,
+        path="/",
+    )
+
+
+def _delete_legacy_cookie(response: Response, session: str) -> None:
+    response.delete_cookie(
+        key=_legacy_cookie_name(session),
+        domain=settings.cookie_domain,
+        path="/",
+    )
 
 
 def _remove_routes(*paths: str) -> None:
@@ -67,6 +103,7 @@ async def _legacy_token(
     *,
     session_key: str,
     payload: dict,
+    persisted_token: str,
     wait_for_monthly: bool,
 ) -> str:
     state = await get_state(session_key)
@@ -75,6 +112,8 @@ async def _legacy_token(
         if state.get("status") == "READY"
         else ""
     )
+    if not token:
+        token = str(persisted_token or "").strip()
     if not token:
         token = str(payload.get("token") or "").strip()
 
@@ -112,7 +151,88 @@ async def _persisted_monthly_time() -> tuple[str, str]:
 # A aplicação final já foi montada por industries_app. Substituímos somente a
 # rota da Central e o arquivo JS que a acompanha; todo o restante permanece
 # exatamente como PROD5.9.6/Indústrias.
-_remove_routes("/admin/update-center", "/update-center-prod4.js")
+_remove_routes("/admin/update-center", "/update-center-prod4.js", "/auth/legacy-status", "/auth/logout")
+
+
+@app.get("/auth/legacy-status")
+async def prod597_legacy_status(
+    request: Request,
+    response: Response,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    if not session:
+        raise HTTPException(status_code=401, detail="Sessão 2.0 ausente.")
+
+    try:
+        decode_session_token(
+            session,
+            secret=settings.jwt_secret,
+            issuer=settings.jwt_issuer,
+        )
+    except jwt.ExpiredSignatureError as exc:
+        raise HTTPException(status_code=401, detail="Sessão 2.0 expirada.") from exc
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=401, detail="Sessão 2.0 inválida.") from exc
+
+    session_key = hashlib.sha256(session.encode("utf-8")).hexdigest()
+    state = await get_state(session_key)
+
+    state_status = str(state.get("status") or "MISSING").strip().upper()
+    state_token = (
+        str(state.get("token") or "").strip()
+        if state_status == "READY"
+        else ""
+    )
+
+    if state_token:
+        _store_legacy_cookie(response, session, state_token)
+        return {
+            "status": "READY",
+            "token": state_token,
+            "error": "",
+            "fonte": "MEMORIA_E_COOKIE_HTTPONLY",
+        }
+
+    if state_status == "MISSING":
+        persisted = _legacy_cookie_value(request, session)
+        if persisted:
+            return {
+                "status": "READY",
+                "token": persisted,
+                "error": "",
+                "fonte": "COOKIE_HTTPONLY",
+            }
+
+    return {
+        "status": state_status or "MISSING",
+        "token": "",
+        "error": (
+            str(state.get("error") or "")
+            if state_status == "ERROR"
+            else ""
+        ),
+    }
+
+
+@app.post("/auth/logout")
+async def prod597_logout(
+    response: Response,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    if session:
+        try:
+            session_key = hashlib.sha256(session.encode("utf-8")).hexdigest()
+            await clear_state(session_key)
+        except Exception:
+            pass
+        _delete_legacy_cookie(response, session)
+
+    response.delete_cookie(
+        key=settings.cookie_name,
+        domain=settings.cookie_domain,
+        path="/",
+    )
+    return {"sucesso": True}
 
 
 @app.get("/update-center-prod4.js", include_in_schema=False)
@@ -137,6 +257,7 @@ async def prod597_update_center_script():
 @app.post("/admin/update-center")
 async def prod597_update_center(
     request: Request,
+    response: Response,
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     if not session:
@@ -175,8 +296,12 @@ async def prod597_update_center(
     legacy_token = await _legacy_token(
         session_key=session_key,
         payload=payload,
+        persisted_token=_legacy_cookie_value(request, session),
         wait_for_monthly=mensal_requested,
     )
+
+    if legacy_token:
+        _store_legacy_cookie(response, session, legacy_token)
 
     if mensal_requested and not legacy_token:
         raise HTTPException(
