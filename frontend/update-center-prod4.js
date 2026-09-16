@@ -211,6 +211,15 @@
   }
 
   async function updateCenterApi(body){
+    // PROD5.9.7.2 — a sessão 2.0 pode sobreviver a um restart do Render,
+    // enquanto a ponte legada em memória é perdida. Reenvia somente para
+    // a Central o token legado que o navegador já possui.
+    const requestBody=Object.assign({},body||{});
+    const legacyToken=tokenNow();
+    if(legacyToken && !String(requestBody.token||'').trim()){
+      requestBody.token=legacyToken;
+    }
+
     const response=await originalFetch('/admin/update-center',{
       method:'POST',
       headers:{
@@ -219,7 +228,7 @@
       },
       credentials:'same-origin',
       cache:'no-store',
-      body:JSON.stringify(Object.assign({},body||{}))
+      body:JSON.stringify(requestBody)
     });
 
     const text=await response.text();
