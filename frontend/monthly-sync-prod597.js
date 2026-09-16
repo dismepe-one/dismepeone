@@ -1,7 +1,8 @@
-/* DISMEPE ONE — PROD5.9.7
+/* DISMEPE ONE — PROD5.9.7.1
    Correção exclusiva da Campanha Mensal.
    O worker legado é assíncrono; a tela só assume conclusão quando o
    horarioMensalISO retornado por /data/bootstrap (PostgreSQL) realmente avança.
+   A espera é persistida no navegador para sobreviver a reload/navegação.
    Campanhas Extras e demais módulos não são alterados por este patch. */
 (function(){
   if(window.__dismepeMonthlySyncProd597Installed)return;
@@ -12,7 +13,9 @@
   if(typeof previousPostApi!=='function')return;
 
   let generation=0;
-  const waits=[2500,6000,12000,25000,45000,65000,90000,120000,160000];
+  const PENDING_KEY='DISMEPE_MONTHLY_SYNC_597_PENDING';
+  const MAX_PENDING_MS=10*60*1000;
+  const waits=[2500,6000,12000,25000,45000,65000,90000,120000,160000,220000,300000,420000,540000];
 
   function monthlyRequested(body){
     const action=String(body?.acao||body?.action||'').trim().toUpperCase();
@@ -55,6 +58,37 @@
       const saved=JSON.parse(localStorage.getItem('DISMEPE_V2_HOME_TIMES')||'{}');
       return String(saved?.mensal||'').trim();
     }catch(e){return '';}
+  }
+
+  function savePending(baseline,startedAt){
+    try{
+      localStorage.setItem(PENDING_KEY,JSON.stringify({
+        baseline:String(baseline||'').trim(),
+        startedAt:Number(startedAt)||Date.now()
+      }));
+    }catch(e){}
+  }
+
+  function readPending(){
+    try{
+      const value=JSON.parse(localStorage.getItem(PENDING_KEY)||'null');
+      if(!value || typeof value!=='object')return null;
+      const startedAt=Number(value.startedAt)||0;
+      if(!startedAt || Date.now()-startedAt>MAX_PENDING_MS){
+        localStorage.removeItem(PENDING_KEY);
+        return null;
+      }
+      return {
+        baseline:String(value.baseline||'').trim(),
+        startedAt
+      };
+    }catch(e){
+      return null;
+    }
+  }
+
+  function clearPending(){
+    try{localStorage.removeItem(PENDING_KEY);}catch(e){}
   }
 
   async function bootstrap(){
@@ -121,7 +155,7 @@
         await window.cm18SelectCompetence?.(period);
       }
     }catch(e){
-      console.warn('[PROD5.9.7 Mensal refresh]',e);
+      console.warn('[PROD5.9.7.1 Mensal refresh]',e);
     }
 
     try{
@@ -129,13 +163,21 @@
     }catch(e){}
   }
 
-  function watchMonthly(baseline){
+  function watchMonthly(baseline,startedAt){
     const myGeneration=++generation;
     let base=String(baseline||'').trim();
+    const started=Number(startedAt)||Date.now();
+    savePending(base,started);
 
     waits.forEach(delay=>{
       setTimeout(async()=>{
         if(myGeneration!==generation)return;
+        if(Date.now()-started>MAX_PENDING_MS){
+          generation++;
+          clearPending();
+          return;
+        }
+
         const payload=await bootstrap();
         if(!payload)return;
         const current=snapshotTime(payload);
@@ -143,14 +185,22 @@
 
         if(!base){
           base=current;
+          savePending(base,started);
           return;
         }
         if(!isNewer(current,base))return;
 
         generation++;
+        clearPending();
         await applyMonthlySnapshot(payload);
       },delay);
     });
+  }
+
+  function resumePending(){
+    const pending=readPending();
+    if(!pending)return;
+    watchMonthly(pending.baseline,pending.startedAt);
   }
 
   window.postApi=async function(body){
@@ -162,14 +212,21 @@
     // horário do clique com a conclusão real do worker.
     const before=await bootstrap();
     const baseline=snapshotTime(before)||rememberedMonthly();
+    const startedAt=Date.now();
+
+    // Persiste ANTES da chamada. Se a própria tela recarregar/navegar logo
+    // após o clique, a nova página retoma a espera pelo worker.
+    savePending(baseline,startedAt);
 
     try{
       return await previousPostApi.apply(this,arguments);
     }finally{
-      // Mesmo se o transporte legado devolver 502 depois de ter aceitado o
-      // trabalho, acompanhamos o PostgreSQL; só um snapshot realmente novo
-      // atualiza o horário e os dados Mensais.
-      watchMonthly(baseline);
+      // Mesmo se a resposta chegar perto de um reload, a espera fica salva.
+      watchMonthly(baseline,startedAt);
     }
   };
+
+  // Retoma uma atualização Mensal pendente depois de reload/navegação.
+  setTimeout(resumePending,350);
+  window.addEventListener('pageshow',()=>setTimeout(resumePending,150));
 })();
