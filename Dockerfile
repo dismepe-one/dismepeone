@@ -5,12 +5,17 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY api ./api
 COPY frontend ./frontend
+COPY data ./data
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "uvicorn api.prod4_app:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn api.industries_app:app --host 0.0.0.0 --port ${PORT:-8000}"]
