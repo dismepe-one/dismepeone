@@ -11,6 +11,7 @@ from .prod4_app import app, settings
 from .security import decode_session_token
 from .industries import (
     is_industry_profile,
+    is_buyer_profile,
     router as industries_router,
     scope_industry_bootstrap,
 )
@@ -29,7 +30,7 @@ _ORIGINAL_SCOPE = main_module.scope_mensal_dashboard
 
 
 def _scope_with_industry(payload: dict, profile: dict, competencia: str | None = None):
-    if is_industry_profile(profile):
+    if is_industry_profile(profile) or is_buyer_profile(profile):
         return scope_industry_bootstrap(payload, profile, competencia=competencia)
     return _ORIGINAL_SCOPE(payload, profile, competencia=competencia)
 
@@ -103,7 +104,7 @@ async def industries_route_guard(request: Request, call_next):
     # um lifespan próprio e não executem handlers legados de startup.
     await start_stock_sync()
     profile = _profile_from_cookie(request)
-    if profile and is_industry_profile(profile):
+    if profile and (is_industry_profile(profile) or is_buyer_profile(profile)):
         path = request.url.path
         if path in {"/", "/portal-v2-homolog.html"}:
             return RedirectResponse(url="/industrias", status_code=303)
@@ -126,7 +127,7 @@ _remove_routes("/", "/portal-v2-homolog.html", "/health")
 @app.get("/", include_in_schema=False)
 async def industries_root(request: Request):
     profile = _profile_from_cookie(request)
-    if profile and is_industry_profile(profile):
+    if profile and (is_industry_profile(profile) or is_buyer_profile(profile)):
         return RedirectResponse(url="/industrias", status_code=303)
     return _portal_response()
 
@@ -134,7 +135,7 @@ async def industries_root(request: Request):
 @app.get("/portal-v2-homolog.html", include_in_schema=False)
 async def industries_root_alias(request: Request):
     profile = _profile_from_cookie(request)
-    if profile and is_industry_profile(profile):
+    if profile and (is_industry_profile(profile) or is_buyer_profile(profile)):
         return RedirectResponse(url="/industrias", status_code=303)
     return _portal_response()
 

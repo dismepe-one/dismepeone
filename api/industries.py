@@ -32,11 +32,16 @@ GENERAL_SALES_FILE = ROOT / "data" / "industries" / "venda_geral_atual.json"
 GENERAL_SALES_HISTORY_FILE = ROOT / "data" / "industries" / "venda_geral_historico.json"
 
 ROLE_INDUSTRY = "INDUSTRIA"
+ROLE_BUYER = "COMPRADOR"
 PERM_PORTAL = "INDUSTRIA_PORTAL"
 PERM_FIRST_ACCESS = "INDUSTRIA_TROCAR_SENHA"
 PERM_LABS = "INDUSTRIA_LABORATORIOS"
 PERM_STOCK_UPDATE = "INDUSTRIA_MAPA_ATUALIZAR"
 PERM_INTERNAL_PORTAL = "INDUSTRIA_PORTAL_INTERNO"
+PERM_BUYER_ALL_LABS = "INDUSTRIA_TODOS_LABORATORIOS"
+
+ALL_LABS_VALUE = "__TODOS__"
+ALL_LABS_LABEL = "TODOS OS LABORATÓRIOS"
 
 
 class IndustryUserCreateRequest(BaseModel):
@@ -68,6 +73,10 @@ class IndustryOperatorPermissionsRequest(BaseModel):
     tipo: str = Field(min_length=1, max_length=80)
     permissoesGerenciadas: list[str] = Field(default_factory=list, max_length=200)
     permissoesSelecionadas: list[str] = Field(default_factory=list, max_length=200)
+
+
+class IndustryBuyerPromoteRequest(BaseModel):
+    usuario: str = Field(min_length=1, max_length=120)
 
 
 class IndustryError(RuntimeError):
@@ -102,6 +111,24 @@ def is_industry_profile(profile: dict[str, Any] | None) -> bool:
 def _permissions(profile: dict[str, Any]) -> dict[str, Any]:
     value = profile.get("permissoes")
     return value if isinstance(value, dict) else {}
+
+
+def is_buyer_profile(profile: dict[str, Any] | None) -> bool:
+    profile = profile or {}
+    return _role(profile) == ROLE_BUYER
+
+
+def _buyer_all_labs(profile: dict[str, Any]) -> bool:
+    return (
+        is_buyer_profile(profile)
+        and _permissions(profile).get(PERM_INTERNAL_PORTAL) is True
+        and _permissions(profile).get(PERM_BUYER_ALL_LABS) is True
+    )
+
+
+def _is_all_labs_request(value: Any) -> bool:
+    text = str(value or "").strip()
+    return text == ALL_LABS_VALUE or normalizar(text) == normalizar(ALL_LABS_LABEL)
 
 
 def industry_must_change_password(profile: dict[str, Any]) -> bool:
@@ -294,9 +321,16 @@ def _snapshot_users(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _choose_lab(profile: dict[str, Any], requested: str | None) -> str:
-    # Visão interna possui escopo deliberadamente global. O laboratório ainda é
-    # aplicado como filtro exato no servidor; não existe envio consolidado de
-    # todos os laboratórios numa única resposta.
+    # Consolidado global: exclusivo do perfil COMPRADOR.
+    if _is_all_labs_request(requested):
+        if _buyer_all_labs(profile):
+            return ALL_LABS_VALUE
+        raise HTTPException(
+            status_code=403,
+            detail="O consolidado de todos os laboratórios é exclusivo do perfil Comprador.",
+        )
+
+    # Usuário interno autorizado pode selecionar qualquer laboratório individual.
     if _is_internal_industry_viewer(profile):
         label = _clean_lab(requested)
         if not label:
@@ -588,6 +622,16 @@ def _industry_campaign_metrics(payload: dict[str, Any], lab: str, comp: str) -> 
     for row in rules:
         if not isinstance(row, dict) or not _rule_active(row):
             continue
+
+        # No portal Indústrias mostramos somente a campanha normal do laboratório.
+        metric_key = normalizar(row.get("metrica") or row.get("METRICA") or "")
+        focus_text = normalizar(" ".join(str(row.get(k) or "") for k in (
+            "metrica", "METRICA", "tipo", "TIPO", "criterio", "CRITERIO",
+            "observacao", "OBSERVACAO", "produtoFoco", "PRODUTO_FOCO",
+        )))
+        if metric_key == "PONTUACAO_PRODUTO" or "PRODUTO FOCO" in focus_text:
+            continue
+
         if _lab_key(_rule_lab(row)) != lab_key:
             continue
         rule_comp = _rule_competence(row)
@@ -729,12 +773,18 @@ def _load_stock() -> dict[str, Any]:
 
 def _stock_rows_for_lab(lab: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     data = _load_stock()
+    all_labs = _is_all_labs_request(lab)
     key = _lab_key(lab)
-    rows = [
-        dict(row)
-        for row in data.get("linhas", [])
-        if isinstance(row, dict) and _lab_key(row.get("fornecedor")) == key
-    ]
+    rows: list[dict[str, Any]] = []
+    for row in data.get("linhas", []):
+        if not isinstance(row, dict):
+            continue
+        row_lab = _clean_lab(row.get("fornecedor") or row.get("laboratorio") or "")
+        if not all_labs and _lab_key(row_lab) != key:
+            continue
+        item = dict(row)
+        item["laboratorio"] = row_lab or (_clean_lab(lab) if not all_labs else "")
+        rows.append(item)
     return data, rows
 
 
@@ -913,13 +963,7 @@ def _safe_filename_lab(lab: str) -> str:
 
 
 def _general_sales_snapshot(lab: str, competencia: str) -> dict[str, Any] | None:
-    """Lê uma fotografia normalizada da venda geral do laboratório, se existir.
-
-    A base é opcional. Enquanto não houver arquivo validado, o portal continua
-    usando exatamente o total atual de Vendedores + Televendas. Quando a nova
-    base for ligada, ela passa a ser a fonte autoritativa do card Venda Total,
-    evitando dupla contagem de Diretoria/Supervisão.
-    """
+    # Fonte oficial: OBJETIVO X VENDA.xlsx normalizada em venda_geral_atual.json.
     if not GENERAL_SALES_FILE.exists():
         return None
     try:
@@ -929,33 +973,42 @@ def _general_sales_snapshot(lab: str, competencia: str) -> dict[str, Any] | None
     rows = payload.get("linhas") if isinstance(payload, dict) else None
     if not isinstance(rows, list):
         return None
+
+    all_labs = _is_all_labs_request(lab)
     lab_key = _lab_key(lab)
     comp_key = normalizar(competencia or "")
     total = 0.0
     objective = 0.0
     found = False
     has_objective = False
+
     for row in rows:
         if not isinstance(row, dict):
             continue
         row_lab = row.get("laboratorio") or row.get("lab") or row.get("fornecedor") or row.get("industria")
-        if _lab_key(row_lab) != lab_key:
+        if not all_labs and _lab_key(row_lab) != lab_key:
             continue
         row_comp = row.get("competencia") or row.get("mes") or row.get("periodo") or ""
         if comp_key and row_comp and normalizar(row_comp) != comp_key:
             continue
+
         raw_value = row.get("venda_total")
-        if raw_value is None: raw_value = row.get("venda")
-        if raw_value is None: raw_value = row.get("total")
-        if raw_value is None: raw_value = row.get("faturamento")
-        value = _num(raw_value)
-        total += value
+        if raw_value is None:
+            raw_value = row.get("venda")
+        if raw_value is None:
+            raw_value = row.get("total")
+        if raw_value is None:
+            raw_value = row.get("faturamento")
+        total += _num(raw_value)
         found = True
+
         raw_obj = row.get("objetivo_total")
-        if raw_obj is None: raw_obj = row.get("objetivo")
+        if raw_obj is None:
+            raw_obj = row.get("objetivo")
         if raw_obj not in (None, ""):
             objective += _num(raw_obj)
             has_objective = True
+
     if not found:
         return None
     return {
@@ -966,9 +1019,8 @@ def _general_sales_snapshot(lab: str, competencia: str) -> dict[str, Any] | None
     }
 
 
-
 def _general_sales_history(lab: str) -> list[dict[str, Any]]:
-    """Últimas 3 fotografias da base OBJETIVO X VENDA para o laboratório."""
+    # Últimas 3 fotografias, por laboratório ou no consolidado.
     if not GENERAL_SALES_HISTORY_FILE.exists():
         return []
     try:
@@ -978,37 +1030,50 @@ def _general_sales_history(lab: str) -> list[dict[str, Any]]:
     snapshots = payload.get("atualizacoes") if isinstance(payload, dict) else None
     if not isinstance(snapshots, list):
         return []
+
+    all_labs = _is_all_labs_request(lab)
     lab_key = _lab_key(lab)
     out: list[dict[str, Any]] = []
+
     for snapshot in snapshots[:3]:
         if not isinstance(snapshot, dict):
             continue
         rows = snapshot.get("linhas")
         if not isinstance(rows, list):
             continue
+
         total = 0.0
         objective = 0.0
         found = False
         has_objective = False
+
         for row in rows:
             if not isinstance(row, dict):
                 continue
             row_lab = row.get("laboratorio") or row.get("lab") or row.get("fornecedor") or row.get("industria")
-            if _lab_key(row_lab) != lab_key:
+            if not all_labs and _lab_key(row_lab) != lab_key:
                 continue
+
             raw_value = row.get("venda_total")
-            if raw_value is None: raw_value = row.get("venda")
-            if raw_value is None: raw_value = row.get("total")
-            if raw_value is None: raw_value = row.get("faturamento")
+            if raw_value is None:
+                raw_value = row.get("venda")
+            if raw_value is None:
+                raw_value = row.get("total")
+            if raw_value is None:
+                raw_value = row.get("faturamento")
             total += _num(raw_value)
             found = True
+
             raw_obj = row.get("objetivo_total")
-            if raw_obj is None: raw_obj = row.get("objetivo")
+            if raw_obj is None:
+                raw_obj = row.get("objetivo")
             if raw_obj not in (None, ""):
                 objective += _num(raw_obj)
                 has_objective = True
+
         if not found:
             continue
+
         objective_value = round(objective, 2) if has_objective else None
         out.append({
             "idAtualizacao": str(snapshot.get("idAtualizacao") or ""),
@@ -1017,7 +1082,11 @@ def _general_sales_history(lab: str) -> list[dict[str, Any]]:
             "fonte": str(snapshot.get("fonte") or snapshot.get("arquivo_origem") or ""),
             "vendaTotal": round(total, 2),
             "objetivoTotal": objective_value,
-            "atingimentoTotal": round((total / objective_value * 100.0), 2) if objective_value is not None and objective_value > 0 else None,
+            "atingimentoTotal": (
+                round((total / objective_value * 100.0), 2)
+                if objective_value is not None and objective_value > 0
+                else None
+            ),
         })
     return out[:3]
 
@@ -1055,6 +1124,8 @@ async def industries_labs(
     return {
         "sucesso": True,
         "acessoInterno": _is_internal_industry_viewer(profile),
+        "acessoComprador": is_buyer_profile(profile),
+        "podeTodosLaboratorios": _buyer_all_labs(profile),
         "laboratorios": labs,
     }
 
@@ -1082,6 +1153,8 @@ async def industries_data(
 ):
     profile = await _industry_profile(session, require_password_changed=True)
     lab = _choose_lab(profile, laboratorio)
+    all_labs = _is_all_labs_request(lab)
+
     try:
         payload, row = await cache_get(modulo="MENSAL", settings=settings)
     except CacheReadError as exc:
@@ -1093,22 +1166,38 @@ async def industries_data(
     comps = _all_competences(payload, all_rows)
     comp = str(competencia or "").strip() or (comps[0] if comps else "")
     days = _days_remaining(payload, comp)
-    key = {_lab_key(lab)}
-    vend_raw = [row for row in _filter_lab_rows(vend_all, key, comp or None) if not _is_focus_row(row)]
-    tlv_raw = [row for row in _filter_lab_rows(tlv_all, key, comp or None) if not _is_focus_row(row)]
+
+    if all_labs:
+        vend_raw = [
+            row for row in vend_all
+            if isinstance(row, dict)
+            and (not comp or _row_competence(row) == comp)
+            and not _is_focus_row(row)
+        ]
+        tlv_raw = [
+            row for row in tlv_all
+            if isinstance(row, dict)
+            and (not comp or _row_competence(row) == comp)
+            and not _is_focus_row(row)
+        ]
+    else:
+        key = {_lab_key(lab)}
+        vend_raw = [row for row in _filter_lab_rows(vend_all, key, comp or None) if not _is_focus_row(row)]
+        tlv_raw = [row for row in _filter_lab_rows(tlv_all, key, comp or None) if not _is_focus_row(row)]
+
     vend_rows = [_sanitize_sales_row(x, "VENDEDORES", days) for x in vend_raw]
     tlv_rows = [_sanitize_sales_row(x, "TELEVENDAS", days) for x in tlv_raw]
 
-    vend_main = vend_rows
-    tlv_main = tlv_rows
-    venda_v = sum(x["venda"] for x in vend_main)
-    venda_t = sum(x["venda"] for x in tlv_main)
-    obj_v = sum(x["objetivo"] for x in vend_main)
-    obj_t = sum(x["objetivo"] for x in tlv_main)
-    venda_total = venda_v + venda_t
-    obj_total: float | None = obj_v + obj_t
+    venda_v = sum(x["venda"] for x in vend_rows)
+    venda_t = sum(x["venda"] for x in tlv_rows)
+    obj_v = sum(x["objetivo"] for x in vend_rows)
+    obj_t = sum(x["objetivo"] for x in tlv_rows)
+
+    # Venda Geral nunca cai para Vendedores + Televendas.
     general = _general_sales_snapshot(lab, comp)
-    fonte_venda_total = "VENDEDORES_TELEVENDAS"
+    venda_total: float | None = None
+    obj_total: float | None = None
+    fonte_venda_total = "BASE_GERAL_INDISPONIVEL"
     venda_total_atualizado_em = ""
     if general is not None:
         venda_total = float(general["venda"])
@@ -1118,30 +1207,38 @@ async def industries_data(
 
     return {
         "sucesso": True,
-        "laboratorio": lab,
-        "laboratoriosAutorizados": (await _industry_visible_labs(profile)) if _is_internal_industry_viewer(profile) else industry_allowed_labs(profile),
+        "laboratorio": ALL_LABS_LABEL if all_labs else lab,
+        "todosLaboratorios": all_labs,
+        "laboratoriosAutorizados": (
+            await _industry_visible_labs(profile)
+            if _is_internal_industry_viewer(profile)
+            else industry_allowed_labs(profile)
+        ),
         "acessoInterno": _is_internal_industry_viewer(profile),
+        "acessoComprador": is_buyer_profile(profile),
         "competencia": comp,
         "competencias": comps,
         "diasUteisRestantes": days,
         "atualizadoEm": str(row.get("atualizado_em") or ""),
         "resumo": {
-            "vendaTotal": round(venda_total, 2),
+            "vendaTotal": round(venda_total, 2) if venda_total is not None else None,
             "vendedores": round(venda_v, 2),
             "televendas": round(venda_t, 2),
             "objetivoTotal": round(obj_total, 2) if obj_total is not None else None,
             "objetivoVendedores": round(obj_v, 2),
             "objetivoTelevendas": round(obj_t, 2),
-            "atingimentoTotal": round((venda_total / obj_total * 100.0), 2) if obj_total is not None and obj_total > 0 else None,
+            "atingimentoTotal": (
+                round((venda_total / obj_total * 100.0), 2)
+                if venda_total is not None and obj_total is not None and obj_total > 0
+                else None
+            ),
             "fonteVendaTotal": fonte_venda_total,
             "vendaTotalAtualizadoEm": venda_total_atualizado_em,
             "positivacao": None,
         },
         "vendedores": vend_rows,
         "televendas": tlv_rows,
-        # Campanhas usa as mesmas Regras/Métricas do snapshot MENSAL do DISMEPE ONE,
-        # sempre filtradas no servidor pelo laboratório e competência autorizados.
-        "campanhas": _industry_campaign_metrics(payload, lab, comp),
+        "campanhas": [] if all_labs else _industry_campaign_metrics(payload, lab, comp),
         "historico": _general_sales_history(lab),
         "oportunidades": [],
     }
@@ -1154,12 +1251,14 @@ async def industries_stock(
 ):
     profile = await _industry_profile(session, require_password_changed=True)
     lab = _choose_lab(profile, laboratorio)
+    all_labs = _is_all_labs_request(lab)
     data, rows = _stock_rows_for_lab(lab)
     total_stock = sum(_int(row.get("estoque")) for row in rows)
     without_stock = sum(1 for row in rows if _int(row.get("estoque")) <= 0)
     return {
         "sucesso": True,
-        "laboratorio": lab,
+        "laboratorio": ALL_LABS_LABEL if all_labs else lab,
+        "todosLaboratorios": all_labs,
         "atualizadoEm": str(data.get("gerado_em") or ""),
         "arquivoOrigem": str(data.get("fonte") or data.get("arquivo_origem") or ""),
         "resumo": {
@@ -1203,6 +1302,44 @@ async def industries_download_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/admin/industries/buyers/promote")
+async def industries_promote_buyer(
+    payload: IndustryBuyerPromoteRequest,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    _strict_admin_profile(session)
+    usuario = str(payload.usuario or "").strip()
+    if not usuario:
+        raise HTTPException(status_code=400, detail="Usuário inválido.")
+
+    buyer_perms: dict[str, Any] = {
+        PERM_INTERNAL_PORTAL: True,
+        PERM_BUYER_ALL_LABS: True,
+        PERM_STOCK_UPDATE: False,
+    }
+    try:
+        await _edge_admin_write(
+            "USUARIO_PERMISSOES_SET",
+            {
+                "usuario_norm": normalizar(usuario),
+                "tipo": ROLE_BUYER,
+                "permissoes": buyer_perms,
+            },
+        )
+    except IndustryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    return {
+        "sucesso": True,
+        "usuario": usuario,
+        "tipo": ROLE_BUYER,
+        "somentePortalIndustrias": True,
+        "todosLaboratorios": True,
+        "podeAtualizarMapa": False,
+        "mensagem": "Usuário convertido em COMPRADOR com acesso somente ao DISMEPE ONE INDÚSTRIAS e a todos os laboratórios.",
+    }
 
 
 @router.get("/admin/industries/stock-sync/status")
@@ -1279,12 +1416,17 @@ async def industries_operator_permissions(
     if PERM_INTERNAL_PORTAL not in managed or PERM_STOCK_UPDATE not in managed:
         raise HTTPException(status_code=400, detail="A tela de permissões está desatualizada. Recarregue o sistema e tente novamente.")
 
-    forbidden = {PERM_PORTAL, PERM_FIRST_ACCESS, PERM_LABS}
+    forbidden = {PERM_PORTAL, PERM_FIRST_ACCESS, PERM_LABS, PERM_BUYER_ALL_LABS}
     perms: dict[str, Any] = {}
     for key in managed:
         if key in forbidden or not re.fullmatch(r"[A-Z0-9_]{2,80}", key):
             continue
         perms[key] = key in selected
+
+    if normalizar(tipo) == ROLE_BUYER:
+        perms[PERM_INTERNAL_PORTAL] = True
+        perms[PERM_BUYER_ALL_LABS] = True
+        perms[PERM_STOCK_UPDATE] = False
 
     usuario = str(payload.usuario or "").strip()
     if not usuario:
