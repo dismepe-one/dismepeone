@@ -117,6 +117,7 @@ async function loadData(){const lab=document.getElementById('labSelect').value;i
 function renderKpis(view){
   const r=salesData?.resumo||{};
   const active=view||document.querySelector('.tab.active')?.dataset.view||'inicio';
+  const allLabsSelected=String(document.getElementById('labSelect')?.value||'')===ALL_LABS;
 
   let l1='Venda Geral',l2='Objetivo Geral',l3='% Atendimento Geral';
   let v1=r.vendaTotal,v2=r.objetivoTotal,v3=r.atingimentoTotal;
@@ -147,15 +148,15 @@ function renderKpis(view){
   document.getElementById('kMetric1Label').textContent=l1;
   document.getElementById('kMetric2Label').textContent=l2;
   document.getElementById('kMetric3Label').textContent=l3;
-  document.getElementById('kMetric1').textContent=v1!=null?money(v1):'—';
-  document.getElementById('kMetric2').textContent=v2!=null?money(v2):'—';
-  document.getElementById('kMetric3').textContent=v3!=null?`${Number(v3).toFixed(1)}%`:'—';
-  document.getElementById('kMetric1Sub').textContent=s1;
-  document.getElementById('kMetric2Sub').textContent=s2;
-  document.getElementById('kMetric3Sub').textContent=s3;
+  document.getElementById('kMetric1').textContent=allLabsSelected?'':(v1!=null?money(v1):'—');
+  document.getElementById('kMetric2').textContent=allLabsSelected?'':(v2!=null?money(v2):'—');
+  document.getElementById('kMetric3').textContent=allLabsSelected?'':(v3!=null?`${Number(v3).toFixed(1)}%`:'—');
+  document.getElementById('kMetric1Sub').textContent=allLabsSelected?'':s1;
+  document.getElementById('kMetric2Sub').textContent=allLabsSelected?'':s2;
+  document.getElementById('kMetric3Sub').textContent=allLabsSelected?'':s3;
 
   const hp=document.getElementById('homePerformance');
-  if(hp)hp.innerHTML=`<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"><div class="mini"><div class="l">Competência</div><div class="v" style="font-size:14px">${esc(salesData?.competencia||'—')}</div></div><div class="mini"><div class="l">Objetivo Geral</div><div class="v" style="font-size:14px">${salesData?.resumo?.objetivoTotal!=null?money(salesData.resumo.objetivoTotal):'—'}</div></div><div class="mini"><div class="l">Dias úteis restantes</div><div class="v" style="font-size:14px">${salesData?.diasUteisRestantes||'—'}</div></div></div>`;
+  if(hp)hp.innerHTML=`<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"><div class="mini"><div class="l">Competência</div><div class="v" style="font-size:14px">${esc(salesData?.competencia||'—')}</div></div><div class="mini"><div class="l">Objetivo Geral</div><div class="v" style="font-size:14px">${allLabsSelected?'':(salesData?.resumo?.objetivoTotal!=null?money(salesData.resumo.objetivoTotal):'—')}</div></div><div class="mini"><div class="l">Dias úteis restantes</div><div class="v" style="font-size:14px">${salesData?.diasUteisRestantes||'—'}</div></div></div>`;
 }
 function pill(v){if(v==null)return '—';const c=v>=100?'good':v>=50?'warn':'bad';return `<span class="status-pill ${c}">${Number(v).toFixed(1)}%</span>`}
 function statusPill(v){const pct=Number(v);if(!Number.isFinite(pct))return '—';const c=pct>=100?'good':pct>=50?'warn':'bad';const t=pct>=100?'Meta Atingida':pct>=50?'Em Progresso':'Abaixo da Meta';return `<span class="status-pill ${c}">${t}</span>`}

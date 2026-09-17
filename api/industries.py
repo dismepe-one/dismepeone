@@ -1360,16 +1360,52 @@ def _general_sales_history(lab: str) -> list[dict[str, Any]]:
     return out[:3]
 
 
-async def _industry_visible_labs(profile: dict[str, Any]) -> list[str]:
-    if not _is_internal_industry_viewer(profile):
-        return industry_allowed_labs(profile)
-
+async def _all_available_industry_labs() -> list[str]:
+    # Fonte única de laboratórios disponíveis no portal Indústrias.
+    # Não depende de o laboratório estar em campanha.
     labels: list[str] = []
+
     try:
         stock = _load_stock()
-        labels.extend(str(x) for x in stock.get("fornecedores", []) if str(x).strip())
+        labels.extend(
+            str(x)
+            for x in stock.get("fornecedores", [])
+            if str(x).strip()
+        )
+        for row in stock.get("linhas", []):
+            if not isinstance(row, dict):
+                continue
+            lab = _clean_lab(
+                row.get("fornecedor")
+                or row.get("laboratorio")
+                or row.get("Laboratório")
+                or row.get("LABORATORIO")
+                or ""
+            )
+            if lab:
+                labels.append(lab)
     except HTTPException:
         pass
+
+    try:
+        if GENERAL_SALES_FILE.exists():
+            general = json.loads(GENERAL_SALES_FILE.read_text(encoding="utf-8"))
+            rows = general.get("linhas", []) if isinstance(general, dict) else []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                lab = _clean_lab(
+                    row.get("laboratorio")
+                    or row.get("lab")
+                    or row.get("fornecedor")
+                    or row.get("industria")
+                    or ""
+                )
+                if lab:
+                    labels.append(lab)
+    except Exception:
+        pass
+
     try:
         payload, _ = await cache_get(modulo="MENSAL", settings=settings)
         for row in list(payload.get("dadosVendedores") or []) + list(payload.get("dadosTelevendas") or []):
@@ -1379,9 +1415,16 @@ async def _industry_visible_labs(profile: dict[str, Any]) -> list[str]:
                     labels.append(lab)
     except Exception:
         pass
+
     labs = _canonical_lab_labels(labels)
     labs.sort(key=lambda x: normalizar(x))
     return labs
+
+
+async def _industry_visible_labs(profile: dict[str, Any]) -> list[str]:
+    if not _is_internal_industry_viewer(profile):
+        return industry_allowed_labs(profile)
+    return await _all_available_industry_labs()
 
 
 @router.get("/industrias/laboratorios")
@@ -1490,16 +1533,20 @@ async def industries_data(
         "diasUteisRestantes": days,
         "atualizadoEm": str(row.get("atualizado_em") or ""),
         "resumo": {
-            "vendaTotal": round(venda_total, 2) if venda_total is not None else None,
-            "vendedores": round(venda_v, 2),
-            "televendas": round(venda_t, 2),
-            "objetivoTotal": round(obj_total, 2) if obj_total is not None else None,
-            "objetivoVendedores": round(obj_v, 2),
-            "objetivoTelevendas": round(obj_t, 2),
+            "vendaTotal": None if all_labs else (round(venda_total, 2) if venda_total is not None else None),
+            "vendedores": None if all_labs else round(venda_v, 2),
+            "televendas": None if all_labs else round(venda_t, 2),
+            "objetivoTotal": None if all_labs else (round(obj_total, 2) if obj_total is not None else None),
+            "objetivoVendedores": None if all_labs else round(obj_v, 2),
+            "objetivoTelevendas": None if all_labs else round(obj_t, 2),
             "atingimentoTotal": (
-                round((venda_total / obj_total * 100.0), 2)
-                if venda_total is not None and obj_total is not None and obj_total > 0
-                else None
+                None
+                if all_labs
+                else (
+                    round((venda_total / obj_total * 100.0), 2)
+                    if venda_total is not None and obj_total is not None and obj_total > 0
+                    else None
+                )
             ),
             "fonteVendaTotal": fonte_venda_total,
             "vendaTotalAtualizadoEm": venda_total_atualizado_em,
@@ -1508,7 +1555,7 @@ async def industries_data(
         "vendedores": vend_rows,
         "televendas": tlv_rows,
         "campanhas": [] if all_labs else _industry_campaign_metrics(payload, lab, comp),
-        "historico": _general_sales_history(lab),
+        "historico": [] if all_labs else _general_sales_history(lab),
         "oportunidades": [],
     }
 
@@ -1945,23 +1992,7 @@ async def industries_admin_labs(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     _admin_profile(session)
-    labels: list[str] = []
-    try:
-        stock = _load_stock()
-        labels.extend(str(x) for x in stock.get("fornecedores", []) if str(x).strip())
-    except HTTPException:
-        pass
-    try:
-        payload, _ = await cache_get(modulo="MENSAL", settings=settings)
-        for row in list(payload.get("dadosVendedores") or []) + list(payload.get("dadosTelevendas") or []):
-            if isinstance(row, dict):
-                lab = _row_lab(row)
-                if lab:
-                    labels.append(lab)
-    except Exception:
-        pass
-    labs = _canonical_lab_labels(labels)
-    labs.sort(key=lambda x: normalizar(x))
+    labs = await _all_available_industry_labs()
     return {"sucesso": True, "laboratorios": labs}
 
 
