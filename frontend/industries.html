@@ -95,7 +95,7 @@ async function init(){
     const backBtn=document.getElementById('btnBackDismepeOne');
     if(backBtn)backBtn.classList.toggle('hidden',!internal||buyer);
     const sel=document.getElementById('labSelect');
-    sel.onchange=async()=>{salesData=null;stockData=null;await loadData();if(!document.getElementById('view-estoque').classList.contains('hidden'))await loadStock()};
+    sel.onchange=async()=>{salesData=null;stockData=null;await Promise.all([loadData(),loadStock()])};
     document.getElementById('compSelect').onchange=loadData;
 
     // Primeiro acesso do representante não consulta dados antes da troca de senha.

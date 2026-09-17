@@ -1077,7 +1077,7 @@ def _xlsx_number_cell(ref: str, value: Any, style: int = 0) -> str:
 
 
 def _build_xlsx(rows: list[dict[str, Any]], lab: str, generated_at: str) -> bytes:
-    include_lab = _is_all_labs_request(lab)
+    include_lab = True  # Laboratório deve aparecer em toda exportação PDF/Excel
 
     headers = [
         "Código", "Descrição", "Curva", "Preço", "UFO", "Estoque",
@@ -1194,7 +1194,7 @@ def _build_pdf(rows: list[dict[str, Any]], lab: str, generated_at: str) -> bytes
         Paragraph(f"<b>Laboratório:</b> {_pdf_safe_text(lab)} &nbsp;&nbsp; <b>Atualizado:</b> {_pdf_safe_text(generated_at)}", styles["BodyText"]),
         Spacer(1, 5 * mm),
     ]
-    include_lab = _is_all_labs_request(lab)
+    include_lab = True  # Laboratório deve aparecer em toda exportação PDF/Excel
 
     headers = ["Código", "Descrição", "Curva", "Preço", "Estoque", "JUN", "JUL", "AGO", "SET", "Média", "EAN", "Est. até", "Últ. entrada"]
     if include_lab:
