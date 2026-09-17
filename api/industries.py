@@ -84,6 +84,13 @@ class IndustryBuyerCreateRequest(BaseModel):
     nome: str = Field(default="", max_length=160)
 
 
+class AdminUserCreateRequest(BaseModel):
+    usuario: str = Field(min_length=2, max_length=120)
+    tipo: str = Field(min_length=2, max_length=80)
+    nome: str = Field(default="", max_length=160)
+    vendedor: str = Field(default="", max_length=160)
+
+
 class IndustryError(RuntimeError):
     def __init__(self, message: str, *, status_code: int = 502, data: dict[str, Any] | None = None):
         super().__init__(message)
@@ -731,6 +738,263 @@ async def _edge_admin_write(action: str, payload: dict[str, Any]) -> dict[str, A
             data=data,
         )
     return data
+
+
+# PROD5.9.8.11 — usuários internos usam o mesmo fluxo pós-migração
+# do DISMEPE ONE INDÚSTRIAS.
+_INTERNAL_ROLE_DEFAULT_PERMISSIONS: dict[str, dict[str, Any]] = {
+    "ADMINISTRADOR": {},
+    "COMERCIAL": {
+        "VENDEDORES": True,
+        "TELEVENDAS": True,
+        "VISAO_GERAL": True,
+        "FILTRO_VENDEDORES": True,
+        "FILTRO_TELEVENDAS": True,
+        "RESUMO_PREMIACOES": True,
+        "CAMPANHAS_EXTRAS_VISUALIZAR": True,
+        "CAMPANHAS_MENSAIS_VISUALIZAR": True,
+        "HISTORICO_MENSAL_VISUALIZAR": True,
+        "HISTORICO_EXTRAS_VISUALIZAR": True,
+        "CONFIGURACAO": True,
+        "ALTERAR_SENHA": True,
+    },
+    "GERENTE DE VENDAS": {
+        "VENDEDORES": True,
+        "TELEVENDAS": True,
+        "VISAO_GERAL": True,
+        "FILTRO_VENDEDORES": True,
+        "FILTRO_TELEVENDAS": True,
+        "RESUMO_PREMIACOES": True,
+        "CAMPANHAS_EXTRAS_VISUALIZAR": True,
+        "CAMPANHAS_MENSAIS_VISUALIZAR": True,
+        "HISTORICO_MENSAL_VISUALIZAR": True,
+        "HISTORICO_EXTRAS_VISUALIZAR": True,
+        "CONFIGURACAO": True,
+        "ALTERAR_SENHA": True,
+    },
+    "VENDEDOR": {
+        "VENDEDORES": True,
+        "CONFIGURACAO": True,
+        "ALTERAR_SENHA": True,
+    },
+    "TELEVENDAS": {
+        "TELEVENDAS": True,
+        "CONFIGURACAO": True,
+        "ALTERAR_SENHA": True,
+    },
+    "SUP VENDAS": {
+        "VENDEDORES": True,
+        "FILTRO_VENDEDORES": True,
+        "CONFIGURACAO": True,
+        "ALTERAR_SENHA": True,
+    },
+    "SUP TELEVENDAS": {
+        "TELEVENDAS": True,
+        "FILTRO_TELEVENDAS": True,
+        "CONFIGURACAO": True,
+        "ALTERAR_SENHA": True,
+    },
+    "CONTAS A PAGAR": {
+        "RESUMO_PREMIACOES": True,
+        "PREMIACOES_VISUALIZAR": True,
+        "PREMIACOES_HISTORICO": True,
+        "NOTIFICACOES_VISUALIZAR": True,
+        "NOTIFICACOES_MARCAR_LIDA": True,
+        "ALTERAR_SENHA": True,
+    },
+    ROLE_BUYER: {
+        PERM_INTERNAL_PORTAL: True,
+        PERM_BUYER_ALL_LABS: True,
+        PERM_STOCK_UPDATE: False,
+    },
+}
+
+
+def _canonical_internal_role(value: Any) -> str:
+    role = normalizar(value or "")
+    aliases = {
+        "ADMIN": "ADMINISTRADOR",
+        "GESTOR": "COMERCIAL",
+        "FINANCEIRO": "CONTAS A PAGAR",
+        "FINANCAS": "CONTAS A PAGAR",
+        "CONTAS PAGAR": "CONTAS A PAGAR",
+        "SUPERVISOR VENDAS": "SUP VENDAS",
+        "SUPERVISOR_VENDAS": "SUP VENDAS",
+        "SUPERVISOR TELEVENDAS": "SUP TELEVENDAS",
+        "SUPERVISOR_TELEVENDAS": "SUP TELEVENDAS",
+        "GERENTE VENDAS": "GERENTE DE VENDAS",
+        "GERENTE COMERCIAL": "GERENTE DE VENDAS",
+    }
+    role = aliases.get(role, role)
+
+    if role == ROLE_INDUSTRY:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Usuários do tipo INDÚSTRIA devem ser criados pela área "
+                "DISMEPE ONE INDÚSTRIAS, com os laboratórios vinculados."
+            ),
+        )
+    if role not in _INTERNAL_ROLE_DEFAULT_PERMISSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cargo não suportado para criação: {role or 'VAZIO'}.",
+        )
+    return role
+
+
+def _internal_role_permissions(role: str) -> dict[str, Any]:
+    return dict(_INTERNAL_ROLE_DEFAULT_PERMISSIONS.get(role) or {})
+
+
+def _active_supabase_users(result: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = result.get("usuarios")
+    if not isinstance(raw, list):
+        return []
+
+    users: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+
+        usuario = str(item.get("usuario") or "").strip()
+        if not usuario:
+            continue
+
+        if normalizar(item.get("tipo") or "") == ROLE_INDUSTRY:
+            continue
+
+        status = normalizar(item.get("status") or "")
+        if item.get("ativo") is False or status in {"EXCLUIDO", "INATIVO"}:
+            continue
+
+        users.append({
+            "usuario": usuario,
+            "usuario_norm": str(item.get("usuario_norm") or normalizar(usuario)),
+            "nome": str(item.get("nome") or item.get("vendedor") or usuario).strip(),
+            "vendedor": str(item.get("vendedor") or item.get("nome") or usuario).strip(),
+            "tipo": str(item.get("tipo") or "").strip(),
+            "setor": str(item.get("setor") or "").strip(),
+            "ativo": item.get("ativo") is not False,
+            "status": str(item.get("status") or "ATIVO").strip() or "ATIVO",
+            "permissoes": _permission_map(item.get("permissoes")),
+        })
+
+    users.sort(key=lambda item: normalizar(item.get("nome") or item.get("usuario") or ""))
+    return users
+
+
+@router.get("/admin/users")
+async def admin_users_list(
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    _permission_view_profile(session)
+    try:
+        result = await _edge_admin_write("USUARIOS_LIST", {})
+    except IndustryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    users = _active_supabase_users(result)
+    return {
+        "sucesso": True,
+        "origem": "SUPABASE",
+        "transporte": "FASTAPI_USUARIOS_LIST",
+        "usuarios": users,
+        "quantidade": len(users),
+    }
+
+
+@router.post("/admin/users")
+async def admin_create_user(
+    payload: AdminUserCreateRequest,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    _admin_profile(session)
+
+    usuario = str(payload.usuario or "").strip()
+    if not usuario:
+        raise HTTPException(status_code=400, detail="Usuário inválido.")
+
+    role = _canonical_internal_role(payload.tipo)
+    nome = str(payload.nome or payload.vendedor or usuario).strip() or usuario
+    vendedor = str(payload.vendedor or nome).strip() or nome
+
+    try:
+        listed = await _edge_admin_write("USUARIOS_LIST", {})
+    except IndustryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    target_norm = normalizar(usuario)
+    existing: dict[str, Any] | None = None
+
+    for item in listed.get("usuarios") if isinstance(listed.get("usuarios"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        if normalizar(item.get("usuario_norm") or item.get("usuario") or "") == target_norm:
+            existing = item
+            break
+
+    if existing is not None:
+        existing_status = normalizar(existing.get("status") or "")
+        existing_active = (
+            existing.get("ativo") is not False
+            and existing_status not in {"EXCLUIDO", "INATIVO"}
+        )
+        if existing_active:
+            raise HTTPException(
+                status_code=409,
+                detail="Já existe um usuário ativo com este login no Supabase.",
+            )
+
+    initial_password = "1234"
+    perms = _internal_role_permissions(role)
+
+    try:
+        result = await _edge_admin_write(
+            "MIGRAR_USUARIO",
+            {
+                "usuario": {
+                    "usuario": usuario,
+                    "usuario_norm": target_norm,
+                    "auth_email": auth_email(usuario),
+                    "nome": nome,
+                    "vendedor": vendedor,
+                    "tipo": role,
+                    "setor": role,
+                    "ativo": True,
+                    "status": "ATIVO",
+                },
+                "senha_interna": senha_interna(
+                    usuario,
+                    initial_password,
+                    settings.auth_pepper,
+                ),
+                "permissoes": perms,
+            },
+        )
+    except IndustryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    return {
+        "sucesso": True,
+        "origem": "SUPABASE",
+        "transporte": "FASTAPI_MIGRAR_USUARIO",
+        "usuario": usuario,
+        "nome": nome,
+        "vendedor": vendedor,
+        "tipo": role,
+        "setor": role,
+        "permissoes": perms,
+        "senhaInicialPadrao": True,
+        "usuarioReativado": existing is not None,
+        "authUserId": str(result.get("auth_user_id") or ""),
+        "compradorCriadoDireto": role == ROLE_BUYER,
+        "mensagem": (
+            f"Usuário {usuario} reativado como {role} na arquitetura nova."
+            if existing is not None
+            else f"Usuário {usuario} criado como {role} na arquitetura nova."
+        ),
+    }
 
 
 def _temporary_password(length: int = 14) -> str:

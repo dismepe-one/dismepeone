@@ -8735,27 +8735,73 @@ window.openCreateUserModal=function(){
   
   window.loadDeleteUserSelector=async function(){
     const sel=document.getElementById('deleteUserSelect');
-    if(!sel) return;
-    sel.innerHTML='<option value=""></option>';
+    if(!sel)return;
+
+    sel.innerHTML='<option value="">Carregando usuários...</option>';
+
     try{
-      let r;
-      try{r=await callAdminAction('listarUsuarios');}
-      catch(e){r=await callAdminAction('listarPermissoes');}
-      const users=r?.usuarios||r?.users||r?.dados||r?.permissoes||[];
-      const lista=(Array.isArray(users)?users:[]).filter(u=>String(u.usuario||u.login||u.USUARIO||'').trim());
-      sel.innerHTML='<option value="">Selecione o usuário que deseja excluir...</option>'+
+      const response=await fetch(
+        '/admin/users?ts='+Date.now(),
+        {
+          method:'GET',
+          credentials:'include',
+          cache:'no-store',
+          headers:{'Accept':'application/json'}
+        }
+      );
+
+      let data={};
+      try{data=await response.json();}catch(_){}
+
+      if(!response.ok||data?.sucesso===false){
+        const detail=data?.detail;
+        throw new Error(
+          typeof detail==='string'
+            ? detail
+            : (
+                detail?.mensagem||
+                detail?.message||
+                data?.erro||
+                data?.error||
+                'Não foi possível consultar os usuários no Supabase.'
+              )
+        );
+      }
+
+      const lista=(Array.isArray(data?.usuarios)?data.usuarios:[])
+        .filter(u=>
+          u&&
+          String(u.usuario||'').trim()&&
+          u.ativo!==false&&
+          norm(u.status||'ATIVO')!=='EXCLUIDO'
+        )
+        .sort((a,b)=>
+          String(a.nome||a.usuario||'')
+            .localeCompare(
+              String(b.nome||b.usuario||''),
+              'pt-BR',
+              {sensitivity:'base'}
+            )
+        );
+
+      sel.innerHTML=
+        '<option value="">Selecione o usuário que deseja excluir...</option>'+
         lista.map(u=>{
-          const id=String(u.usuario||u.login||u.USUARIO||'').trim();
-          const nome=String(u.nome||u.vendedor||u.usuario||u.login||id).trim();
-          const tipo=String(u.tipo||u.perfil||u.TIPO||'').trim();
-          return '<option value="'+escapeHtml(id)+'">'+escapeHtml(nome)+(tipo?' — '+escapeHtml(displayRoleForAdmin(tipo)):'')+'</option>';
+          const id=String(u.usuario||'').trim();
+          const nome=String(u.nome||u.vendedor||id).trim();
+          const tipo=String(u.tipo||'').trim();
+
+          return '<option value="'+escapeHtml(id)+'">'+
+            escapeHtml(nome)+
+            (tipo?' — '+escapeHtml(displayRoleForAdmin(tipo)):'')+
+            '</option>';
         }).join('');
     }catch(e){
-      console.error('LISTA PARA EXCLUSÃO:',e);
-      sel.innerHTML='<option value="">Não foi possível carregar os usuários</option>';
+      console.error('[PROD5.9.8.11] LISTA SUPABASE:',e);
+      sel.innerHTML=
+        '<option value="">Não foi possível carregar os usuários</option>';
     }
   };
-
   window.closeCreateUserModal=function(){ if(returnHomeAfterModalClose()) return; document.getElementById('createUserModal')?.classList.add('hidden'); };
   window.toggleCreateUserNameField=function(){
     const role=norm(document.getElementById('createUserRole')?.value||'');
@@ -8783,73 +8829,55 @@ window.openCreateUserModal=function(){
     try{
       let r=null;
 
-      if(norm(tipo)==='COMPRADOR'){
-        // PROD5.9.8.10 — COMPRADOR foi criado depois da migração.
-        // A conta-base usa o fluxo CRIARUSUARIO já homologado como COMERCIAL.
-        // Em seguida, o backend novo promove o mesmo usuário para COMPRADOR.
-        r=await callAdminAction(
-          'CRIARUSUARIO',
-          {usuario,tipo:'COMERCIAL',vendedor}
-        );
+      // PROD5.9.8.11 — mesmo caminho pós-migração da Indústria.
+      const createResponse=await fetch(
+        '/admin/users',
+        {
+          method:'POST',
+          credentials:'include',
+          cache:'no-store',
+          headers:{
+            'Content-Type':'application/json',
+            'Accept':'application/json'
+          },
+          body:JSON.stringify({
+            usuario,
+            tipo,
+            nome:vendedor||usuario,
+            vendedor:vendedor||usuario
+          })
+        }
+      );
 
-        const promoteResponse=await fetch(
-          '/admin/industries/buyers/promote',
-          {
-            method:'POST',
-            credentials:'include',
-            cache:'no-store',
-            headers:{
-              'Content-Type':'application/json',
-              'Accept':'application/json'
-            },
-            body:JSON.stringify({usuario})
+      let createData={};
+      try{createData=await createResponse.json();}catch(_){}
+
+      if(!createResponse.ok||createData?.sucesso===false){
+        const detail=createData?.detail;
+        let message='';
+
+        if(typeof detail==='string'){
+          message=detail;
+        }else if(detail&&typeof detail==='object'){
+          message=
+            (typeof detail.mensagem==='string'&&detail.mensagem)||
+            (typeof detail.message==='string'&&detail.message)||
+            (typeof detail.erro==='string'&&detail.erro)||
+            '';
+          if(!message){
+            try{message=JSON.stringify(detail);}catch(_){}
           }
-        );
-
-        let promoteData={};
-        try{promoteData=await promoteResponse.json();}catch(_){}
-
-        if(!promoteResponse.ok||promoteData?.sucesso===false){
-          const detail=promoteData?.detail;
-          let message='';
-
-          if(typeof detail==='string'){
-            message=detail;
-          }else if(detail&&typeof detail==='object'){
-            message=
-              (typeof detail.mensagem==='string'&&detail.mensagem)||
-              (typeof detail.message==='string'&&detail.message)||
-              (typeof detail.erro==='string'&&detail.erro)||
-              '';
-            if(!message){
-              try{message=JSON.stringify(detail);}catch(_){}
-            }
-          }
-
-          throw new Error(
-            'A conta foi criada como COMERCIAL, mas não foi possível convertê-la para COMPRADOR: '+
-            (
-              message||
-              promoteData?.erro||
-              promoteData?.error||
-              'falha no serviço de permissões.'
-            )
-          );
         }
 
-        r={
-          ...(r||{}),
-          ...(promoteData||{}),
-          usuario:promoteData?.usuario||r?.usuario||usuario,
-          tipo:'COMPRADOR',
-          compradorCriadoDireto:true
-        };
-      }else{
-        r=await callAdminAction(
-          'CRIARUSUARIO',
-          {usuario,tipo,vendedor}
+        throw new Error(
+          message||
+          createData?.erro||
+          createData?.error||
+          'Não foi possível criar o usuário na arquitetura nova.'
         );
       }
+
+      r=createData;
 
       if(
         norm(tipo)==='COMPRADOR' &&
@@ -8910,129 +8938,41 @@ window.openCreateUserModal=function(){
       String(window.__dismepeLastCreatedAdminUser||'').trim();
 
     try{
-      const r=await callAdminAction('LISTARPERMISSOES');
+      const response=await fetch(
+        '/admin/users?ts='+Date.now(),
+        {
+          method:'GET',
+          credentials:'include',
+          cache:'no-store',
+          headers:{'Accept':'application/json'}
+        }
+      );
 
-      adminPermissions=
-        r?.permissoes||
-        r?.permissions||
-        r?.dados||
-        r?.data||
-        [];
+      let data={};
+      try{data=await response.json();}catch(_){}
 
-      if(!Array.isArray(adminPermissions)){
-        adminPermissions=[];
-      }
-
-      // PROD5.9.8.10 — listarUsuarios agora é consultado SEMPRE.
-      // Antes ele só era chamado quando LISTARPERMISSOES vinha totalmente vazio,
-      // fazendo usuários recém-criados desaparecerem desta tela.
-      let listedUsers=[];
-      try{
-        const u=await callAdminAction('listarUsuarios');
-        listedUsers=
-          u?.usuarios||
-          u?.users||
-          u?.dados||
-          u?.data||
-          [];
-      }catch(e){
-        console.warn(
-          '[PROD5.9.8.10] listarUsuarios indisponível; mantendo dados de permissões.',
-          e
+      if(!response.ok||data?.sucesso===false){
+        const detail=data?.detail;
+        throw new Error(
+          typeof detail==='string'
+            ? detail
+            : (
+                detail?.mensagem||
+                detail?.message||
+                data?.erro||
+                data?.error||
+                'Não foi possível consultar os usuários no Supabase.'
+              )
         );
       }
 
-      if(!Array.isArray(listedUsers)){
-        listedUsers=[];
-      }
-
-      const permissionUsers=
-        Array.isArray(r?.usuarios)
-          ? r.usuarios
-          : (
-              Array.isArray(r?.users)
-                ? r.users
-                : []
-            );
-
-      const permissionRows=adminPermissions
-        .map(x=>({
-          usuario:x?.usuario||x?.USUARIO||x?.login,
-          nome:x?.nome||x?.NOME,
-          tipo:x?.tipo||x?.TIPO||x?.perfil||x?.cargo,
-          permissoes:x?.permissoes||x?.PERMISSOES
-        }))
-        .filter(x=>x.usuario);
-
-      const merged=new Map();
-
-      const mergeUser=(raw)=>{
-        if(!raw||typeof raw!=='object')return;
-
-        const id=String(
-          raw.usuario||
-          raw.login||
-          raw.USUARIO||
-          ''
-        ).trim();
-
-        if(!id)return;
-
-        const key=norm(id);
-        const prev=merged.get(key)||{};
-        const next={...prev,...raw};
-
-        next.usuario=id;
-
-        const currentName=
-          raw.nome||
-          raw.NOME||
-          raw.vendedor||
-          prev.nome||
-          prev.NOME||
-          prev.vendedor||
-          id;
-
-        next.nome=currentName;
-
-        const currentRole=
-          raw.tipo||
-          raw.TIPO||
-          raw.perfil||
-          raw.cargo||
-          prev.tipo||
-          prev.TIPO||
-          prev.perfil||
-          prev.cargo||
-          '';
-
-        next.tipo=currentRole;
-
-        const currentPerms=
-          raw.permissoes??
-          raw.PERMISSOES??
-          prev.permissoes??
-          prev.PERMISSOES;
-
-        if(currentPerms!==undefined){
-          next.permissoes=currentPerms;
-        }
-
-        merged.set(key,next);
-      };
-
-      // A lista geral adiciona inclusive usuários recém-criados.
-      listedUsers.forEach(mergeUser);
-
-      // Dados retornados junto das permissões enriquecem os registros.
-      permissionUsers.forEach(mergeUser);
-
-      // O registro de permissões é aplicado por último: após uma promoção
-      // pós-migração para COMPRADOR, o cargo/permissões novos prevalecem
-      // sobre eventual cargo antigo ainda presente na listagem geral.
-      permissionRows.forEach(mergeUser);
-
-      const users=[...merged.values()]
+      const users=(Array.isArray(data?.usuarios)?data.usuarios:[])
+        .filter(u=>
+          u&&
+          String(u.usuario||'').trim()&&
+          u.ativo!==false&&
+          norm(u.status||'ATIVO')!=='EXCLUIDO'
+        )
         .sort((a,b)=>
           String(a.nome||a.usuario||'')
             .localeCompare(
@@ -9043,61 +8983,33 @@ window.openCreateUserModal=function(){
         );
 
       adminUsers=users;
+      adminPermissions=users.map(u=>({
+        usuario:u.usuario,
+        nome:u.nome||u.vendedor||u.usuario,
+        tipo:u.tipo||'',
+        permissoes:u.permissoes||{}
+      }));
 
       if(sel){
         sel.innerHTML=
           '<option value="">Selecione um usuário...</option>'+
           users.map(u=>{
-            const id=String(
-              u.usuario||
-              u.login||
-              u.USUARIO||
-              ''
-            );
+            const id=String(u.usuario||'').trim();
+            const nome=String(u.nome||u.vendedor||id).trim();
+            const tipo=String(u.tipo||'').trim();
 
             return '<option value="'+escapeHtml(id)+'">'+
-              escapeHtml(u.nome||u.usuario||u.login||id)+
-              ' — '+
-              escapeHtml(
-                displayRoleForAdmin(
-                  u.tipo||
-                  u.TIPO||
-                  u.perfil||
-                  u.cargo||
-                  ''
-                )
-              )+
+              escapeHtml(nome)+
+              (tipo?' — '+escapeHtml(displayRoleForAdmin(tipo)):'')+
               '</option>';
           }).join('');
 
-        const foundPreferred=
-          preferred &&
-          users.some(u=>
-            norm(
-              u.usuario||
-              u.login||
-              u.USUARIO||
-              ''
-            )===norm(preferred)
-          );
+        const found=preferred
+          ? users.find(u=>norm(u.usuario||'')===norm(preferred))
+          : null;
 
-        if(foundPreferred){
-          const found=users.find(u=>
-            norm(
-              u.usuario||
-              u.login||
-              u.USUARIO||
-              ''
-            )===norm(preferred)
-          );
-
-          sel.value=String(
-            found?.usuario||
-            found?.login||
-            found?.USUARIO||
-            preferred
-          );
-
+        if(found){
+          sel.value=String(found.usuario||preferred);
           loadSelectedPermissionUser();
         }
       }
@@ -9106,14 +9018,14 @@ window.openCreateUserModal=function(){
 
       showPermissionMessage(
         users.length
-          ? 'Usuários carregados.'
+          ? 'Usuários carregados do Supabase.'
           : 'Nenhum usuário encontrado.',
         true
       );
     }catch(e){
       showPermissionMessage(
-        e.message||
-        'Não foi possível carregar as permissões.'
+        e?.message||
+        'Não foi possível carregar os usuários do Supabase.'
       );
     }
   };
