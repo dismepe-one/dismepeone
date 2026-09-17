@@ -20,12 +20,19 @@ from .update_center import (
     UpdateCenterBridgeError,
     call_update_center_legacy,
 )
+from .home_publication import router as home_publication_router
+from .stock_schedule_admin import router as stock_schedule_router
 
 
 BUILD = "2.0.0-phase2i2-prod5.9.7.3-legacy-cookie"
 ROOT = Path(__file__).resolve().parents[1]
 BASE_PATCH_FILE = ROOT / "frontend" / "update-center-prod4.js"
 MONTHLY_PATCH_FILE = ROOT / "frontend" / "monthly-sync-prod597.js"
+HOME_PUBLICATION_PATCH_FILE = ROOT / "frontend" / "home-publication-prod59823.js"
+STOCK_SCHEDULE_PATCH_FILE = ROOT / "frontend" / "stock-schedule-prod59823.js"
+
+app.include_router(home_publication_router)
+app.include_router(stock_schedule_router)
 
 LEGACY_COOKIE_PREFIX = "dismepe_legacy_"
 LEGACY_COOKIE_MAX_AGE = 3 * 60 * 60
@@ -370,6 +377,10 @@ async def prod597_update_center_script():
         BASE_PATCH_FILE.read_text(encoding="utf-8")
         + "\n\n"
         + MONTHLY_PATCH_FILE.read_text(encoding="utf-8")
+        + "\n\n"
+        + HOME_PUBLICATION_PATCH_FILE.read_text(encoding="utf-8")
+        + "\n\n"
+        + STOCK_SCHEDULE_PATCH_FILE.read_text(encoding="utf-8")
     )
     return Response(
         content=content,

@@ -23,6 +23,7 @@ from .extras_reads import extras_api_response
 from .access_reads import AccessReadError, access_user, list_accesses
 from .history_reads import HistoryReadError, history_get, history_list
 from .monthly_rule_reads import monthly_rule_options
+from .home_publication import home_publication_cache_get
 
 
 settings = get_settings()
@@ -175,10 +176,10 @@ async def login(
         )
     )
     mensal_task = asyncio.create_task(
-        cache_get(modulo="MENSAL", settings=settings)
+        home_publication_cache_get(modulo="MENSAL", settings=settings)
     )
     extras_task = asyncio.create_task(
-        cache_get(modulo="EXTRAS", settings=settings)
+        home_publication_cache_get(modulo="EXTRAS", settings=settings)
     )
 
     try:
@@ -412,10 +413,10 @@ async def bootstrap_dashboard(
     started = time.perf_counter()
 
     mensal_task = asyncio.create_task(
-        cache_get(modulo="MENSAL", settings=settings)
+        home_publication_cache_get(modulo="MENSAL", settings=settings)
     )
     extras_task = asyncio.create_task(
-        cache_get(modulo="EXTRAS", settings=settings)
+        home_publication_cache_get(modulo="EXTRAS", settings=settings)
     )
 
     try:

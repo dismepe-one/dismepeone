@@ -133,9 +133,7 @@ def _configured_folder_id() -> str:
     return str(config.get("folderId") or "").strip()
 
 
-def drive_sync_config() -> dict[str, Any]:
-    folder_id = _configured_folder_id()
-    timezone_name = os.getenv("DISMEPE_INDUSTRIES_DRIVE_TIMEZONE", "America/Recife").strip() or "America/Recife"
+def _default_schedule_values() -> list[str]:
     hour_raw = os.getenv("DISMEPE_INDUSTRIES_DRIVE_HOUR", "10").strip()
     minute_raw = os.getenv("DISMEPE_INDUSTRIES_DRIVE_MINUTE", "0").strip()
     try:
@@ -146,10 +144,123 @@ def drive_sync_config() -> dict[str, Any]:
         minute = min(59, max(0, int(minute_raw)))
     except ValueError:
         minute = 0
+
+    multi = os.getenv("DISMEPE_INDUSTRIES_DRIVE_SCHEDULES", "").strip()
+    if multi:
+        parsed = _normalize_schedule_values(re.split(r"[,;|]", multi))
+        if parsed:
+            return parsed
+    return [f"{hour:02d}:{minute:02d}"]
+
+
+def _normalize_schedule_values(values: Any) -> list[str]:
+    if not isinstance(values, (list, tuple, set)):
+        return []
+    output: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        match = re.fullmatch(r"(\d{1,2}):(\d{2})", text)
+        if not match:
+            continue
+        hour = int(match.group(1))
+        minute = int(match.group(2))
+        if hour > 23 or minute > 59:
+            continue
+        normalized = f"{hour:02d}:{minute:02d}"
+        if normalized not in output:
+            output.append(normalized)
+    output.sort()
+    return output[:12]
+
+
+SCHEDULE_CONFIG_KEY = "INDUSTRIES_STOCK_SYNC_SCHEDULES_V1"
+_SCHEDULE_OVERRIDE: list[str] | None = None
+_SCHEDULE_CONFIG_LOADED = False
+_SCHEDULE_CONFIG_LOCK: asyncio.Lock | None = None
+_WAKE_EVENT: asyncio.Event | None = None
+
+
+def _wake_event() -> asyncio.Event:
+    global _WAKE_EVENT
+    if _WAKE_EVENT is None:
+        _WAKE_EVENT = asyncio.Event()
+    return _WAKE_EVENT
+
+
+async def load_stock_sync_schedule_config(force: bool = False) -> list[str]:
+    global _SCHEDULE_OVERRIDE, _SCHEDULE_CONFIG_LOADED, _SCHEDULE_CONFIG_LOCK
+
+    if _SCHEDULE_CONFIG_LOADED and not force:
+        return list(_SCHEDULE_OVERRIDE or _default_schedule_values())
+
+    if _SCHEDULE_CONFIG_LOCK is None:
+        _SCHEDULE_CONFIG_LOCK = asyncio.Lock()
+
+    async with _SCHEDULE_CONFIG_LOCK:
+        if _SCHEDULE_CONFIG_LOADED and not force:
+            return list(_SCHEDULE_OVERRIDE or _default_schedule_values())
+
+        from .config import get_settings
+        import httpx
+
+        cfg_settings = get_settings()
+        endpoint = cfg_settings.supabase_url.rstrip("/") + "/functions/v1/dismepe-admin"
+        headers = {
+            "apikey": cfg_settings.supabase_publishable_key,
+            "x-dismepe-token": cfg_settings.edge_token,
+            "content-type": "application/json",
+            "accept": "application/json",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=max(8.0, cfg_settings.request_timeout_seconds)) as client:
+                response = await client.post(
+                    endpoint,
+                    json={"acao": "CONFIG_GET", "chave": SCHEDULE_CONFIG_KEY},
+                    headers=headers,
+                )
+            data = response.json()
+            if response.status_code >= 200 and response.status_code < 300 and data.get("sucesso") is True:
+                value = data.get("valor")
+                if isinstance(value, dict):
+                    values = value.get("horarios")
+                elif isinstance(value, list):
+                    values = value
+                else:
+                    values = []
+                parsed = _normalize_schedule_values(values)
+                if parsed:
+                    _SCHEDULE_OVERRIDE = parsed
+                _SCHEDULE_CONFIG_LOADED = True
+        except Exception:
+            return list(_SCHEDULE_OVERRIDE or _default_schedule_values())
+
+    return list(_SCHEDULE_OVERRIDE or _default_schedule_values())
+
+
+async def set_stock_sync_schedules(values: list[str]) -> list[str]:
+    global _SCHEDULE_OVERRIDE, _SCHEDULE_CONFIG_LOADED
+    parsed = _normalize_schedule_values(values)
+    if not parsed:
+        raise ValueError("Cadastre pelo menos um horário válido.")
+    _SCHEDULE_OVERRIDE = parsed
+    _SCHEDULE_CONFIG_LOADED = True
+    _wake_event().set()
+    return list(parsed)
+
+
+def drive_sync_config() -> dict[str, Any]:
+    folder_id = _configured_folder_id()
+    timezone_name = os.getenv("DISMEPE_INDUSTRIES_DRIVE_TIMEZONE", "America/Recife").strip() or "America/Recife"
     try:
         ZoneInfo(timezone_name)
     except Exception:
         timezone_name = "America/Recife"
+
+    schedules = list(_SCHEDULE_OVERRIDE or _default_schedule_values())
+    first = schedules[0] if schedules else "10:00"
+    hour, minute = [int(x) for x in first.split(":")]
+
     has_credentials = bool(
         os.getenv("DISMEPE_GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
         or os.getenv("DISMEPE_GOOGLE_SERVICE_ACCOUNT_B64", "").strip()
@@ -163,7 +274,8 @@ def drive_sync_config() -> dict[str, Any]:
         "scheduleHour": hour,
         "scheduleMinute": minute,
         "timezone": timezone_name,
-        "schedule": f"{hour:02d}:{minute:02d}",
+        "schedule": ", ".join(schedules),
+        "schedules": schedules,
     }
 
 
@@ -175,26 +287,46 @@ def _schedule_timezone(cfg: dict[str, Any] | None = None) -> ZoneInfo:
         return ZoneInfo("America/Recife")
 
 
-def _scheduled_today(now_local: datetime, cfg: dict[str, Any]) -> datetime:
-    return now_local.replace(
-        hour=int(cfg.get("scheduleHour", 10)),
-        minute=int(cfg.get("scheduleMinute", 0)),
-        second=0,
-        microsecond=0,
-    )
+def _schedule_datetimes_for_day(now_local: datetime, cfg: dict[str, Any]) -> list[tuple[str, datetime]]:
+    schedules = _normalize_schedule_values(cfg.get("schedules")) or _default_schedule_values()
+    output: list[tuple[str, datetime]] = []
+    for value in schedules:
+        hour, minute = [int(x) for x in value.split(":")]
+        dt = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        output.append((value, dt))
+    output.sort(key=lambda item: item[1])
+    return output
+
+
+def _completed_schedule_keys(state: dict[str, Any]) -> set[str]:
+    values = state.get("lastScheduledKeys")
+    if not isinstance(values, list):
+        values = []
+    return {str(x) for x in values if str(x).strip()}
 
 
 def _next_scheduled_local(cfg: dict[str, Any], state: dict[str, Any] | None = None) -> datetime:
     tz = _schedule_timezone(cfg)
     now = datetime.now(tz)
     state = state or {}
-    scheduled = _scheduled_today(now, cfg)
-    today = now.date().isoformat()
-    if now < scheduled:
-        return scheduled
-    if state.get("lastScheduledDate") != today:
+    completed = _completed_schedule_keys(state)
+
+    today_rows = _schedule_datetimes_for_day(now, cfg)
+    due = [
+        (value, dt)
+        for value, dt in today_rows
+        if dt <= now and f"{now.date().isoformat()}|{value}" not in completed
+    ]
+    if due:
         return now
-    return scheduled + timedelta(days=1)
+
+    for value, dt in today_rows:
+        if dt > now:
+            return dt
+
+    tomorrow = now + timedelta(days=1)
+    tomorrow_rows = _schedule_datetimes_for_day(tomorrow, cfg)
+    return tomorrow_rows[0][1] if tomorrow_rows else tomorrow.replace(hour=10, minute=0, second=0, microsecond=0)
 
 
 def stock_sync_public_status() -> dict[str, Any]:
@@ -209,6 +341,7 @@ def stock_sync_public_status() -> dict[str, Any]:
         "lastAttemptAt": state.get("lastAttemptAt"),
         "lastScheduledDate": state.get("lastScheduledDate"),
         "lastScheduledRunAt": state.get("lastScheduledRunAt"),
+        "lastScheduledKeys": state.get("lastScheduledKeys") if isinstance(state.get("lastScheduledKeys"), list) else [],
         "nextScheduledAt": next_local.isoformat() if next_local else None,
         "lastFileName": state.get("lastFileName"),
         "lastFileModifiedTime": state.get("lastFileModifiedTime"),
@@ -525,19 +658,25 @@ async def sync_stock_once(force: bool = False) -> dict[str, Any]:
 
 async def _sync_loop() -> None:
     while True:
+        await load_stock_sync_schedule_config()
         cfg = drive_sync_config()
         if not cfg["configured"]:
             return
+
         tz = _schedule_timezone(cfg)
         now = datetime.now(tz)
         state = _read_json(STATE_FILE, {}) or {}
-        scheduled = _scheduled_today(now, cfg)
+        completed = _completed_schedule_keys(state)
+        rows = _schedule_datetimes_for_day(now, cfg)
         today = now.date().isoformat()
 
-        # Se o servidor ficou fora exatamente às 10:00, faz uma única
-        # recuperação ao voltar, sem transformar a rotina em polling.
-        should_run = now >= scheduled and state.get("lastScheduledDate") != today
-        if should_run:
+        due = [
+            (value, dt)
+            for value, dt in rows
+            if dt <= now and f"{today}|{value}" not in completed
+        ]
+
+        if due:
             try:
                 await sync_stock_once(force=False)
             except asyncio.CancelledError:
@@ -545,23 +684,37 @@ async def _sync_loop() -> None:
             except Exception:
                 pass
             finally:
+                for value, _dt in due:
+                    completed.add(f"{today}|{value}")
+                keep_after = (now.date() - timedelta(days=3)).isoformat()
+                completed = {
+                    key for key in completed
+                    if key.split("|", 1)[0] >= keep_after
+                }
                 _state_update(
                     lastScheduledDate=today,
                     lastScheduledRunAt=datetime.now(timezone.utc).isoformat(),
+                    lastScheduledKeys=sorted(completed),
                 )
             continue
 
-        next_run = scheduled if now < scheduled else scheduled + timedelta(days=1)
+        next_run = _next_scheduled_local(cfg, state)
         _state_update(nextScheduledAt=next_run.isoformat())
         delay = max(1.0, (next_run - now).total_seconds())
+
+        event = _wake_event()
+        event.clear()
         try:
-            await asyncio.sleep(delay)
+            await asyncio.wait_for(event.wait(), timeout=delay)
+        except asyncio.TimeoutError:
+            pass
         except asyncio.CancelledError:
             raise
 
 
 async def start_stock_sync() -> None:
     global _TASK
+    await load_stock_sync_schedule_config()
     if not drive_sync_config()["configured"]:
         return
     if _TASK and not _TASK.done():
