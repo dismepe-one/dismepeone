@@ -30338,8 +30338,8 @@ body:not(.v51-auth-ready) #loginOverlay{
 </script>
 
 
-<!-- prod5.9.8.6-login-home-industries-fix -->
-<style id="prod5-9-8-6-login-home-industries-fix">
+<!-- prod5.9.8.6.1-login-home-stable-fix -->
+<style id="prod5-9-8-6-1-login-home-stable-fix">
 body.v5986-login-pending #loginOverlay.hidden{
   display:flex !important;
   visibility:visible !important;
@@ -30347,15 +30347,16 @@ body.v5986-login-pending #loginOverlay.hidden{
 }
 </style>
 
-<script id="prod5-9-8-6-login-home-industries-fix-script">
+<script id="prod5-9-8-6-1-login-home-stable-fix-script">
 (function(){
   'use strict';
-  if(window.__DISMEPE_PROD5986_LOGIN_HOME_FIX__) return;
-  window.__DISMEPE_PROD5986_LOGIN_HOME_FIX__=true;
+  if(window.__DISMEPE_PROD59861_LOGIN_HOME_FIX__) return;
+  window.__DISMEPE_PROD59861_LOGIN_HOME_FIX__=true;
 
   const RETRIES=[0,100,300,700,1400,2800,5000,8000];
   let refreshGeneration=0;
   let pendingTimeout=null;
+  let authReadyLast=false;
 
   function loginOverlay(){
     return document.getElementById('loginOverlay');
@@ -30366,7 +30367,7 @@ body.v5986-login-pending #loginOverlay.hidden{
   }
 
   function isAuthenticatedUi(){
-    return document.body?.classList.contains('v51-auth-ready');
+    return document.body?.classList.contains('v51-auth-ready')===true;
   }
 
   function runHomeRefresh(){
@@ -30396,6 +30397,7 @@ body.v5986-login-pending #loginOverlay.hidden{
 
   function startLoginTransition(){
     if(!document.body) return;
+
     document.body.classList.add('v5986-login-pending');
 
     if(pendingTimeout) clearTimeout(pendingTimeout);
@@ -30404,14 +30406,14 @@ body.v5986-login-pending #loginOverlay.hidden{
     },15000);
   }
 
-  function ensureAuthenticatedHome(){
+  function enterAuthenticatedHome(){
     if(!isAuthenticatedUi()) return false;
 
     const home=homeModule();
     if(!home) return false;
 
     home.classList.remove('hidden');
-    document.body.classList.add('home-active');
+    document.body?.classList.add('home-active');
     document.documentElement.classList.remove('v84-session-check');
 
     scheduleHomeRefresh();
@@ -30419,6 +30421,7 @@ body.v5986-login-pending #loginOverlay.hidden{
     requestAnimationFrame(()=>{
       requestAnimationFrame(()=>{
         if(!isAuthenticatedUi()) return;
+
         const currentHome=homeModule();
         if(!currentHome || currentHome.classList.contains('hidden')) return;
 
@@ -30428,6 +30431,18 @@ body.v5986-login-pending #loginOverlay.hidden{
     });
 
     return true;
+  }
+
+  function syncAuthReady(){
+    const ready=isAuthenticatedUi();
+
+    // Executa a transição para Home somente na mudança real
+    // NÃO autenticado -> autenticado. Isso evita o ciclo de MutationObserver.
+    if(ready && !authReadyLast){
+      enterAuthenticatedHome();
+    }
+
+    authReadyLast=ready;
   }
 
   document.addEventListener('click',event=>{
@@ -30441,43 +30456,39 @@ body.v5986-login-pending #loginOverlay.hidden{
     if(event.target?.closest?.('#loginOverlay')) startLoginTransition();
   },true);
 
-  const authObserver=new MutationObserver(()=>{
-    if(isAuthenticatedUi()) ensureAuthenticatedHome();
-  });
+  function installAuthObserver(){
+    if(!document.body) return;
+
+    authReadyLast=false;
+    syncAuthReady();
+
+    new MutationObserver(()=>{
+      syncAuthReady();
+    }).observe(document.body,{
+      attributes:true,
+      attributeFilter:['class']
+    });
+  }
 
   if(document.body){
-    authObserver.observe(document.body,{attributes:true,attributeFilter:['class']});
+    installAuthObserver();
   }else{
-    document.addEventListener('DOMContentLoaded',()=>{
-      authObserver.observe(document.body,{attributes:true,attributeFilter:['class']});
-    },{once:true});
+    document.addEventListener('DOMContentLoaded',installAuthObserver,{once:true});
   }
 
   document.addEventListener('DOMContentLoaded',()=>{
-    const overlay=loginOverlay();
-    const home=homeModule();
-
-    if(overlay){
-      new MutationObserver(()=>{
-        if(isAuthenticatedUi()) ensureAuthenticatedHome();
-      }).observe(overlay,{attributes:true,attributeFilter:['class','style']});
-    }
-
-    if(home){
-      new MutationObserver(()=>{
-        if(isAuthenticatedUi() && !home.classList.contains('hidden')){
-          scheduleHomeRefresh();
-        }
-      }).observe(home,{attributes:true,attributeFilter:['class','style']});
-    }
-
-    if(isAuthenticatedUi()) ensureAuthenticatedHome();
+    syncAuthReady();
   },{once:true});
 
   window.addEventListener('pageshow',()=>{
-    if(isAuthenticatedUi()){
-      ensureAuthenticatedHome();
-      scheduleHomeRefresh();
+    if(!isAuthenticatedUi()) return;
+
+    // Em retorno de página/aba atualiza permissões/cards,
+    // mas NÃO força novamente a Home se o usuário estiver em outro módulo.
+    scheduleHomeRefresh();
+
+    if(document.body?.classList.contains('v5986-login-pending')){
+      enterAuthenticatedHome();
     }
   });
 
