@@ -6138,14 +6138,7 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
                     'Nenhum dado de produção foi alterado.'
                 );
             }
-            const timeoutMs=
-                action==='LISTARLOGALTERACOES'
-                    ?12000
-                    :(action==='DADOS'||action==='RESUMOPREMIACOES')
-                        ?110000
-                        :(action==='HIST39_LISTAR'
-                            ?70000
-                            :(action==='LOGIN'?60000:40000));
+            const timeoutMs=(action==='DADOS'||action==='RESUMOPREMIACOES')?110000:(action==='HIST39_LISTAR'?70000:(action==='LOGIN'?60000:40000));
 
             // V211.26 — Resumo de Ganhos usa SOMENTE o gateway Supabase.
             // O /exec antigo do Apps Script está retornando HTTP 404 e não deve
@@ -8809,11 +8802,26 @@ window.openCreateUserModal=function(){
         try{bd=await rb.json();}catch(_){}
 
         if(!rb.ok||bd?.sucesso===false){
+          const detail=bd?.detail;
+          let buyerMessage='';
+
+          if(typeof detail==='string'){
+            buyerMessage=detail;
+          }else if(detail&&typeof detail==='object'){
+            buyerMessage=
+              (typeof detail.mensagem==='string'&&detail.mensagem)||
+              (typeof detail.message==='string'&&detail.message)||
+              (typeof detail.erro==='string'&&detail.erro)||
+              '';
+            if(!buyerMessage){
+              try{buyerMessage=JSON.stringify(detail);}catch(_){}
+            }
+          }
+
           throw new Error(
-            (typeof bd?.detail==='string'&&bd.detail)||
-            bd?.detail?.mensagem||
-            bd?.erro||
-            bd?.message||
+            buyerMessage||
+            (typeof bd?.erro==='string'&&bd.erro)||
+            (typeof bd?.message==='string'&&bd.message)||
             'Não foi possível criar o usuário COMPRADOR.'
           );
         }
@@ -15811,78 +15819,6 @@ window.abrirExcluirUsuarioPopup = function(){
     }
   }
 
-  async function auditFastToken(timeoutMs=6000){
-    const immediate=String(auditToken()||'').trim();
-    if(immediate && window.__v2LegacyReady===true){
-      return immediate;
-    }
-
-    const started=Date.now();
-    let lastState='';
-
-    while(Date.now()-started<timeoutMs){
-      try{
-        const response=await fetch(
-          '/auth/legacy-status?audit_fast='+Date.now(),
-          {
-            method:'GET',
-            credentials:'include',
-            cache:'no-store',
-            headers:{'Accept':'application/json'}
-          }
-        );
-
-        const state=await response.json().catch(()=>({}));
-        lastState=String(state?.status||'');
-
-        if(response.status===401||response.status===403){
-          throw new Error(
-            'Sua sessão expirou. Entre novamente para abrir o LOG.'
-          );
-        }
-
-        if(
-          response.ok &&
-          state?.status==='READY' &&
-          String(state?.token||'').trim()
-        ){
-          const token=String(state.token).trim();
-
-          try{
-            authToken=token;
-            window.__v2LegacyReady=true;
-            localStorage.setItem('painelToken',token);
-          }catch(_){}
-
-          return token;
-        }
-
-        if(state?.status==='ERROR'){
-          throw new Error(
-            state?.error ||
-            'A sessão necessária para consultar o LOG não ficou disponível.'
-          );
-        }
-      }catch(e){
-        if(
-          /sessão expirou|não ficou disponível/i.test(
-            String(e?.message||e||'')
-          )
-        ){
-          throw e;
-        }
-      }
-
-      await new Promise(resolve=>setTimeout(resolve,250));
-    }
-
-    throw new Error(
-      lastState==='PENDING'
-        ? 'O LOG ainda está sincronizando a sessão. Tente Atualizar novamente em alguns segundos.'
-        : 'O LOG não conseguiu confirmar a sessão a tempo. Tente Atualizar novamente.'
-    );
-  }
-
   async function loadAuditLog(){
     if(!auditIsAdmin()) return;
 
@@ -15893,17 +15829,39 @@ window.abrirExcluirUsuarioPopup = function(){
     }
 
     try{
-      const token=await auditFastToken();
+      const response=await fetch(
+        '/data/audit-log?ts='+Date.now(),
+        {
+          method:'GET',
+          credentials:'include',
+          cache:'no-store',
+          headers:{'Accept':'application/json'}
+        }
+      );
 
-      const r=await postApi({
-        acao:'LISTARLOGALTERACOES',
-        token,
-        limite:800
-      });
+      let r={};
+      try{r=await response.json();}catch(_){}
 
-      if(!r || r.sucesso===false){
+      if(!response.ok || !r || r.sucesso===false){
+        const detail=r?.detail;
+        let message='';
+
+        if(typeof detail==='string'){
+          message=detail;
+        }else if(detail&&typeof detail==='object'){
+          message=
+            (typeof detail.mensagem==='string'&&detail.mensagem)||
+            (typeof detail.message==='string'&&detail.message)||
+            '';
+          if(!message){
+            try{message=JSON.stringify(detail);}catch(_){}
+          }
+        }
+
         throw new Error(
-          r?.erro ||
+          message||
+          r?.erro||
+          r?.error||
           'Não foi possível carregar o Log de Alterações.'
         );
       }

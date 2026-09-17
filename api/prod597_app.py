@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 from pathlib import Path
 
+import httpx
 import jwt
 from fastapi import Cookie, HTTPException, Request, Response
 
@@ -13,7 +15,11 @@ from .cache_reads import CacheReadError, cache_get
 from .industries_app import app, settings
 from .legacy_bridge import clear_state, get_state
 from .security import decode_session_token
-from .update_center import UpdateCenterBridgeError, call_update_center_legacy
+from .update_center import (
+    APPS_SCRIPT_UPDATE_CENTER_URL,
+    UpdateCenterBridgeError,
+    call_update_center_legacy,
+)
 
 
 BUILD = "2.0.0-phase2i2-prod5.9.7.3-legacy-cookie"
@@ -233,6 +239,129 @@ async def prod597_logout(
         path="/",
     )
     return {"sucesso": True}
+
+
+@app.get("/data/audit-log")
+async def prod5989_audit_log(
+    request: Request,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    if not session:
+        raise HTTPException(status_code=401, detail="Sessao 2.0 ausente.")
+
+    try:
+        profile = decode_session_token(
+            session,
+            secret=settings.jwt_secret,
+            issuer=settings.jwt_issuer,
+        )
+    except jwt.ExpiredSignatureError as exc:
+        raise HTTPException(status_code=401, detail="Sessao 2.0 expirada.") from exc
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=401, detail="Sessao 2.0 invalida.") from exc
+
+    role = str(profile.get("tipo") or "").strip().upper()
+    perms = profile.get("permissoes")
+    perms = perms if isinstance(perms, dict) else {}
+    if role not in {"ADMINISTRADOR", "ADMIN"} and perms.get("LOG_ALTERACOES_VISUALIZAR") is not True:
+        raise HTTPException(
+            status_code=403,
+            detail="Voce nao possui permissao para visualizar o Log de Alteracoes.",
+        )
+
+    session_key = hashlib.sha256(session.encode("utf-8")).hexdigest()
+    token = ""
+
+    for _ in range(16):
+        state = await get_state(session_key)
+        if str(state.get("status") or "").upper() == "READY":
+            token = str(state.get("token") or "").strip()
+            if token:
+                break
+
+        persisted = _legacy_cookie_value(request, session)
+        if persisted:
+            token = persisted
+            break
+
+        if str(state.get("status") or "").upper() == "ERROR":
+            break
+
+        await asyncio.sleep(0.25)
+
+    if not token:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "A sessao do LOG ainda esta sendo preparada. "
+                "Aguarde alguns segundos e clique em Atualizar."
+            ),
+        )
+
+    body = {
+        "acao": "LISTARLOGALTERACOES",
+        "token": token,
+        "limite": 300,
+    }
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(20.0),
+            follow_redirects=True,
+        ) as client:
+            upstream = await client.post(
+                APPS_SCRIPT_UPDATE_CENTER_URL,
+                content=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+                headers={
+                    "Content-Type": "text/plain;charset=utf-8",
+                    "Accept": "application/json",
+                    "Cache-Control": "no-store",
+                },
+            )
+    except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        raise HTTPException(
+            status_code=504,
+            detail="O Log de Alteracoes nao respondeu em ate 20 segundos.",
+        ) from exc
+
+    try:
+        data = upstream.json()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "O servidor do Log de Alteracoes respondeu em formato invalido "
+                f"(HTTP {upstream.status_code})."
+            ),
+        ) from exc
+
+    if upstream.status_code < 200 or upstream.status_code >= 300:
+        message = (
+            data.get("erro")
+            or data.get("error")
+            or data.get("mensagem")
+            or f"HTTP {upstream.status_code}"
+        )
+        raise HTTPException(status_code=502, detail=str(message))
+
+    if not isinstance(data, dict):
+        raise HTTPException(
+            status_code=502,
+            detail="Resposta invalida do Log de Alteracoes.",
+        )
+
+    if data.get("sucesso") is False:
+        message = (
+            data.get("erro")
+            or data.get("error")
+            or data.get("mensagem")
+            or "Nao foi possivel carregar o Log de Alteracoes."
+        )
+        raise HTTPException(status_code=502, detail=str(message))
+
+    data["transporte"] = "FASTAPI_AUDIT_DIRECT"
+    data["limiteAplicado"] = 300
+    return data
 
 
 @app.get("/update-center-prod4.js", include_in_schema=False)

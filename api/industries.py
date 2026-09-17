@@ -1319,18 +1319,37 @@ async def industries_create_buyer(
     usuario = str(payload.usuario or "").strip()
     nome = str(payload.nome or "").strip() or usuario
     if not usuario:
-        raise HTTPException(status_code=400, detail="Usuário inválido.")
+        raise HTTPException(status_code=400, detail="Usuario invalido.")
 
     initial_password = "1234"
-
     buyer_perms: dict[str, Any] = {
         PERM_INTERNAL_PORTAL: True,
         PERM_BUYER_ALL_LABS: True,
         PERM_STOCK_UPDATE: False,
     }
 
+    def error_text(exc: IndustryError) -> str:
+        values: list[Any] = [
+            str(exc),
+            exc.data.get("erro"),
+            exc.data.get("error"),
+            exc.data.get("detail"),
+            exc.data.get("mensagem"),
+            exc.data.get("message"),
+        ]
+        for value in values:
+            if value is None or value == "":
+                continue
+            if isinstance(value, (dict, list)):
+                try:
+                    return json.dumps(value, ensure_ascii=False)
+                except Exception:
+                    return str(value)
+            return str(value)
+        return "Falha no servico de usuarios."
+
     try:
-        result = await _edge_admin_write(
+        create_result = await _edge_admin_write(
             "MIGRAR_USUARIO",
             {
                 "usuario": {
@@ -1339,8 +1358,8 @@ async def industries_create_buyer(
                     "auth_email": auth_email(usuario),
                     "nome": nome,
                     "vendedor": nome,
-                    "tipo": ROLE_BUYER,
-                    "setor": "COMPRADOR",
+                    "tipo": "COMERCIAL",
+                    "setor": "COMERCIAL",
                     "ativo": True,
                     "status": "ATIVO",
                 },
@@ -1352,8 +1371,50 @@ async def industries_create_buyer(
                 "permissoes": buyer_perms,
             },
         )
-    except IndustryError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        existed = False
+    except IndustryError as create_exc:
+        message = error_text(create_exc)
+        normalized = normalizar(message)
+        duplicate = any(
+            marker in normalized
+            for marker in (
+                "JA EXISTE",
+                "EXISTENTE",
+                "DUPLIC",
+                "CADASTRAD",
+                "ALREADY",
+            )
+        )
+        if not duplicate:
+            raise HTTPException(
+                status_code=create_exc.status_code,
+                detail={
+                    "codigo": "COMPRADOR_CREATE_FAILED",
+                    "mensagem": message,
+                },
+            ) from create_exc
+        create_result = {}
+        existed = True
+
+    try:
+        await _edge_admin_write(
+            "USUARIO_PERMISSOES_SET",
+            {
+                "usuario_norm": normalizar(usuario),
+                "tipo": ROLE_BUYER,
+                "permissoes": buyer_perms,
+            },
+        )
+    except IndustryError as promote_exc:
+        message = error_text(promote_exc)
+        raise HTTPException(
+            status_code=promote_exc.status_code,
+            detail={
+                "codigo": "COMPRADOR_PROMOTE_FAILED",
+                "mensagem": message,
+                "usuarioCriadoComoComercial": not existed,
+            },
+        ) from promote_exc
 
     return {
         "sucesso": True,
@@ -1361,14 +1422,16 @@ async def industries_create_buyer(
         "nome": nome,
         "tipo": ROLE_BUYER,
         "compradorCriadoDireto": True,
+        "usuarioExistenteConvertido": existed,
         "somentePortalIndustrias": True,
         "todosLaboratorios": True,
         "podeAtualizarMapa": False,
-        "senhaInicialPadrao": True,
-        "authUserId": str(result.get("auth_user_id") or ""),
+        "senhaInicialPadrao": not existed,
+        "authUserId": str(create_result.get("auth_user_id") or ""),
         "mensagem": (
-            "Usuário criado diretamente como COMPRADOR com acesso somente "
-            "ao DISMEPE ONE INDÚSTRIAS e a todos os laboratórios."
+            "Usuario existente convertido em COMPRADOR."
+            if existed
+            else "Usuario criado e promovido para COMPRADOR."
         ),
     }
 
