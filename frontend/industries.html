@@ -114,6 +114,21 @@ async function init(){
   }catch(e){location.replace('/')}
 }
 async function loadData(){const lab=document.getElementById('labSelect').value;if(!lab)return;const comp=document.getElementById('compSelect').value;try{salesData=await api('/industrias/data?laboratorio='+encodeURIComponent(lab)+(comp?'&competencia='+encodeURIComponent(comp):''));const cs=document.getElementById('compSelect');const current=salesData.competencia||'';const options=Array.isArray(salesData.competencias)?salesData.competencias:[];if(!comp||![...cs.options].some(o=>o.value===comp)){cs.innerHTML=options.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')||'<option value="">—</option>';cs.value=current}else cs.value=comp;renderKpis(document.querySelector('.tab.active')?.dataset.view);renderSales('VENDEDORES');renderSales('TELEVENDAS');renderCampaigns();renderIndustryHistory()}catch(e){if(e.status===428){showPwd();return}console.error(e)}}
+let commercialAutoRefreshTimer=null;
+let commercialAutoRefreshBusy=false;
+async function refreshCommercialDataIfVisible(){
+  if(commercialAutoRefreshBusy||document.hidden)return;
+  const gate=document.getElementById('passwordGate');
+  if(gate&&!gate.classList.contains('hidden'))return;
+  const lab=document.getElementById('labSelect')?.value;
+  if(!lab)return;
+  commercialAutoRefreshBusy=true;
+  try{await loadData()}finally{commercialAutoRefreshBusy=false}
+}
+function startCommercialAutoRefresh(){
+  if(commercialAutoRefreshTimer)return;
+  commercialAutoRefreshTimer=setInterval(refreshCommercialDataIfVisible,30000);
+}
 function renderKpis(view){
   const r=salesData?.resumo||{};
   const active=view||document.querySelector('.tab.active')?.dataset.view||'inicio';
@@ -225,6 +240,7 @@ document.getElementById('manualPwdForm').addEventListener('submit',async ev=>{ev
 document.getElementById('pwdForm').addEventListener('submit',async ev=>{ev.preventDefault();const cur=document.getElementById('pwdCurrent').value,n=document.getElementById('pwdNew').value,c=document.getElementById('pwdConfirm').value,msg=document.getElementById('pwdMsg'),btn=document.getElementById('pwdSubmit');if(n!==c){msg.textContent='A confirmação da nova senha não confere.';msg.className='pwd-msg pwd-err';return}btn.disabled=true;btn.textContent='Alterando...';try{await api('/industrias/change-password',{method:'POST',body:JSON.stringify({senhaAtual:cur,novaSenha:n})});msg.textContent='Senha alterada com sucesso.';msg.className='pwd-msg pwd-ok';profile.permissoes.INDUSTRIA_TROCAR_SENHA=false;setTimeout(async()=>{hidePwd();await loadData();await loadStock()},500)}catch(e){if(e?.detail?.codigo==='PASSWORD_CHANGED_FINALIZE_PENDING'){msg.textContent=e.detail.mensagem;msg.className='pwd-msg pwd-err';const fb=document.getElementById('pwdFinalize');fb.dataset.token=e.detail.finalizationToken||'';fb.classList.remove('hidden')}else{msg.textContent=e.message||'Não foi possível alterar a senha.';msg.className='pwd-msg pwd-err'}}finally{btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-key" style="margin-right:7px"></i>Alterar senha e entrar'}});
 document.getElementById('pwdFinalize').addEventListener('click',async()=>{const b=document.getElementById('pwdFinalize'),m=document.getElementById('pwdMsg');b.disabled=true;b.textContent='Finalizando...';try{const token=b.dataset.token||'';if(!token)throw new Error('A autorização para concluir o acesso não está disponível.');await api('/industrias/complete-first-access',{method:'POST',body:JSON.stringify({token})});profile.permissoes.INDUSTRIA_TROCAR_SENHA=false;m.textContent='Acesso concluído.';m.className='pwd-msg pwd-ok';setTimeout(async()=>{hidePwd();await loadData();await loadStock()},400)}catch(e){m.textContent=e.message||'Não foi possível finalizar o acesso.';m.className='pwd-msg pwd-err'}finally{b.disabled=false;b.textContent='Finalizar acesso'}});
 init();
+startCommercialAutoRefresh();
 </script>
 </body>
 </html>

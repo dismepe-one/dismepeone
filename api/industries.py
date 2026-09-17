@@ -21,6 +21,7 @@ from .cache_reads import CacheReadError, cache_get
 from .config import get_settings
 from .security import auth_email, decode_session_token, issue_session_token, normalizar, senha_interna
 from .industries_stock_sync import CURRENT_FILE as STOCK_CURRENT_FILE, FALLBACK_FILE as STOCK_FALLBACK_FILE, stock_sync_public_status, sync_stock_once
+from .industries_sales_sync import ensure_general_sales_fresh, general_sales_sync_public_status
 
 
 settings = get_settings()
@@ -1525,6 +1526,15 @@ async def industries_data(
     obj_v = sum(x["objetivo"] for x in vend_rows)
     obj_t = sum(x["objetivo"] for x in tlv_rows)
 
+    # OBJETIVO X VENDA.xlsx no Drive é a fonte oficial de Venda Geral/Objetivo.
+    # Antes de ler o cache local, confirmamos se o arquivo do Drive mudou.
+    sales_sync_status = general_sales_sync_public_status()
+    try:
+        sales_sync_status = await ensure_general_sales_fresh()
+    except Exception:
+        # Mantém a última fotografia válida se o Drive estiver temporariamente indisponível.
+        sales_sync_status = general_sales_sync_public_status()
+
     # Venda Geral nunca cai para Vendedores + Televendas.
     general = _general_sales_snapshot(lab, comp)
     venda_total: float | None = None
@@ -1548,6 +1558,7 @@ async def industries_data(
         ),
         "acessoInterno": _is_internal_industry_viewer(profile),
         "acessoComprador": is_buyer_profile(profile),
+        "vendaGeralSync": sales_sync_status,
         "competencia": comp,
         "competencias": comps,
         "diasUteisRestantes": days,

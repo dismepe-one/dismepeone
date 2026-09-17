@@ -16,6 +16,7 @@ from .industries import (
     scope_industry_bootstrap,
 )
 from .industries_stock_sync import start_stock_sync, stop_stock_sync, stock_sync_public_status
+from .industries_sales_sync import start_general_sales_sync, stop_general_sales_sync, general_sales_sync_public_status
 
 
 BUILD = "2.0.0-phase2i2-prod5.9.4-publicado"
@@ -43,10 +44,12 @@ app.version = BUILD
 @app.on_event("startup")
 async def industries_stock_sync_startup():
     await start_stock_sync()
+    await start_general_sales_sync()
 
 
 @app.on_event("shutdown")
 async def industries_stock_sync_shutdown():
+    await stop_general_sales_sync()
     await stop_stock_sync()
 
 
@@ -103,6 +106,7 @@ async def industries_route_guard(request: Request, call_next):
     # Idempotente: também garante o monitor do Drive em aplicações que usem
     # um lifespan próprio e não executem handlers legados de startup.
     await start_stock_sync()
+    await start_general_sales_sync()
     profile = _profile_from_cookie(request)
     if profile and (is_industry_profile(profile) or is_buyer_profile(profile)):
         path = request.url.path
@@ -172,4 +176,5 @@ async def industries_health(response: Response):
         "monthlyHistoryRetention": 2,
         "industriesPortal": True,
         "industriesStockDriveSync": stock_sync_public_status(),
+        "industriesGeneralSalesDriveSync": general_sales_sync_public_status(),
     }
