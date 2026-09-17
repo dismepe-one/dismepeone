@@ -136,7 +136,7 @@ function renderKpis(view){
 
   let l1='Venda Geral',l2='Objetivo Geral',l3='% Atendimento Geral';
   let v1=r.vendaTotal,v2=r.objetivoTotal,v3=r.atingimentoTotal;
-  let s1='';
+  let s1=(r.positivacao!=null&&Number.isFinite(Number(r.positivacao)))?`Positivação: ${num(r.positivacao)} clientes`:'';
   let s2='';
   let s3=(r.atingimentoTotal!=null&&Number.isFinite(Number(r.atingimentoTotal)))?'Venda Geral ÷ Objetivo Geral':'—';
 

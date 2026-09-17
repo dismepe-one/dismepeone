@@ -28,6 +28,7 @@ TARGET_XLSX_NAME = "OBJETIVO X VENDA.xlsx"
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 GOOGLE_SHEET_MIME = "application/vnd.google-apps.spreadsheet"
 TZ = ZoneInfo("America/Recife")
+SNAPSHOT_SCHEMA = "VENDA_GERAL_V2_POSITIVACAO"
 
 NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 NS_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -342,6 +343,8 @@ def build_snapshot(raw_xlsx: bytes, *, source_item: dict[str, Any]) -> dict[str,
         raise RuntimeError("Cabeçalho Fornecedor não encontrado na aba VENDA GERAL.")
     if "VENDA" not in _key(venda_header[1] if len(venda_header) > 1 else ""):
         raise RuntimeError("Cabeçalho Venda não encontrado na aba VENDA GERAL.")
+    if "POSITIVACAO" not in _key(venda_header[2] if len(venda_header) > 2 else ""):
+        raise RuntimeError("Cabeçalho Positivação não encontrado na aba VENDA GERAL.")
     if _key(objetivo_header[0] if len(objetivo_header) > 0 else "") != "FORNECEDOR":
         raise RuntimeError("Cabeçalho Fornecedor não encontrado na aba OBJETIVO.")
     if "OBJETIVO" not in _key(objetivo_header[1] if len(objetivo_header) > 1 else ""):
@@ -359,6 +362,7 @@ def build_snapshot(raw_xlsx: bytes, *, source_item: dict[str, Any]) -> dict[str,
     for row in vendas[1:]:
         lab = _clean(row[0] if len(row) > 0 else "")
         sale = _number(row[1] if len(row) > 1 else None)
+        positivity = _number(row[2] if len(row) > 2 else None)
         if not lab or sale is None:
             continue
 
@@ -368,6 +372,7 @@ def build_snapshot(raw_xlsx: bytes, *, source_item: dict[str, Any]) -> dict[str,
                 "laboratorio": lab,
                 "competencia": competence,
                 "venda_total": round(sale, 2),
+                "positivacao_total": int(round(positivity)) if positivity is not None else None,
                 "objetivo_total": round(objective, 2) if objective is not None else None,
             }
         )
@@ -383,6 +388,7 @@ def build_snapshot(raw_xlsx: bytes, *, source_item: dict[str, Any]) -> dict[str,
         "idAtualizacao": now.strftime("%Y%m%d_%H%M%S") + "_" + digest[:10],
         "fonte": str(source_item.get("name") or _target_filename()),
         "competencia": competence,
+        "schema": SNAPSHOT_SCHEMA,
         "gerado_em": now.strftime("%d/%m/%Y %H:%M:%S"),
         "drive_file_id": str(source_item.get("id") or ""),
         "drive_modified_time": str(source_item.get("modifiedTime") or ""),
@@ -438,9 +444,11 @@ def _sync_general_sales_once_blocking(force: bool = False) -> dict[str, Any]:
         )
 
     state = _read_json(STATE_FILE, {}) or {}
+    current_snapshot = _read_json(CURRENT_FILE, {}) or {}
     same_file = (
         state.get("lastFileId") == newest.get("id")
         and state.get("lastFileModifiedTime") == newest.get("modifiedTime")
+        and str(current_snapshot.get("schema") or "") == SNAPSHOT_SCHEMA
     )
     if same_file and CURRENT_FILE.exists() and not force:
         return _state_update(
@@ -455,6 +463,7 @@ def _sync_general_sales_once_blocking(force: bool = False) -> dict[str, Any]:
     if (
         not force
         and str(current.get("sha256") or "") == digest
+        and str(current.get("schema") or "") == SNAPSHOT_SCHEMA
         and isinstance(current.get("linhas"), list)
         and current.get("linhas")
     ):

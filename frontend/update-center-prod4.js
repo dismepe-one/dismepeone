@@ -251,6 +251,29 @@
     return result;
   }
 
+  function compatibilityPreparing(error){
+    const text=String(error?.message||error||'')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g,'')
+      .toUpperCase();
+    return text.includes('SESSAO DE COMPATIBILIDADE') &&
+      (text.includes('PREPAR') || text.includes('PRONT'));
+  }
+
+  async function updateCenterStatusWithRetry(body){
+    let lastError=null;
+    for(const wait of [0,700,1500]){
+      if(wait)await new Promise(resolve=>setTimeout(resolve,wait));
+      try{
+        return await updateCenterApi(body);
+      }catch(error){
+        lastError=error;
+        if(!compatibilityPreparing(error))throw error;
+      }
+    }
+    throw lastError || new Error('Não foi possível preparar a sessão da Central de Atualizações.');
+  }
+
   async function refreshMonthlyRules(comp, expectedLab){
     const competencia=compKey(comp);
     const token=tokenNow();
@@ -343,7 +366,12 @@
     const action=String(body?.acao||body?.action||'').trim().toUpperCase();
 
     if(action==='OPCACHE_STATUS' || action==='OPCACHE_ATUALIZAR'){
-      const result=await updateCenterApi(body);
+      // STATUS pode ser repetido com segurança enquanto a sessão de
+      // compatibilidade termina de preparar. A escrita OPCACHE_ATUALIZAR
+      // continua sendo enviada uma única vez.
+      const result=action==='OPCACHE_STATUS'
+        ?await updateCenterStatusWithRetry(body)
+        :await updateCenterApi(body);
       if(action==='OPCACHE_ATUALIZAR'){
         persistTimes(result);
         scheduleTimeSync();

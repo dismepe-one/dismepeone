@@ -1274,8 +1274,10 @@ def _general_sales_snapshot(lab: str, competencia: str) -> dict[str, Any] | None
     comp_key = normalizar(competencia or "")
     total = 0.0
     objective = 0.0
+    positivity = 0.0
     found = False
     has_objective = False
+    has_positivity = False
 
     for row in rows:
         if not isinstance(row, dict):
@@ -1304,11 +1306,23 @@ def _general_sales_snapshot(lab: str, competencia: str) -> dict[str, Any] | None
             objective += _num(raw_obj)
             has_objective = True
 
+        raw_pos = row.get("positivacao_total")
+        if raw_pos is None:
+            raw_pos = row.get("positivacao")
+        if raw_pos is None:
+            raw_pos = row.get("positivação")
+        if raw_pos is None:
+            raw_pos = row.get("positivados")
+        if raw_pos not in (None, ""):
+            positivity += _num(raw_pos)
+            has_positivity = True
+
     if not found:
         return None
     return {
         "venda": round(total, 2),
         "objetivo": round(objective, 2) if has_objective else None,
+        "positivacao": int(round(positivity)) if has_positivity else None,
         "atualizadoEm": str(payload.get("gerado_em") or payload.get("atualizado_em") or "") if isinstance(payload, dict) else "",
         "arquivoOrigem": str(payload.get("fonte") or payload.get("arquivo_origem") or "") if isinstance(payload, dict) else "",
     }
@@ -1544,11 +1558,14 @@ async def industries_data(
     general = _general_sales_snapshot(lab, comp)
     venda_total: float | None = None
     obj_total: float | None = None
+    positivacao_total: int | None = None
     fonte_venda_total = "BASE_GERAL_INDISPONIVEL"
     venda_total_atualizado_em = ""
     if general is not None:
         venda_total = float(general["venda"])
         obj_total = general.get("objetivo")
+        raw_positivity = general.get("positivacao")
+        positivacao_total = int(raw_positivity) if raw_positivity is not None else None
         fonte_venda_total = "BASE_GERAL"
         venda_total_atualizado_em = str(general.get("atualizadoEm") or "")
 
@@ -1586,7 +1603,7 @@ async def industries_data(
             ),
             "fonteVendaTotal": fonte_venda_total,
             "vendaTotalAtualizadoEm": venda_total_atualizado_em,
-            "positivacao": None,
+            "positivacao": None if all_labs else positivacao_total,
         },
         "vendedores": vend_rows,
         "televendas": tlv_rows,

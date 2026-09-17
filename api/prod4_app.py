@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ from .main import app, settings
 from .security import decode_session_token
 from .legacy_bridge import get_state
 from .history_reads import HistoryReadError
+from .cache_reads import CacheReadError, cache_get as cache_read
 from .monthly_retention import (
     MonthlyRetentionPurgeError,
     filter_dashboard_payload,
@@ -261,6 +263,99 @@ def _stamp_requested_modules(
                 row["atualizadoEm"] = requested_times[target]
 
 
+def _update_center_cache_time(value) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(ZoneInfo("America/Recife"))
+        return parsed.strftime("%d/%m/%Y %H:%M:%S")
+    except (TypeError, ValueError):
+        return text
+
+
+def _update_center_snapshot_modules(profile: dict) -> list[tuple[str, str]]:
+    role = str(profile.get("tipo") or "").strip().upper()
+    perms = profile.get("permissoes") if isinstance(profile.get("permissoes"), dict) else {}
+    broad = role in {"ADMINISTRADOR", "ADMIN"} or perms.get("CENTRO_ATUALIZACOES") is True
+    modules: list[tuple[str, str]] = []
+    if broad or perms.get("MENSAL_BASE_ATUALIZADA") is True:
+        modules.append(("MENSAL", "Campanhas Mensais"))
+    if broad or perms.get("EXTRAS_BASE_ATUALIZADA") is True:
+        modules.append(("EXTRAS", "Campanhas Extras"))
+    return modules
+
+
+async def _update_center_snapshot_status(profile: dict) -> dict:
+    # STATUS é leitura idempotente. Se a ponte legada ainda estiver preparando
+    # a sessão, a Central pode abrir usando os snapshots PostgreSQL já válidos.
+    rows: list[dict] = []
+    for module, label in _update_center_snapshot_modules(profile):
+        try:
+            _payload, cache_row = await cache_read(modulo=module, settings=settings)
+            rows.append({
+                "modulo": module,
+                "label": label,
+                "disponivel": True,
+                "atualizadoEm": _update_center_cache_time(cache_row.get("atualizado_em")),
+                "atualizado_por": str(cache_row.get("atualizado_por") or ""),
+                "usuario": str(cache_row.get("atualizado_por") or ""),
+                "nome": str(cache_row.get("nome") or ""),
+            })
+        except CacheReadError:
+            rows.append({
+                "modulo": module,
+                "label": label,
+                "disponivel": False,
+                "atualizadoEm": "",
+                "atualizado_por": "",
+                "usuario": "",
+                "nome": "",
+            })
+
+    return {
+        "sucesso": True,
+        "ok": True,
+        "modulos": rows,
+        "transporte": "FASTAPI_POSTGRES_STATUS_FALLBACK",
+    }
+
+
+async def _resolve_update_center_legacy_token(
+    session_key: str,
+    payload: dict,
+) -> str:
+    # PROD5.9.8.22 — o token que o próprio navegador já possui continua sendo
+    # o fallback imediato; sem ele, aguardamos brevemente o mesmo login legado
+    # em andamento. A escrita OPCACHE_ATUALIZAR nunca é repetida.
+    state = await get_state(session_key)
+    token = (
+        str(state.get("token") or "").strip()
+        if state.get("status") == "READY"
+        else ""
+    )
+    if token:
+        return token
+
+    browser_token = str(payload.get("token") or "").strip()
+    if browser_token:
+        return browser_token
+
+    for _ in range(12):
+        if str(state.get("status") or "").upper() == "ERROR":
+            break
+        await asyncio.sleep(0.2)
+        state = await get_state(session_key)
+        if state.get("status") == "READY":
+            token = str(state.get("token") or "").strip()
+            if token:
+                return token
+
+    return ""
+
+
 # Substitui somente as rotas de apresentação/health; o restante continua vindo
 # integralmente do app PROD3 já homologado.
 _remove_routes("/", "/portal-v2-homolog.html", "/health")
@@ -402,14 +497,17 @@ async def prod4_update_center(
         raise HTTPException(status_code=400, detail="Ação inválida para o Centro de Atualizações.")
 
     session_key = hashlib.sha256(session.encode("utf-8")).hexdigest()
-    legacy_state = await get_state(session_key)
-    legacy_token = (
-        str(legacy_state.get("token") or "").strip()
-        if legacy_state.get("status") == "READY"
-        else ""
-    )
+    legacy_token = await _resolve_update_center_legacy_token(session_key, payload)
     if not legacy_token:
-        legacy_token = str(payload.get("token") or "").strip()
+        if action == "OPCACHE_STATUS":
+            return await _update_center_snapshot_status(profile)
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "A sessão de compatibilidade ainda está sendo preparada. "
+                "Aguarde alguns segundos e tente novamente."
+            ),
+        )
 
     try:
         result = await call_update_center_legacy(
@@ -418,6 +516,8 @@ async def prod4_update_center(
             legacy_token=legacy_token,
         )
     except UpdateCenterBridgeError as exc:
+        if action == "OPCACHE_STATUS":
+            return await _update_center_snapshot_status(profile)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     # Confirma a atualização com uma leitura STATUS. Nunca repete a escrita.

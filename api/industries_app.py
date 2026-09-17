@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, File
 
 from . import main as main_module
 from . import prod4_app
+from . import industries as industries_module
 from .prod4_app import app, settings
 from .security import decode_session_token
 from .industries import (
@@ -17,6 +18,11 @@ from .industries import (
 )
 from .industries_stock_sync import start_stock_sync, stop_stock_sync, stock_sync_public_status
 from .industries_sales_sync import start_general_sales_sync, stop_general_sales_sync, general_sales_sync_public_status
+from .monthly_business_days import (
+    enrich_monthly_payload,
+    router as monthly_business_days_router,
+)
+from .herbamed_auto_metrics import enrich_herbamed_monthly_payload
 
 
 BUILD = "2.0.0-phase2i2-prod5.9.4-publicado"
@@ -24,10 +30,13 @@ ROOT = Path(__file__).resolve().parents[1]
 PORTAL_FILE = ROOT / "frontend" / "portal-v2-homolog.html"
 ROUTER_SCRIPT = ROOT / "frontend" / "industries-router.js"
 ADMIN_SCRIPT = ROOT / "frontend" / "industries-admin.js"
+BUSINESS_DAYS_SCRIPT = ROOT / "frontend" / "monthly-business-days-prod59822.js"
+HERBAMED_AUTO_SCRIPT = ROOT / "frontend" / "herbamed-auto-metrics-prod59822.js"
 
 # PROD4.4 já substituiu scope_mensal_dashboard. Guardamos essa versão e
 # aplicamos um escopo adicional somente quando o perfil for INDÚSTRIA.
 _ORIGINAL_SCOPE = main_module.scope_mensal_dashboard
+_ORIGINAL_CACHE_GET = main_module.cache_get
 
 
 def _scope_with_industry(payload: dict, profile: dict, competencia: str | None = None):
@@ -36,8 +45,19 @@ def _scope_with_industry(payload: dict, profile: dict, competencia: str | None =
     return _ORIGINAL_SCOPE(payload, profile, competencia=competencia)
 
 
+async def _cache_get_with_automatic_business_days(*, modulo: str, settings):
+    payload, row = await _ORIGINAL_CACHE_GET(modulo=modulo, settings=settings)
+    if str(modulo or "").strip().upper() == "MENSAL":
+        payload = await enrich_monthly_payload(payload)
+        payload = await enrich_herbamed_monthly_payload(payload)
+    return payload, row
+
+
 main_module.scope_mensal_dashboard = _scope_with_industry
+main_module.cache_get = _cache_get_with_automatic_business_days
+industries_module.cache_get = _cache_get_with_automatic_business_days
 app.include_router(industries_router)
+app.include_router(monthly_business_days_router)
 app.version = BUILD
 
 
@@ -68,6 +88,8 @@ def _portal_response(*, authenticated: bool = False) -> HTMLResponse:
         f'<script src="/monthly-retention-prod44.js?v={BUILD}"></script>',
         f'<script src="/industries-router.js?v={BUILD}"></script>',
         f'<script src="/industries-admin.js?v={BUILD}"></script>',
+        f'<script src="/monthly-business-days-prod59822.js?v={BUILD}"></script>',
+        f'<script src="/herbamed-auto-metrics-prod59822.js?v={BUILD}"></script>',
     ]
     missing = [tag for tag in tags if tag not in html]
     if missing:
@@ -167,6 +189,24 @@ async def industries_router_script():
 async def industries_admin_script():
     return FileResponse(
         ADMIN_SCRIPT,
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
+
+
+@app.get("/monthly-business-days-prod59822.js", include_in_schema=False)
+async def monthly_business_days_script():
+    return FileResponse(
+        BUSINESS_DAYS_SCRIPT,
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
+
+
+@app.get("/herbamed-auto-metrics-prod59822.js", include_in_schema=False)
+async def herbamed_auto_metrics_script():
+    return FileResponse(
+        HERBAMED_AUTO_SCRIPT,
         media_type="application/javascript",
         headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
     )
