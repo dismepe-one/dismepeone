@@ -106,6 +106,18 @@ async def run_legacy_login(
         except ValueError:
             data = {}
 
+        # O frontend legado já reconhece estes formatos de resposta.
+        # A ponte 2.0 precisa aceitar exatamente os mesmos aliases; antes ela
+        # aceitava apenas data["token"], deixando a sessão presa em ERROR.
+        legacy_token = str(
+            data.get("token")
+            or data.get("authToken")
+            or data.get("sessionToken")
+            or data.get("sessao")
+            or data.get("session")
+            or ""
+        ).strip()
+
         ok = (
             response.status_code >= 200
             and response.status_code < 300
@@ -113,8 +125,9 @@ async def run_legacy_login(
                 data.get("sucesso") is True
                 or data.get("success") is True
                 or data.get("ok") is True
+                or str(data.get("status") or "").strip().upper() == "OK"
             )
-            and bool(data.get("token"))
+            and bool(legacy_token)
         )
 
         if not ok:
@@ -135,7 +148,7 @@ async def run_legacy_login(
         async with _LOCK:
             _STATE[session_key] = {
                 "status": "READY",
-                "token": str(data.get("token") or ""),
+                "token": legacy_token,
                 "error": "",
                 "updated_at": _now(),
             }

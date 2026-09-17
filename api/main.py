@@ -289,7 +289,10 @@ async def login(
     background_tasks.add_task(
         run_legacy_login,
         session_key=session_key,
-        usuario=usuario_banco,
+        # A autenticação 2.0 continua usando o usuário normalizado do banco.
+        # Somente a ponte legada recebe exatamente o login que foi digitado,
+        # preservando o comportamento original do portal 1.x.
+        usuario=payload.usuario,
         senha=payload.senha,
         settings=settings,
     )
