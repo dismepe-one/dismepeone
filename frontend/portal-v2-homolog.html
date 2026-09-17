@@ -7271,6 +7271,10 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
             } else {
                 const tableRows = filtered.map(item => {
                     const ating = item.percentual * 100;
+                    const faltaVender = Math.max(
+                        0,
+                        Number(item.objetivo || 0) - Number(item.venda || 0)
+                    );
                     const isItemFoco = isFoco(item);
                     const isIntegralProductPoints = v171IsIntegralProductPoints(item);
                     const baseLab = getBaseLab(item.lab);
@@ -7298,7 +7302,10 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
                             <td class="p-3.5 text-right font-mono">${isIntegralProductPoints ? '—' : formatValue(item.objetivo, isItemFoco)}</td>
                             <td class="p-3.5 text-right font-mono ${isIntegralProductPoints ? 'text-slate-500' : metricClass}">${isIntegralProductPoints ? '—' : formatValue(item.venda, isItemFoco)}</td>
                             <td class="p-3.5 text-right font-mono font-bold text-slate-700">${isIntegralProductPoints ? '—' : venderPorDia(item.objetivo,item.venda,isItemFoco)}</td>
-                            <td class="p-3.5 text-center ${isIntegralProductPoints ? 'text-slate-500' : metricClass}">${isIntegralProductPoints ? '—' : ating.toFixed(1)+'%'}</td>
+                            <td class="p-3.5 text-center">
+                                <span class="detail-desktop-achievement ${isIntegralProductPoints ? 'text-slate-500' : metricClass}">${isIntegralProductPoints ? '—' : ating.toFixed(1)+'%'}</span>
+                                <span class="detail-mobile-missing">${isIntegralProductPoints ? '—' : formatValue(faltaVender, isItemFoco)}</span>
+                            </td>
                             <td class="p-3.5 text-center min-w-[140px] whitespace-nowrap"><span class="inline-flex min-w-[118px] items-center justify-center whitespace-nowrap px-3 py-1.5 rounded-full text-[11px] leading-none font-medium border ${badgeClass}">${badgeText}</span></td>
                         </tr>`;
                 }).join('');
@@ -30724,88 +30731,73 @@ body.v5986-login-pending #loginOverlay.hidden{
 </script>
 
 
-<!-- PROD5.9.8.19 — correção pontual das parciais mobile Vendedor/Televendas -->
-<style id="prod59819-mobile-parciais">
-@media (max-width: 768px) {
-  #detailTableScroll tbody tr {
+
+
+
+<!-- PROD5.9.8.20 — mobile Vendedor/Televendas: Falta Vender -->
+<style id="prod59820-mobile-parciais">
+.detail-mobile-missing{display:none;}
+@media (max-width:768px){
+  #detailTableScroll tbody tr{
     grid-template-columns:minmax(0,1fr) minmax(0,1fr) !important;
     overflow:hidden !important;
   }
-  #detailTableScroll tbody td {
-    min-height:38px !important;
-    padding:7px 8px !important;
-    box-sizing:border-box !important;
-  }
-  #detailTableScroll tbody td:nth-child(1),
-  #detailTableScroll tbody td:nth-child(2),
-  #detailTableScroll tbody td:nth-child(7) {
-    grid-column:1 / -1 !important;
-  }
+
   #detailTableScroll tbody td:nth-child(3),
   #detailTableScroll tbody td:nth-child(4),
   #detailTableScroll tbody td:nth-child(5),
-  #detailTableScroll tbody td:nth-child(6) {
-    width:100% !important;
-    max-width:100% !important;
+  #detailTableScroll tbody td:nth-child(6){
+    flex-direction:column !important;
+    align-items:flex-start !important;
+    justify-content:center !important;
+    text-align:left !important;
+    gap:3px !important;
+    min-width:0 !important;
+    padding:9px !important;
     overflow:hidden !important;
   }
-  #detailTableScroll tbody td:nth-child(6) {
-    font-variant-numeric:tabular-nums;
-    white-space:nowrap !important;
+
+  #detailTableScroll tbody td:nth-child(3)::before,
+  #detailTableScroll tbody td:nth-child(4)::before,
+  #detailTableScroll tbody td:nth-child(5)::before,
+  #detailTableScroll tbody td:nth-child(6)::before{
+    display:block !important;
+    width:100% !important;
+    margin:0 !important;
+    color:#64748b !important;
+    font-size:8px !important;
+    font-weight:900 !important;
+    line-height:1.1 !important;
   }
-  #detailTableScroll tbody td:nth-child(6)::before {
-    content:"Atingimento" !important;
+
+  #detailTableScroll tbody td:nth-child(6)::before{
+    content:"Falta Vender" !important;
+  }
+
+  #detailTableScroll .detail-desktop-achievement{
+    display:none !important;
+  }
+
+  #detailTableScroll .detail-mobile-missing{
+    display:block !important;
+    width:100% !important;
+    min-width:0 !important;
+    color:#92400e !important;
+    font-weight:900 !important;
+    font-size:11px !important;
+    line-height:1.25 !important;
+    white-space:normal !important;
+    overflow-wrap:anywhere !important;
+  }
+
+  #detailTableScroll tbody td:nth-child(3),
+  #detailTableScroll tbody td:nth-child(4),
+  #detailTableScroll tbody td:nth-child(5){
+    font-size:11px !important;
+    line-height:1.25 !important;
   }
 }
 </style>
-<script id="prod59819-mobile-atingimento">
-(function(){
-  'use strict';
-  if(window.__PROD59819_MOBILE_ATINGIMENTO__)return;
-  window.__PROD59819_MOBILE_ATINGIMENTO__=true;
-
-  function isMobile(){
-    return window.matchMedia&&window.matchMedia('(max-width: 768px)').matches;
-  }
-  function parsePtNumber(text){
-    let raw=String(text||'').replace(/\u00a0/g,' ').replace(/R\$/gi,'').replace(/[^\d,.\-]/g,'').trim();
-    if(!raw)return NaN;
-    if(raw.includes(','))raw=raw.replace(/\./g,'').replace(',','.');
-    const n=Number(raw);
-    return Number.isFinite(n)?n:NaN;
-  }
-  function fixRows(){
-    if(!isMobile())return;
-    const table=document.querySelector('#detailTableScroll tbody');
-    if(!table)return;
-    table.querySelectorAll('tr').forEach(row=>{
-      const cells=row.querySelectorAll(':scope > td');
-      if(cells.length<6)return;
-      const objetivo=parsePtNumber(cells[2].textContent);
-      const venda=parsePtNumber(cells[3].textContent);
-      if(!Number.isFinite(objetivo)||!Number.isFinite(venda))return;
-      const atingimento=objetivo>0?(venda/objetivo)*100:0;
-      const cell=cells[5];
-      cell.textContent=atingimento.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+'%';
-      cell.classList.remove('text-emerald-400','text-amber-400','text-[#660000]');
-      cell.style.color='';
-      if(atingimento>=100)cell.classList.add('text-emerald-400');
-      else if(atingimento>=50)cell.classList.add('text-amber-400');
-      else cell.style.color='#660000';
-    });
-  }
-  function scheduleFix(){requestAnimationFrame(()=>requestAnimationFrame(fixRows));}
-  document.addEventListener('DOMContentLoaded',()=>{
-    const target=document.getElementById('detailTableScroll');
-    if(target){
-      const observer=new MutationObserver(scheduleFix);
-      observer.observe(target,{childList:true,subtree:true,characterData:true});
-    }
-    scheduleFix();
-  });
-  window.addEventListener('resize',scheduleFix,{passive:true});
-})();
-</script>
 
 </body>
 </html>

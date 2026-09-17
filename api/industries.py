@@ -1662,33 +1662,57 @@ async def industries_admin_users(
 ):
     _admin_profile(session)
     try:
-        payload, _ = await cache_get(modulo="USUARIOS", settings=settings)
-    except CacheReadError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        payload = await _edge_admin_write("USUARIOS_LIST", {})
+    except IndustryError as exc:
+        detail = (
+            exc.data.get("mensagem")
+            or exc.data.get("message")
+            or exc.data.get("detail")
+            or exc.data.get("erro")
+            or exc.data.get("error")
+            or str(exc)
+        )
+        if isinstance(detail, (dict, list)):
+            detail = json.dumps(detail, ensure_ascii=False)
+        raise HTTPException(status_code=exc.status_code, detail=str(detail)) from exc
 
     users: list[dict[str, Any]] = []
     for item in _snapshot_users(payload):
         usuario = str(item.get("usuario") or item.get("login") or item.get("USUARIO") or "").strip()
         if not usuario:
             continue
+
         role = normalizar(item.get("tipo") or item.get("perfil") or item.get("cargo") or "")
         if role != ROLE_INDUSTRY:
             continue
 
-        raw_perms = item.get("permissoes") if item.get("permissoes") is not None else item.get("PERMISSOES")
+        raw_perms = item.get("permissoes")
+        if raw_perms is None:
+            raw_perms = item.get("PERMISSOES")
         perms = _permission_map(raw_perms)
+
         raw_labs = perms.get(PERM_LABS)
         user_labs: list[str] = []
         if isinstance(raw_labs, list):
             user_labs = _canonical_lab_labels(raw_labs)
         elif isinstance(raw_labs, str):
-            user_labs = _canonical_lab_labels([x for x in re.split(r"[,;|]", raw_labs) if x.strip()])
+            user_labs = _canonical_lab_labels(
+                [x for x in re.split(r"[,;|]", raw_labs) if x.strip()]
+            )
 
-        users.append({
-            "usuario": usuario,
-            "nome": str(item.get("nome") or item.get("vendedor") or usuario).strip(),
-            "laboratorios": user_labs,
-        })
+        if not user_labs:
+            setor = str(item.get("setor") or "").strip()
+            setor = re.sub(r"^INDUSTRIA\s*[:|\-]\s*", "", setor, flags=re.I)
+            if setor and normalizar(setor) != ROLE_INDUSTRY:
+                user_labs = _canonical_lab_labels([setor])
+
+        users.append(
+            {
+                "usuario": usuario,
+                "nome": str(item.get("nome") or item.get("vendedor") or usuario).strip(),
+                "laboratorios": user_labs,
+            }
+        )
 
     users.sort(key=lambda item: normalizar(item.get("nome") or item.get("usuario") or ""))
     return {"sucesso": True, "usuarios": users}
@@ -1700,6 +1724,7 @@ async def industries_update_user_labs(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     _admin_profile(session)
+
     usuario = str(payload.usuario or "").strip()
     labs = _canonical_lab_labels(payload.laboratorios)
     if not usuario:
@@ -1708,27 +1733,35 @@ async def industries_update_user_labs(
         raise HTTPException(status_code=400, detail="Selecione ao menos um laboratório.")
 
     try:
-        users_payload, _ = await cache_get(modulo="USUARIOS", settings=settings)
-    except CacheReadError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        lookup = await _edge_admin_write(
+            "USUARIO_CONTEXTO",
+            {"usuario_norm": normalizar(usuario)},
+        )
+    except IndustryError as exc:
+        detail = (
+            exc.data.get("mensagem")
+            or exc.data.get("message")
+            or exc.data.get("detail")
+            or exc.data.get("erro")
+            or exc.data.get("error")
+            or str(exc)
+        )
+        if isinstance(detail, (dict, list)):
+            detail = json.dumps(detail, ensure_ascii=False)
+        raise HTTPException(status_code=exc.status_code, detail=str(detail)) from exc
 
-    target_key = normalizar(usuario)
-    target = next(
-        (
-            item for item in _snapshot_users(users_payload)
-            if normalizar(item.get("usuario") or item.get("login") or item.get("USUARIO") or "") == target_key
-        ),
-        None,
-    )
-    if not target:
+    target = lookup.get("usuario") if lookup.get("encontrado") is True else None
+    if not isinstance(target, dict):
         raise HTTPException(status_code=404, detail="Usuário da indústria não encontrado.")
 
     role = normalizar(target.get("tipo") or target.get("perfil") or target.get("cargo") or "")
     if role != ROLE_INDUSTRY:
-        raise HTTPException(status_code=400, detail="O usuário selecionado não é um usuário da indústria.")
+        raise HTTPException(
+            status_code=400,
+            detail="O usuário selecionado não é um usuário da indústria.",
+        )
 
-    raw_perms = target.get("permissoes") if target.get("permissoes") is not None else target.get("PERMISSOES")
-    perms = _permission_map(raw_perms)
+    perms = _permission_map(target.get("permissoes"))
     perms[PERM_PORTAL] = True
     perms[PERM_LABS] = labs
 
@@ -1758,7 +1791,10 @@ async def industries_update_user_labs(
         "sucesso": True,
         "usuario": usuario,
         "laboratorios": labs,
-        "mensagem": "Laboratórios atualizados. O novo vínculo será aplicado no próximo login desse usuário.",
+        "mensagem": (
+            "Laboratórios atualizados. O novo vínculo será aplicado "
+            "no próximo login desse usuário."
+        ),
     }
 
 
@@ -2149,6 +2185,55 @@ async def industries_create_user(
     labs = _canonical_lab_labels(payload.laboratorios)
     if not labs:
         raise HTTPException(status_code=400, detail="Selecione ao menos um laboratório.")
+
+    # Antes de MIGRAR_USUARIO, consultar a fonte viva do PostgreSQL.
+    # Isso impede que um login já existente (inclusive com diferença apenas
+    # de maiúsculas/minúsculas) tenha o Supabase Auth alterado antes de a
+    # gravação colidir com usuario_norm.
+    try:
+        existing_lookup = await _edge_admin_write(
+            "USUARIO_CONTEXTO",
+            {"usuario_norm": normalizar(usuario)},
+        )
+    except IndustryError as exc:
+        detail = (
+            exc.data.get("mensagem")
+            or exc.data.get("message")
+            or exc.data.get("detail")
+            or exc.data.get("erro")
+            or exc.data.get("error")
+            or str(exc)
+        )
+        if isinstance(detail, (dict, list)):
+            detail = json.dumps(detail, ensure_ascii=False)
+        raise HTTPException(status_code=exc.status_code, detail=str(detail)) from exc
+
+    existing = (
+        existing_lookup.get("usuario")
+        if existing_lookup.get("encontrado") is True
+        else None
+    )
+    if isinstance(existing, dict):
+        existing_role = str(existing.get("tipo") or "").strip()
+        if normalizar(existing_role) == ROLE_INDUSTRY:
+            message = (
+                "Esse usuário da indústria já existe. "
+                "Use 'Editar laboratórios do usuário' para alterar os fornecedores vinculados."
+            )
+        else:
+            message = (
+                "Esse login já existe no sistema"
+                + (f" como {existing_role}" if existing_role else "")
+                + ". Para preservar o acesso atual, use outro nome de usuário."
+            )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "codigo": "USUARIO_JA_EXISTE",
+                "mensagem": message,
+            },
+        )
+
     temporary_password = _temporary_password()
     perms: dict[str, Any] = {
         "ALTERAR_SENHA": True,
