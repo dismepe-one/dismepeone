@@ -30337,5 +30337,157 @@ body:not(.v51-auth-ready) #loginOverlay{
 })();
 </script>
 
+
+<!-- prod5.9.8.6-login-home-industries-fix -->
+<style id="prod5-9-8-6-login-home-industries-fix">
+body.v5986-login-pending #loginOverlay.hidden{
+  display:flex !important;
+  visibility:visible !important;
+  opacity:1 !important;
+}
+</style>
+
+<script id="prod5-9-8-6-login-home-industries-fix-script">
+(function(){
+  'use strict';
+  if(window.__DISMEPE_PROD5986_LOGIN_HOME_FIX__) return;
+  window.__DISMEPE_PROD5986_LOGIN_HOME_FIX__=true;
+
+  const RETRIES=[0,100,300,700,1400,2800,5000,8000];
+  let refreshGeneration=0;
+  let pendingTimeout=null;
+
+  function loginOverlay(){
+    return document.getElementById('loginOverlay');
+  }
+
+  function homeModule(){
+    return document.getElementById('homeModule');
+  }
+
+  function isAuthenticatedUi(){
+    return document.body?.classList.contains('v51-auth-ready');
+  }
+
+  function runHomeRefresh(){
+    try{ window.applyAccessControl?.(); }catch(_){}
+    try{ window.v21013ApplyStrictPermissions?.(); }catch(_){}
+    try{ window.renderHomeCards?.(); }catch(_){}
+  }
+
+  function scheduleHomeRefresh(){
+    const generation=++refreshGeneration;
+    RETRIES.forEach(delay=>{
+      setTimeout(()=>{
+        if(generation!==refreshGeneration) return;
+        if(!isAuthenticatedUi()) return;
+        runHomeRefresh();
+      },delay);
+    });
+  }
+
+  function finishLoginTransition(){
+    if(pendingTimeout){
+      clearTimeout(pendingTimeout);
+      pendingTimeout=null;
+    }
+    document.body?.classList.remove('v5986-login-pending');
+  }
+
+  function startLoginTransition(){
+    if(!document.body) return;
+    document.body.classList.add('v5986-login-pending');
+
+    if(pendingTimeout) clearTimeout(pendingTimeout);
+    pendingTimeout=setTimeout(()=>{
+      finishLoginTransition();
+    },15000);
+  }
+
+  function ensureAuthenticatedHome(){
+    if(!isAuthenticatedUi()) return false;
+
+    const home=homeModule();
+    if(!home) return false;
+
+    home.classList.remove('hidden');
+    document.body.classList.add('home-active');
+    document.documentElement.classList.remove('v84-session-check');
+
+    scheduleHomeRefresh();
+
+    requestAnimationFrame(()=>{
+      requestAnimationFrame(()=>{
+        if(!isAuthenticatedUi()) return;
+        const currentHome=homeModule();
+        if(!currentHome || currentHome.classList.contains('hidden')) return;
+
+        loginOverlay()?.classList.add('hidden');
+        finishLoginTransition();
+      });
+    });
+
+    return true;
+  }
+
+  document.addEventListener('click',event=>{
+    const button=event.target?.closest?.(
+      '#loginOverlay .v36-enter,#loginButton,#btnLogin,[data-login]'
+    );
+    if(button) startLoginTransition();
+  },true);
+
+  document.addEventListener('submit',event=>{
+    if(event.target?.closest?.('#loginOverlay')) startLoginTransition();
+  },true);
+
+  const authObserver=new MutationObserver(()=>{
+    if(isAuthenticatedUi()) ensureAuthenticatedHome();
+  });
+
+  if(document.body){
+    authObserver.observe(document.body,{attributes:true,attributeFilter:['class']});
+  }else{
+    document.addEventListener('DOMContentLoaded',()=>{
+      authObserver.observe(document.body,{attributes:true,attributeFilter:['class']});
+    },{once:true});
+  }
+
+  document.addEventListener('DOMContentLoaded',()=>{
+    const overlay=loginOverlay();
+    const home=homeModule();
+
+    if(overlay){
+      new MutationObserver(()=>{
+        if(isAuthenticatedUi()) ensureAuthenticatedHome();
+      }).observe(overlay,{attributes:true,attributeFilter:['class','style']});
+    }
+
+    if(home){
+      new MutationObserver(()=>{
+        if(isAuthenticatedUi() && !home.classList.contains('hidden')){
+          scheduleHomeRefresh();
+        }
+      }).observe(home,{attributes:true,attributeFilter:['class','style']});
+    }
+
+    if(isAuthenticatedUi()) ensureAuthenticatedHome();
+  },{once:true});
+
+  window.addEventListener('pageshow',()=>{
+    if(isAuthenticatedUi()){
+      ensureAuthenticatedHome();
+      scheduleHomeRefresh();
+    }
+  });
+
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='visible' && isAuthenticatedUi()){
+      scheduleHomeRefresh();
+    }
+  });
+})();
+</script>
+
 </body>
 </html>
