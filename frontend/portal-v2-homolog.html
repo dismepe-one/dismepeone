@@ -26230,9 +26230,21 @@ table thead tr{
     if(!mq.matches)return;
     const btn=activeTab();
     if(!btn)return;
+
+    // PROD5.9.8.21 - centraliza somente a barra horizontal de abas.
+    // scrollIntoView também movimentava a página no eixo vertical no mobile.
+    const nav=btn.parentElement;
+    if(!nav)return;
+
+    const maxLeft=Math.max(0,nav.scrollWidth-nav.clientWidth);
+    const desired=btn.offsetLeft-((nav.clientWidth-btn.offsetWidth)/2);
+    const target=Math.max(0,Math.min(maxLeft,desired));
+
     try{
-      btn.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'});
-    }catch(e){}
+      nav.scrollTo({left:target,behavior:'smooth'});
+    }catch(e){
+      nav.scrollLeft=target;
+    }
   }
 
   function install(){
@@ -30795,6 +30807,135 @@ body.v5986-login-pending #loginOverlay.hidden{
   #detailTableScroll tbody td:nth-child(5){
     font-size:11px !important;
     line-height:1.25 !important;
+  }
+}
+</style>
+
+
+<!-- PROD5.9.8.21 - correção final das parciais mobile Vendedor/Televendas -->
+<style id="prod59821-mobile-parciais-final">
+@media (max-width:768px){
+
+  #detailTableScroll tbody td:nth-child(5){
+    grid-column:1 / -1 !important;
+    display:flex !important;
+    flex-direction:row !important;
+    align-items:center !important;
+    justify-content:space-between !important;
+    gap:10px !important;
+    width:100% !important;
+    max-width:100% !important;
+    padding:7px 9px !important;
+    border-top:1px solid #edf3f1 !important;
+    border-bottom:1px solid #edf3f1 !important;
+    box-sizing:border-box !important;
+  }
+
+  #detailTableScroll tbody td:nth-child(5)::before{
+    content:"Vender por dia" !important;
+    display:block !important;
+    width:auto !important;
+    margin:0 !important;
+    color:#60746f !important;
+    font-size:8px !important;
+    font-weight:900 !important;
+    line-height:1.1 !important;
+    text-transform:uppercase !important;
+    letter-spacing:.035em !important;
+    flex:0 0 auto !important;
+  }
+
+  #detailTableScroll tbody td:nth-child(6){
+    grid-column:1 / -1 !important;
+    display:grid !important;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr) !important;
+    gap:8px !important;
+    width:100% !important;
+    max-width:100% !important;
+    padding:7px 0 !important;
+    box-sizing:border-box !important;
+    background:transparent !important;
+  }
+
+  #detailTableScroll tbody td:nth-child(6)::before{
+    content:none !important;
+    display:none !important;
+  }
+
+  #detailTableScroll .detail-desktop-achievement,
+  #detailTableScroll .detail-mobile-missing{
+    display:flex !important;
+    flex-direction:column !important;
+    align-items:flex-start !important;
+    justify-content:center !important;
+    gap:4px !important;
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    min-height:52px !important;
+    padding:8px 9px !important;
+    border:1px solid #e2e8f0 !important;
+    border-radius:10px !important;
+    background:#fff !important;
+    box-sizing:border-box !important;
+    font-size:11px !important;
+    font-weight:900 !important;
+    line-height:1.2 !important;
+    white-space:normal !important;
+    overflow-wrap:anywhere !important;
+  }
+
+  #detailTableScroll .detail-desktop-achievement::before,
+  #detailTableScroll .detail-mobile-missing::before{
+    display:block !important;
+    color:#64748b !important;
+    font-size:7.5px !important;
+    font-weight:900 !important;
+    line-height:1.1 !important;
+    text-transform:uppercase !important;
+    letter-spacing:.035em !important;
+  }
+
+  #detailTableScroll .detail-desktop-achievement::before{
+    content:"Atingimento" !important;
+  }
+
+  #detailTableScroll .detail-mobile-missing{
+    color:#92400e !important;
+    background:#fffbeb !important;
+    border-color:#fde68a !important;
+  }
+
+  #detailTableScroll .detail-mobile-missing::before{
+    content:"Falta vender" !important;
+  }
+
+  #detailTableScroll tbody td:nth-child(7){
+    grid-column:1 / -1 !important;
+    width:100% !important;
+    max-width:100% !important;
+    box-sizing:border-box !important;
+  }
+
+  #detailTableScroll tbody td:nth-child(7)::before{
+    content:"Status" !important;
+  }
+
+  #detailTableScroll tbody td:nth-child(7) span{
+    max-width:100% !important;
+  }
+}
+
+@media (max-width:360px){
+  #detailTableScroll tbody td:nth-child(6){
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr) !important;
+    gap:6px !important;
+  }
+
+  #detailTableScroll .detail-desktop-achievement,
+  #detailTableScroll .detail-mobile-missing{
+    padding:7px !important;
+    font-size:10px !important;
   }
 }
 </style>
