@@ -30723,5 +30723,89 @@ body.v5986-login-pending #loginOverlay.hidden{
 })();
 </script>
 
+
+<!-- PROD5.9.8.19 — correção pontual das parciais mobile Vendedor/Televendas -->
+<style id="prod59819-mobile-parciais">
+@media (max-width: 768px) {
+  #detailTableScroll tbody tr {
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr) !important;
+    overflow:hidden !important;
+  }
+  #detailTableScroll tbody td {
+    min-height:38px !important;
+    padding:7px 8px !important;
+    box-sizing:border-box !important;
+  }
+  #detailTableScroll tbody td:nth-child(1),
+  #detailTableScroll tbody td:nth-child(2),
+  #detailTableScroll tbody td:nth-child(7) {
+    grid-column:1 / -1 !important;
+  }
+  #detailTableScroll tbody td:nth-child(3),
+  #detailTableScroll tbody td:nth-child(4),
+  #detailTableScroll tbody td:nth-child(5),
+  #detailTableScroll tbody td:nth-child(6) {
+    width:100% !important;
+    max-width:100% !important;
+    overflow:hidden !important;
+  }
+  #detailTableScroll tbody td:nth-child(6) {
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap !important;
+  }
+  #detailTableScroll tbody td:nth-child(6)::before {
+    content:"Atingimento" !important;
+  }
+}
+</style>
+<script id="prod59819-mobile-atingimento">
+(function(){
+  'use strict';
+  if(window.__PROD59819_MOBILE_ATINGIMENTO__)return;
+  window.__PROD59819_MOBILE_ATINGIMENTO__=true;
+
+  function isMobile(){
+    return window.matchMedia&&window.matchMedia('(max-width: 768px)').matches;
+  }
+  function parsePtNumber(text){
+    let raw=String(text||'').replace(/\u00a0/g,' ').replace(/R\$/gi,'').replace(/[^\d,.\-]/g,'').trim();
+    if(!raw)return NaN;
+    if(raw.includes(','))raw=raw.replace(/\./g,'').replace(',','.');
+    const n=Number(raw);
+    return Number.isFinite(n)?n:NaN;
+  }
+  function fixRows(){
+    if(!isMobile())return;
+    const table=document.querySelector('#detailTableScroll tbody');
+    if(!table)return;
+    table.querySelectorAll('tr').forEach(row=>{
+      const cells=row.querySelectorAll(':scope > td');
+      if(cells.length<6)return;
+      const objetivo=parsePtNumber(cells[2].textContent);
+      const venda=parsePtNumber(cells[3].textContent);
+      if(!Number.isFinite(objetivo)||!Number.isFinite(venda))return;
+      const atingimento=objetivo>0?(venda/objetivo)*100:0;
+      const cell=cells[5];
+      cell.textContent=atingimento.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+'%';
+      cell.classList.remove('text-emerald-400','text-amber-400','text-[#660000]');
+      cell.style.color='';
+      if(atingimento>=100)cell.classList.add('text-emerald-400');
+      else if(atingimento>=50)cell.classList.add('text-amber-400');
+      else cell.style.color='#660000';
+    });
+  }
+  function scheduleFix(){requestAnimationFrame(()=>requestAnimationFrame(fixRows));}
+  document.addEventListener('DOMContentLoaded',()=>{
+    const target=document.getElementById('detailTableScroll');
+    if(target){
+      const observer=new MutationObserver(scheduleFix);
+      observer.observe(target,{childList:true,subtree:true,characterData:true});
+    }
+    scheduleFix();
+  });
+  window.addEventListener('resize',scheduleFix,{passive:true});
+})();
+</script>
+
 </body>
 </html>

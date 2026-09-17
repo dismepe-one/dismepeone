@@ -17,10 +17,35 @@
   let stockOperatorsLoadedAt=0;
   const esc = v => String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 
+  function industryErrorText(value, fallback='Erro inesperado.'){
+    const seen=new Set();
+    function pick(v){
+      if(v==null)return '';
+      if(typeof v==='string'||typeof v==='number'||typeof v==='boolean')return String(v);
+      if(Array.isArray(v)){
+        for(const item of v){const found=pick(item);if(found)return found;}
+        return '';
+      }
+      if(typeof v==='object'){
+        if(seen.has(v))return '';
+        seen.add(v);
+        for(const key of ['mensagem','message','detail','erro','error','msg']){
+          if(Object.prototype.hasOwnProperty.call(v,key)){
+            const found=pick(v[key]);if(found)return found;
+          }
+        }
+        try{return JSON.stringify(v);}catch(e){return '';}
+      }
+      return String(v||'');
+    }
+    const text=pick(value).trim();
+    return text&&text!=='[object Object]'?text:fallback;
+  }
+
   async function api(path, options={}){
     const r=await fetch(path,{credentials:'include',headers:{'Content-Type':'application/json',...(options.headers||{})},...options});
     let data={}; try{data=await r.json();}catch(e){}
-    if(!r.ok){throw new Error(typeof data?.detail==='string'?data.detail:(data?.detail?.mensagem||`HTTP ${r.status}`));}
+    if(!r.ok){throw new Error(industryErrorText(data?.detail??data,`HTTP ${r.status}`));}
     return data;
   }
 
@@ -29,6 +54,27 @@
     const s=document.createElement('style');s.id='industryAdminStyle';s.textContent=`
       #industryUserLauncher{width:100%;border:1px solid #99cfc1;background:#eff9f6;color:#005548;border-radius:14px;padding:13px 14px;font-weight:900;display:flex;align-items:center;justify-content:center;gap:9px;}
       #industryUserLauncher:hover{background:#e2f3ee}
+      #industryLabEditLauncher{width:100%;margin-top:8px;border:1px solid #cfdad7;background:#fff;color:#29483f;border-radius:14px;padding:12px 14px;font-weight:900;display:flex;align-items:center;justify-content:center;gap:9px;}
+      #industryLabEditLauncher:hover{background:#f4f8f6}
+      #industryLabEditModal{position:fixed;inset:0;z-index:2147482501;background:rgba(15,23,42,.66);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:16px}
+      #industryLabEditModal.hidden{display:none!important}
+      #industryLabEditModal .ile-card{width:min(600px,100%);max-height:92vh;overflow:auto;background:#fff;border:1px solid #d7e4e0;border-radius:22px;box-shadow:0 24px 70px rgba(0,63,54,.20)}
+      #industryLabEditModal .ile-head{padding:20px 22px;border-bottom:1px solid #d7e4e0;display:flex;align-items:center;justify-content:space-between;gap:14px}
+      #industryLabEditModal .ile-body{padding:20px 22px;display:grid;gap:14px}
+      #industryLabEditModal h3{margin:0;color:#17332c;font-size:18px}
+      #industryLabEditModal p{margin:4px 0 0;color:#60746f;font-size:12px}
+      #industryLabEditModal label{display:block;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.06em;color:#52645f;margin-bottom:6px}
+      #industryLabEditModal select{width:100%;height:44px;border:1px solid #cddad6;border-radius:11px;padding:0 12px;background:#fff;color:#17332c}
+      #industryLabEditModal .ile-labs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-height:260px;overflow:auto;padding:10px;border:1px solid #d7e4e0;border-radius:12px;background:#f8fbfa}
+      #industryLabEditModal .ile-lab{display:flex;align-items:center;gap:8px;padding:8px 9px;border:1px solid #e2ece9;border-radius:10px;background:#fff;font-size:12px;font-weight:700;color:#29483f}
+      #industryLabEditModal .ile-lab input{width:auto;height:auto}
+      #industryLabEditModal .ile-actions{display:flex;gap:8px;justify-content:flex-end}
+      #industryLabEditModal button{border:0;border-radius:11px;padding:10px 14px;font-weight:900;cursor:pointer}
+      #industryLabEditModal .ile-primary{background:#005548;color:#fff}
+      #industryLabEditModal .ile-secondary{background:#edf1f0;color:#26332f;border:1px solid #d0d9d6}
+      #industryLabEditModal .ile-message{border-radius:11px;padding:11px 12px;font-size:12px;line-height:1.4}
+      #industryLabEditModal .ile-ok{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}
+      #industryLabEditModal .ile-err{background:#fff1f2;color:#9f1239;border:1px solid #fecdd3}
 
       /* PROD5.8 — o histórico usa endereço fixo e não é configurável pela tela. */
       #configModal #historyConfigSection{display:none!important}
@@ -338,12 +384,96 @@
     el.appendChild(b);
   }
 
+  let industryUsers=[];
+
+  function ensureLabEditModal(){
+    if(document.getElementById('industryLabEditModal'))return;
+    const modal=document.createElement('div');
+    modal.id='industryLabEditModal';
+    modal.className='hidden';
+    modal.innerHTML=`<div class="ile-card">
+      <div class="ile-head">
+        <div><h3><i class="fa-solid fa-pen-to-square" style="color:#005548;margin-right:8px"></i>Editar laboratórios do usuário</h3><p>Adicione, remova ou troque os fornecedores vinculados ao usuário da indústria.</p></div>
+        <button type="button" class="ile-secondary" id="ileClose"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form id="ileForm" class="ile-body">
+        <div><label>Usuário da indústria</label><select id="ileUser" required></select></div>
+        <div><label>Laboratórios autorizados</label><div id="ileLabs" class="ile-labs"></div></div>
+        <div id="ileMessage" class="hidden ile-message"></div>
+        <div class="ile-actions">
+          <button type="button" class="ile-secondary" id="ileCancel">Cancelar</button>
+          <button type="submit" class="ile-primary" id="ileSave"><i class="fa-solid fa-floppy-disk"></i> Salvar laboratórios</button>
+        </div>
+      </form>
+    </div>`;
+    document.body.appendChild(modal);
+    const close=()=>modal.classList.add('hidden');
+    document.getElementById('ileClose').onclick=close;
+    document.getElementById('ileCancel').onclick=close;
+    document.getElementById('ileUser').onchange=renderIndustryUserLabs;
+    document.getElementById('ileForm').addEventListener('submit',saveIndustryUserLabs);
+  }
+
+  function renderIndustryUserLabs(){
+    const userKey=String(document.getElementById('ileUser')?.value||'').trim();
+    const selectedUser=industryUsers.find(u=>String(u.usuario||'')===userKey);
+    const selectedLabs=new Set((selectedUser?.laboratorios||[]).map(x=>String(x)));
+    const box=document.getElementById('ileLabs');if(!box)return;
+    box.innerHTML=labs.length
+      ?labs.map(lab=>`<label class="ile-lab"><input type="checkbox" name="ileLab" value="${esc(lab)}" ${selectedLabs.has(String(lab))?'checked':''}><span>${esc(lab)}</span></label>`).join('')
+      :'<span style="font-size:12px;color:#60746f">Nenhum laboratório encontrado.</span>';
+  }
+
+  async function openIndustryLabEditor(){
+    ensureLabEditModal();
+    const modal=document.getElementById('industryLabEditModal');
+    const msg=document.getElementById('ileMessage');
+    msg.className='hidden ile-message';msg.textContent='';
+    modal.classList.remove('hidden');
+    try{
+      const [labsResp,usersResp]=await Promise.all([api('/admin/industries/labs'),api('/admin/industries/users')]);
+      labs=Array.isArray(labsResp?.laboratorios)?labsResp.laboratorios:[];
+      industryUsers=Array.isArray(usersResp?.usuarios)?usersResp.usuarios:[];
+      const select=document.getElementById('ileUser');
+      select.innerHTML=industryUsers.length
+        ?industryUsers.map(u=>`<option value="${esc(u.usuario)}">${esc(u.nome||u.usuario)} (${esc(u.usuario)})</option>`).join('')
+        :'<option value="">Nenhum usuário da indústria encontrado</option>';
+      renderIndustryUserLabs();
+    }catch(e){
+      msg.textContent=e.message||'Não foi possível carregar os usuários.';
+      msg.className='ile-message ile-err';
+    }
+  }
+
+  async function saveIndustryUserLabs(ev){
+    ev.preventDefault();
+    const msg=document.getElementById('ileMessage'),btn=document.getElementById('ileSave');
+    const usuario=String(document.getElementById('ileUser')?.value||'').trim();
+    const selected=[...document.querySelectorAll('input[name="ileLab"]:checked')].map(x=>x.value);
+    if(!usuario){msg.textContent='Selecione um usuário da indústria.';msg.className='ile-message ile-err';return;}
+    if(!selected.length){msg.textContent='Selecione ao menos um laboratório.';msg.className='ile-message ile-err';return;}
+    btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Salvando...';
+    try{
+      const result=await api('/admin/industries/users/labs',{method:'POST',body:JSON.stringify({usuario,laboratorios:selected})});
+      msg.textContent=result?.mensagem||'Laboratórios atualizados com sucesso.';
+      msg.className='ile-message ile-ok';
+      const user=industryUsers.find(u=>String(u.usuario||'')===usuario);
+      if(user)user.laboratorios=[...selected];
+    }catch(e){
+      msg.textContent=e.message||'Não foi possível atualizar os laboratórios.';
+      msg.className='ile-message ile-err';
+    }finally{
+      btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-floppy-disk"></i> Salvar laboratórios';
+    }
+  }
+
   function ensureUserLauncher(){
     if(!canManageUsers)return;
     const form=document.getElementById('createUserForm');if(!form||document.getElementById('industryUserLauncher'))return;
-    const wrap=document.createElement('div');wrap.innerHTML='<button type="button" id="industryUserLauncher"><i class="fa-solid fa-industry"></i><span>Criar usuário da indústria</span></button><p style="font-size:10px;color:#64748b;margin:6px 2px 0 0">Acesso externo restrito ao laboratório autorizado, com senha temporária aleatória e troca obrigatória no primeiro login.</p>';
+    const wrap=document.createElement('div');wrap.innerHTML='<button type="button" id="industryUserLauncher"><i class="fa-solid fa-industry"></i><span>Criar usuário da indústria</span></button><button type="button" id="industryLabEditLauncher"><i class="fa-solid fa-pen-to-square"></i><span>Editar laboratórios do usuário</span></button><p style="font-size:10px;color:#64748b;margin:6px 2px 0 0">Acesso externo restrito ao(s) laboratório(s) autorizado(s), com senha temporária aleatória e troca obrigatória no primeiro login.</p>';
     form.insertBefore(wrap,form.firstChild);
     document.getElementById('industryUserLauncher').onclick=openIndustryUser;
+    document.getElementById('industryLabEditLauncher').onclick=openIndustryLabEditor;
   }
 
   function refreshConfigEnhancements(){
