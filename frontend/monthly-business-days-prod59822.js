@@ -279,13 +279,89 @@
     if(!block)return false;
 
     block.id='cm59822BusinessDays';
+    block.style.gridColumn='1 / -1';
+    block.style.width='100%';
+    block.style.minWidth='0';
+    block.style.alignSelf='stretch';
+
+    if(!document.getElementById('cm59822Style')){
+      const style=document.createElement('style');
+      style.id='cm59822Style';
+      style.textContent=`
+        #cm59822BusinessDays{
+          box-sizing:border-box;
+          width:100%;
+          min-width:0;
+          padding:16px;
+          border:1px solid #e2e8f0;
+          border-radius:16px;
+          background:#fff;
+          box-shadow:0 1px 3px rgba(15,23,42,.06);
+        }
+        #cm59822BusinessDays .cm59822-summary{
+          display:grid;
+          grid-template-columns:minmax(0,1.25fr) repeat(2,minmax(0,1fr));
+          gap:10px;
+          margin-top:10px;
+          width:100%;
+        }
+        #cm59822BusinessDays .cm59822-summary>div{
+          min-width:0;
+          box-sizing:border-box;
+          border:1px solid #e2e8f0;
+          border-radius:13px;
+          padding:12px 14px;
+          background:#f8fafc;
+        }
+        #cm59822BusinessDays .cm59822-summary>div:first-child{
+          border-color:#a7f3d0;
+          background:#ecfdf5;
+        }
+        #cm59822BusinessDays .cm59822-editor{
+          display:grid;
+          grid-template-columns:160px minmax(0,1fr) auto;
+          gap:8px;
+          align-items:center;
+          width:100%;
+        }
+        #cm59822InactiveDate,
+        #cm59822InactiveReason{
+          width:100%;
+          min-width:0;
+          box-sizing:border-box;
+        }
+        #cm59822AddInactive{
+          white-space:nowrap;
+        }
+        #cm59822InactiveList{
+          width:100%;
+          min-width:0;
+        }
+        @media (max-width:780px){
+          #cm59822BusinessDays{
+            padding:12px;
+          }
+          #cm59822BusinessDays .cm59822-summary{
+            grid-template-columns:1fr;
+          }
+          #cm59822BusinessDays .cm59822-editor{
+            grid-template-columns:1fr;
+          }
+          #cm59822AddInactive{
+            width:100%;
+          }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
     block.innerHTML=`
       <div class="flex flex-wrap items-center justify-between gap-2">
         <label class="block text-[10px] uppercase font-black text-slate-500">Dias úteis restantes</label>
         <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-[9px] font-black text-emerald-700">AUTOMÁTICO</span>
       </div>
 
-      <div class="mt-2 grid grid-cols-3 gap-2">
+      <div class="cm59822-summary">
         <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
           <div class="text-[8px] uppercase font-black text-emerald-700">Restantes</div>
           <div id="cm59822Remaining" class="mt-0.5 text-2xl font-black text-emerald-800">—</div>
@@ -303,7 +379,7 @@
 
       <div class="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
         <div class="mb-2 text-[9px] font-black uppercase tracking-wide text-slate-600">Cadastrar dia inativo</div>
-        <div class="grid gap-2 md:grid-cols-[150px_minmax(0,1fr)_auto]">
+        <div class="cm59822-editor">
           <input id="cm59822InactiveDate" type="date" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-800">
           <input id="cm59822InactiveReason" type="text" maxlength="160" placeholder="Motivo opcional: feriado, recesso, inventário..." class="min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800">
           <button id="cm59822AddInactive" type="button" class="rounded-lg bg-slate-800 px-3 py-2 text-[10px] font-black text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-40">ADICIONAR</button>

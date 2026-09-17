@@ -150,7 +150,7 @@ def calculate_business_days_total(
 
 
 def _can_view(profile: dict[str, Any]) -> bool:
-    if _role(profile.get("tipo")) in {"ADMINISTRADOR", "ADMIN"}:
+    if _role(profile) in {"ADMINISTRADOR", "ADMIN"}:
         return True
     perms = _permissions(profile)
     return any(
@@ -165,7 +165,7 @@ def _can_view(profile: dict[str, Any]) -> bool:
 
 
 def _can_edit(profile: dict[str, Any]) -> bool:
-    if _role(profile.get("tipo")) in {"ADMINISTRADOR", "ADMIN"}:
+    if _role(profile) in {"ADMINISTRADOR", "ADMIN"}:
         return True
     perms = _permissions(profile)
     return perms.get("CAMPANHAS_MENSAIS_EDITAR") is True
