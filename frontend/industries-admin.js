@@ -387,6 +387,31 @@
         return r;
       };wrapped.__industryWrapped=true;window.saveSelectedPermissions=wrapped;
     }
+    // PROD5.9.8.7 — compatibilidade de criação do COMPRADOR.
+    // A ação legada CRIARUSUARIO não reconhece o cargo COMPRADOR.
+    // Somente nessa primeira criação usamos COMERCIAL; o fluxo PROD5.9.8.5
+    // já existente aplica em seguida o tipo final COMPRADOR e suas permissões.
+    const oldAdminAction=window.callAdminAction;
+    if(typeof oldAdminAction==='function'&&!oldAdminAction.__buyerCreateCompat){
+      const wrapped=async function(action,payload){
+        const normalizedAction=String(action||'').trim().toUpperCase();
+        const normalizedType=String(payload?.tipo||'').trim().toUpperCase();
+
+        if(normalizedAction==='CRIARUSUARIO'&&normalizedType==='COMPRADOR'){
+          return await oldAdminAction.call(
+            this,
+            action,
+            {...(payload||{}),tipo:'COMERCIAL'}
+          );
+        }
+
+        return await oldAdminAction.apply(this,arguments);
+      };
+
+      wrapped.__buyerCreateCompat=true;
+      window.callAdminAction=wrapped;
+    }
+
     const oldHome=window.renderHomeCards;
     if(typeof oldHome==='function'&&!oldHome.__industryWrapped){
       const wrapped=function(){const r=oldHome.apply(this,arguments);setTimeout(ensureIndustriesHomeCard,0);return r;};wrapped.__industryWrapped=true;window.renderHomeCards=wrapped;
