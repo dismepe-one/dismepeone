@@ -4476,6 +4476,87 @@ body > header.card-glass{
 }
 </style>
 
+
+<style id="prod598231-industry-header-mirror">
+header.card-glass{
+  background:linear-gradient(135deg,#DFF0E8,#E1F0EA 50%,#E4EFEB) !important;
+  border-bottom:1px solid #CDE5DA !important;
+  box-shadow:0 4px 18px rgba(0,63,54,.10) !important;
+  padding:11px 22px !important;
+  gap:10px !important;
+  align-items:center !important;
+}
+
+header.card-glass > div:first-child{
+  gap:12px !important;
+  align-items:center !important;
+}
+
+header.card-glass .shrink-0{
+  width:184px !important;
+  height:60px !important;
+  min-width:184px !important;
+  flex:0 0 184px !important;
+  display:flex !important;
+  align-items:center !important;
+  justify-content:flex-start !important;
+}
+
+header.card-glass .shrink-0 img{
+  width:184px !important;
+  height:60px !important;
+  min-width:184px !important;
+  max-width:184px !important;
+  max-height:60px !important;
+  object-fit:contain !important;
+  object-position:left center !important;
+  display:block !important;
+}
+
+@media(max-width:900px){
+  header.card-glass .shrink-0{
+    width:150px !important;
+    height:50px !important;
+    min-width:150px !important;
+    flex-basis:150px !important;
+  }
+
+  header.card-glass .shrink-0 img{
+    width:150px !important;
+    height:50px !important;
+    min-width:150px !important;
+    max-width:150px !important;
+    max-height:50px !important;
+  }
+}
+
+@media(max-width:640px){
+  body.home-active header.card-glass,
+  header.card-glass{
+    padding:11px 10px !important;
+    gap:10px !important;
+    align-items:flex-start !important;
+  }
+
+  body.home-active header.card-glass .shrink-0,
+  header.card-glass .shrink-0{
+    width:150px !important;
+    height:50px !important;
+    min-width:150px !important;
+    flex:0 0 150px !important;
+  }
+
+  body.home-active header.card-glass .shrink-0 img,
+  header.card-glass .shrink-0 img{
+    width:150px !important;
+    height:50px !important;
+    min-width:150px !important;
+    max-width:150px !important;
+    max-height:50px !important;
+  }
+}
+</style>
+
 <script>
 window.DISMEPE_FRONTEND_RELEASE = 'V211_00_GATEWAY_ESTAVEL';
 console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE);
@@ -7269,7 +7350,30 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
             if (!filtered.length) {
                 tableBody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-500">Nenhum registro encontrado para os filtros selecionados.</td></tr>`;
             } else {
-                const tableRows = filtered.map(item => {
+                const filteredOrdered = [...filtered].sort((a,b) => {
+                    const labA = getBaseLab(a.lab || '');
+                    const labB = getBaseLab(b.lab || '');
+
+                    const byLab = labA.localeCompare(
+                        labB,
+                        'pt-BR',
+                        { sensitivity:'base' }
+                    );
+
+                    if (byLab !== 0) return byLab;
+
+                    const byColab = String(a.colab || '').localeCompare(
+                        String(b.colab || ''),
+                        'pt-BR',
+                        { sensitivity:'base' }
+                    );
+
+                    if (byColab !== 0) return byColab;
+
+                    return 0;
+                });
+
+                const tableRows = filteredOrdered.map(item => {
                     const ating = item.percentual * 100;
                     const faltaVender = Math.max(
                         0,
