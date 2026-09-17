@@ -379,13 +379,94 @@
         const managed=inputs.map(x=>String(x.dataset.permission||'').trim()).filter(Boolean);
         const selected=inputs.filter(x=>x.checked).map(x=>String(x.dataset.permission||'').trim()).filter(Boolean);
         const hasIndustryKeys=managed.includes(STOCK_PERMISSION)&&managed.includes(INTERNAL_PORTAL_PERMISSION);
+        const buyer=String(tipo||'').trim().toUpperCase()==='COMPRADOR';
+
+        // PROD5.9.8.10 — COMPRADOR nasceu depois da migração.
+        // Não enviar esse cargo ao salvarPermissao legado.
+        if(
+          buyer &&
+          usuario &&
+          canManagePermissions
+        ){
+          const btn=document.getElementById('savePermissionsButton');
+
+          if(btn){
+            btn.disabled=true;
+            btn.innerHTML='<i class="fa-solid fa-spinner fa-spin mr-2"></i>Salvando...';
+          }
+
+          try{
+            const r=await api(
+              '/admin/industries/buyers/promote',
+              {
+                method:'POST',
+                cache:'no-store',
+                body:JSON.stringify({usuario})
+              }
+            );
+
+            stockOperatorsLoadedAt=0;
+
+            const status=
+              document.getElementById('permissionMessage')||
+              document.getElementById('industryStockPermissionStatus');
+
+            if(status){
+              status.textContent=
+                r?.mensagem||
+                'Usuário convertido em COMPRADOR com acesso ao DISMEPE ONE INDÚSTRIAS.';
+              status.classList?.remove('hidden');
+              status.className=
+                'rounded-xl px-4 py-3 text-sm bg-emerald-50 text-emerald-800 border border-emerald-200';
+            }
+
+            if(typeof window.loadPermissionsFromServer==='function'){
+              await window.loadPermissionsFromServer();
+            }
+
+            const userSelect=document.getElementById('permissionUser');
+            if(userSelect){
+              const option=[...userSelect.options]
+                .find(o=>
+                  String(o.value||'').trim().toUpperCase()===
+                  usuario.toUpperCase()
+                );
+
+              if(option){
+                userSelect.value=option.value;
+              }
+            }
+
+            if(typeof window.loadSelectedPermissionUser==='function'){
+              window.loadSelectedPermissionUser();
+            }
+
+            return r;
+          }finally{
+            if(btn){
+              btn.disabled=false;
+              btn.innerHTML='<i class="fa-solid fa-floppy-disk mr-2"></i>Salvar cargo e permissões';
+            }
+          }
+        }
+
         const r=await oldPermissionSave.apply(this,arguments);
+
         if(usuario&&tipo&&hasIndustryKeys&&canManagePermissions){
-          await saveIndustryPermissionsFromPermissionsScreen(usuario,tipo,managed,selected);
+          await saveIndustryPermissionsFromPermissionsScreen(
+            usuario,
+            tipo,
+            managed,
+            selected
+          );
           await renderIndustryPermissionsInPermissionsScreen(true);
         }
+
         return r;
-      };wrapped.__industryWrapped=true;window.saveSelectedPermissions=wrapped;
+      };
+
+      wrapped.__industryWrapped=true;
+      window.saveSelectedPermissions=wrapped;
     }
     // PROD5.9.8.7 — compatibilidade de criação do COMPRADOR.
     // A ação legada CRIARUSUARIO não reconhece o cargo COMPRADOR.
