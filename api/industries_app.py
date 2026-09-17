@@ -61,7 +61,7 @@ def _remove_routes(*paths: str) -> None:
     ]
 
 
-def _portal_response() -> HTMLResponse:
+def _portal_response(*, authenticated: bool = False) -> HTMLResponse:
     html = PORTAL_FILE.read_text(encoding="utf-8")
     tags = [
         f'<script src="/update-center-prod4.js?v={BUILD}"></script>',
@@ -76,6 +76,16 @@ def _portal_response() -> HTMLResponse:
         if pos < 0:
             raise RuntimeError("Fechamento </body> não encontrado no portal.")
         html = html[:pos] + "\n".join(missing) + "\n" + html[pos:]
+
+    # PROD5.9.8.17: no F5, se o cookie 2.0 já foi validado pelo servidor,
+    # não pintamos a tela de login enquanto a Home é restaurada.
+    if authenticated:
+        guard = '\n<style id="prod59817-f5-auth-guard">\nhtml.prod59817-auth-refresh #loginOverlay{\n  visibility:hidden !important;\n  opacity:0 !important;\n  pointer-events:none !important;\n}\n</style>\n<script id="prod59817-f5-auth-guard-script">\n(function(){\n  const root=document.documentElement;\n  root.classList.add(\'prod59817-auth-refresh\');\n\n  function installRelease(){\n    const body=document.body;\n    if(!body){\n      root.classList.remove(\'prod59817-auth-refresh\');\n      return;\n    }\n\n    let observer=null;\n    const release=function(){\n      if(!body.classList.contains(\'v51-auth-ready\'))return;\n      root.classList.remove(\'prod59817-auth-refresh\');\n      if(observer)observer.disconnect();\n    };\n\n    observer=new MutationObserver(release);\n    observer.observe(body,{attributes:true,attributeFilter:[\'class\']});\n    release();\n\n    setTimeout(function(){\n      root.classList.remove(\'prod59817-auth-refresh\');\n      if(observer)observer.disconnect();\n    },15000);\n  }\n\n  if(document.readyState===\'loading\'){\n    document.addEventListener(\'DOMContentLoaded\',installRelease,{once:true});\n  }else{\n    installRelease();\n  }\n})();\n</script>\n'
+        head_end = html.lower().find("</head>")
+        if head_end < 0:
+            raise RuntimeError("Fechamento </head> não encontrado no portal.")
+        html = html[:head_end] + guard + "\n" + html[head_end:]
+
     return HTMLResponse(
         html,
         headers={
@@ -133,7 +143,7 @@ async def industries_root(request: Request):
     profile = _profile_from_cookie(request)
     if profile and (is_industry_profile(profile) or is_buyer_profile(profile)):
         return RedirectResponse(url="/industrias", status_code=303)
-    return _portal_response()
+    return _portal_response(authenticated=bool(profile))
 
 
 @app.get("/portal-v2-homolog.html", include_in_schema=False)
@@ -141,7 +151,7 @@ async def industries_root_alias(request: Request):
     profile = _profile_from_cookie(request)
     if profile and (is_industry_profile(profile) or is_buyer_profile(profile)):
         return RedirectResponse(url="/industrias", status_code=303)
-    return _portal_response()
+    return _portal_response(authenticated=bool(profile))
 
 
 @app.get("/industries-router.js", include_in_schema=False)

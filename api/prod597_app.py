@@ -110,7 +110,7 @@ async def _legacy_token(
     session_key: str,
     payload: dict,
     persisted_token: str,
-    wait_for_monthly: bool,
+    wait_for_ready: bool,
 ) -> str:
     state = await get_state(session_key)
     token = (
@@ -123,10 +123,10 @@ async def _legacy_token(
     if not token:
         token = str(payload.get("token") or "").strip()
 
-    # A primeira ação da Central costuma ser MENSAL. O login legado é iniciado
-    # em background; portanto, apenas para MENSAL, damos tempo para ele sair de
-    # PENDING e evitamos o 502 de corrida de sessão. Nenhum outro módulo muda.
-    if token or not wait_for_monthly:
+    # A Central chama OPCACHE_STATUS antes de atualizar qualquer módulo.
+    # O login legado é iniciado em background; quando ainda não há token,
+    # aguardamos também essa primeira consulta sair de PENDING.
+    if token or not wait_for_ready:
         return token
 
     for _ in range(40):  # até 20s, sem repetir qualquer escrita
@@ -426,16 +426,16 @@ async def prod597_update_center(
         session_key=session_key,
         payload=payload,
         persisted_token=_legacy_cookie_value(request, session),
-        wait_for_monthly=mensal_requested,
+        wait_for_ready=True,
     )
 
     if legacy_token:
         _store_legacy_cookie(response, session, legacy_token)
 
-    if mensal_requested and not legacy_token:
+    if not legacy_token:
         raise HTTPException(
             status_code=409,
-            detail="A sessão de compatibilidade da Campanha Mensal ainda não ficou pronta. Tente novamente em instantes.",
+            detail="A sessão de compatibilidade ainda está sendo preparada. Aguarde alguns segundos e tente novamente.",
         )
 
     try:
