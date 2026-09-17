@@ -79,6 +79,11 @@ class IndustryBuyerPromoteRequest(BaseModel):
     usuario: str = Field(min_length=1, max_length=120)
 
 
+class IndustryBuyerCreateRequest(BaseModel):
+    usuario: str = Field(min_length=2, max_length=120)
+    nome: str = Field(default="", max_length=160)
+
+
 class IndustryError(RuntimeError):
     def __init__(self, message: str, *, status_code: int = 502, data: dict[str, Any] | None = None):
         super().__init__(message)
@@ -1302,6 +1307,70 @@ async def industries_download_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/admin/industries/buyers")
+async def industries_create_buyer(
+    payload: IndustryBuyerCreateRequest,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    _strict_admin_profile(session)
+
+    usuario = str(payload.usuario or "").strip()
+    nome = str(payload.nome or "").strip() or usuario
+    if not usuario:
+        raise HTTPException(status_code=400, detail="Usuário inválido.")
+
+    initial_password = "1234"
+
+    buyer_perms: dict[str, Any] = {
+        PERM_INTERNAL_PORTAL: True,
+        PERM_BUYER_ALL_LABS: True,
+        PERM_STOCK_UPDATE: False,
+    }
+
+    try:
+        result = await _edge_admin_write(
+            "MIGRAR_USUARIO",
+            {
+                "usuario": {
+                    "usuario": usuario,
+                    "usuario_norm": normalizar(usuario),
+                    "auth_email": auth_email(usuario),
+                    "nome": nome,
+                    "vendedor": nome,
+                    "tipo": ROLE_BUYER,
+                    "setor": "COMPRADOR",
+                    "ativo": True,
+                    "status": "ATIVO",
+                },
+                "senha_interna": senha_interna(
+                    usuario,
+                    initial_password,
+                    settings.auth_pepper,
+                ),
+                "permissoes": buyer_perms,
+            },
+        )
+    except IndustryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    return {
+        "sucesso": True,
+        "usuario": usuario,
+        "nome": nome,
+        "tipo": ROLE_BUYER,
+        "compradorCriadoDireto": True,
+        "somentePortalIndustrias": True,
+        "todosLaboratorios": True,
+        "podeAtualizarMapa": False,
+        "senhaInicialPadrao": True,
+        "authUserId": str(result.get("auth_user_id") or ""),
+        "mensagem": (
+            "Usuário criado diretamente como COMPRADOR com acesso somente "
+            "ao DISMEPE ONE INDÚSTRIAS e a todos os laboratórios."
+        ),
+    }
 
 
 @router.post("/admin/industries/buyers/promote")
