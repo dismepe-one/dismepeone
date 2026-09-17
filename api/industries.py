@@ -1077,6 +1077,8 @@ def _xlsx_number_cell(ref: str, value: Any, style: int = 0) -> str:
 
 
 def _build_xlsx(rows: list[dict[str, Any]], lab: str, generated_at: str) -> bytes:
+    include_lab = _is_all_labs_request(lab)
+
     headers = [
         "Código", "Descrição", "Curva", "Preço", "UFO", "Estoque",
         "JUN/26", "JUL/26", "AGO/26", "SET/26", "Média", "EAN",
@@ -1087,6 +1089,11 @@ def _build_xlsx(rows: list[dict[str, Any]], lab: str, generated_at: str) -> byte
         "jun_26", "jul_26", "ago_26", "set_26", "media", "ean",
         "est_ate", "ultima_entrada", "quant", "sugest", "bloq_compra",
     ]
+
+    if include_lab:
+        headers = ["Laboratório", *headers]
+        keys = ["laboratorio", *keys]
+
     numeric_keys = {"preco", "ufo", "estoque", "jun_26", "jul_26", "ago_26", "set_26", "media", "quant", "sugest"}
 
     sheet_rows: list[str] = []
@@ -1112,6 +1119,8 @@ def _build_xlsx(rows: list[dict[str, Any]], lab: str, generated_at: str) -> byte
     last_row = len(all_matrix)
     last_col = _cell_ref(len(headers), 1)[:-1]
     widths = [12, 54, 9, 12, 10, 12, 11, 11, 11, 11, 11, 18, 14, 15, 11, 11, 12]
+    if include_lab:
+        widths = [26, *widths]
     cols_xml = "".join(
         f'<col min="{i}" max="{i}" width="{w}" customWidth="1"/>'
         for i, w in enumerate(widths, start=1)
@@ -1185,10 +1194,15 @@ def _build_pdf(rows: list[dict[str, Any]], lab: str, generated_at: str) -> bytes
         Paragraph(f"<b>Laboratório:</b> {_pdf_safe_text(lab)} &nbsp;&nbsp; <b>Atualizado:</b> {_pdf_safe_text(generated_at)}", styles["BodyText"]),
         Spacer(1, 5 * mm),
     ]
+    include_lab = _is_all_labs_request(lab)
+
     headers = ["Código", "Descrição", "Curva", "Preço", "Estoque", "JUN", "JUL", "AGO", "SET", "Média", "EAN", "Est. até", "Últ. entrada"]
+    if include_lab:
+        headers = ["Laboratório", *headers]
+
     data: list[list[Any]] = [headers]
     for row in rows:
-        data.append([
+        values = [
             _pdf_safe_text(row.get("codigo")),
             _pdf_safe_text(row.get("descricao")),
             _pdf_safe_text(row.get("curva")),
@@ -1202,8 +1216,14 @@ def _build_pdf(rows: list[dict[str, Any]], lab: str, generated_at: str) -> bytes
             _pdf_safe_text(row.get("ean")),
             _pdf_safe_text(row.get("est_ate")),
             _pdf_safe_text(row.get("ultima_entrada")),
-        ])
+        ]
+        if include_lab:
+            values = [_pdf_safe_text(row.get("laboratorio") or row.get("fornecedor")), *values]
+        data.append(values)
+
     col_widths = [17*mm, 74*mm, 13*mm, 14*mm, 17*mm, 13*mm, 13*mm, 13*mm, 13*mm, 13*mm, 31*mm, 22*mm, 24*mm]
+    if include_lab:
+        col_widths = [26*mm, 15*mm, 55*mm, 11*mm, 13*mm, 15*mm, 11*mm, 11*mm, 11*mm, 11*mm, 11*mm, 25*mm, 18*mm, 20*mm]
     table = Table(data, colWidths=col_widths, repeatRows=1, hAlign="LEFT")
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#005548")),
