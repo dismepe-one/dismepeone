@@ -293,13 +293,15 @@
     if(!canUpdateStock&&!isAdministrator)return;
     const btn=document.getElementById('isRun'),msg=document.getElementById('isMessage');
     if(!btn||!msg)return;
-    btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>Atualizando...';
+    btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>Iniciando...';
     try{
       const r=await api('/admin/industries/stock-sync/run',{method:'POST'});
-      msg.textContent=r.lastStatus==='IMPORTED'?'Novo mapa importado e liberado para todos.':'Verificação concluída. A última base válida permanece ativa.';
+      msg.textContent=r.lastStatus==='RUNNING'
+        ?'A atualização já está em processamento em segundo plano. O portal continua disponível.'
+        :'Atualização iniciada em segundo plano. O portal continua disponível enquanto o PDF é processado.';
       msg.className='is-message is-ok';
-      await loadStockSyncStatus();
-    }catch(e){msg.textContent=e.message||'Não foi possível atualizar o mapa.';msg.className='is-message is-err';}
+      setTimeout(loadStockSyncStatus,5000);
+    }catch(e){msg.textContent=e.message||'Não foi possível iniciar a atualização do mapa.';msg.className='is-message is-err';}
     finally{btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-cloud-arrow-down"></i>Atualizar mapa agora';}
   }
 

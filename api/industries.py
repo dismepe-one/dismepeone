@@ -4,6 +4,7 @@ import io
 import json
 import re
 import secrets
+import time
 import unicodedata
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -31,6 +32,8 @@ INDUSTRIES_FILE = ROOT / "frontend" / "industries.html"
 STOCK_FILE = STOCK_CURRENT_FILE
 GENERAL_SALES_FILE = ROOT / "data" / "industries" / "venda_geral_atual.json"
 GENERAL_SALES_HISTORY_FILE = ROOT / "data" / "industries" / "venda_geral_historico.json"
+_STOCK_SNAPSHOT_CACHE: tuple[float, dict[str, Any]] | None = None
+_STOCK_SNAPSHOT_TTL_SECONDS = 30.0
 
 ROLE_INDUSTRY = "INDUSTRIA"
 ROLE_BUYER = "COMPRADOR"
@@ -1032,7 +1035,7 @@ def _canonical_lab_labels(values: list[str]) -> list[str]:
     return out
 
 
-def _load_stock() -> dict[str, Any]:
+def _load_stock_local() -> dict[str, Any]:
     last_error: Exception | None = None
     for path in (STOCK_CURRENT_FILE, STOCK_FALLBACK_FILE):
         try:
@@ -1046,8 +1049,28 @@ def _load_stock() -> dict[str, Any]:
     raise HTTPException(status_code=503, detail="O mapa de estoque ainda não está disponível.") from last_error
 
 
-def _stock_rows_for_lab(lab: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    data = _load_stock()
+async def _load_stock() -> dict[str, Any]:
+    global _STOCK_SNAPSHOT_CACHE
+    now = time.monotonic()
+    cached = _STOCK_SNAPSHOT_CACHE
+    if cached and (now - cached[0]) < _STOCK_SNAPSHOT_TTL_SECONDS:
+        return cached[1]
+
+    try:
+        data, _row = await cache_get(modulo="MAPA_ESTOQUE", settings=settings)
+        if isinstance(data, dict) and isinstance(data.get("linhas"), list):
+            _STOCK_SNAPSHOT_CACHE = (now, data)
+            return data
+    except CacheReadError:
+        pass
+
+    data = _load_stock_local()
+    _STOCK_SNAPSHOT_CACHE = (now, data)
+    return data
+
+
+async def _stock_rows_for_lab(lab: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    data = await _load_stock()
     all_labs = _is_all_labs_request(lab)
     key = _lab_key(lab)
     rows: list[dict[str, Any]] = []
@@ -1406,7 +1429,7 @@ async def _all_available_industry_labs() -> list[str]:
     labels: list[str] = []
 
     try:
-        stock = _load_stock()
+        stock = await _load_stock()
         labels.extend(
             str(x)
             for x in stock.get("fornecedores", [])
@@ -1621,7 +1644,7 @@ async def industries_stock(
     profile = await _industry_profile(session, require_password_changed=True)
     lab = _choose_lab(profile, laboratorio)
     all_labs = _is_all_labs_request(lab)
-    data, rows = _stock_rows_for_lab(lab)
+    data, rows = await _stock_rows_for_lab(lab)
     total_stock = sum(_int(row.get("estoque")) for row in rows)
     without_stock = sum(1 for row in rows if _int(row.get("estoque")) <= 0)
     return {
@@ -1646,7 +1669,7 @@ async def industries_download_excel(
 ):
     profile = await _industry_profile(session, require_password_changed=True)
     lab = _choose_lab(profile, laboratorio)
-    data, rows = _stock_rows_for_lab(lab)
+    data, rows = await _stock_rows_for_lab(lab)
     content = _build_xlsx(rows, lab, str(data.get("gerado_em") or ""))
     filename = f"MAPA_ESTOQUE_{_safe_filename_lab(lab)}_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
     return StreamingResponse(
@@ -1663,7 +1686,7 @@ async def industries_download_pdf(
 ):
     profile = await _industry_profile(session, require_password_changed=True)
     lab = _choose_lab(profile, laboratorio)
-    data, rows = _stock_rows_for_lab(lab)
+    data, rows = await _stock_rows_for_lab(lab)
     content = _build_pdf(rows, lab, str(data.get("gerado_em") or ""))
     filename = f"MAPA_ESTOQUE_{_safe_filename_lab(lab)}_{datetime.now().strftime('%Y-%m-%d')}.pdf"
     return StreamingResponse(

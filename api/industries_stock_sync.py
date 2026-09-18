@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unicodedata
 from datetime import datetime, timedelta, timezone
@@ -24,6 +25,9 @@ STATE_FILE = DATA_DIR / "drive_sync_state.json"
 FOLDER_CONFIG_FILE = DATA_DIR / "drive_folder_config.json"
 HISTORY_DIR = DATA_DIR / "history"
 TARGET_PDF_NAME = "Sugestão de compras com EAN.pdf"
+STOCK_CACHE_MODULE = "MAPA_ESTOQUE"
+WORKER_PID_FILE = DATA_DIR / "stock_worker.pid"
+WORKER_LOG_FILE = DATA_DIR / "stock_worker.log"
 
 _TASK: asyncio.Task | None = None
 _SYNC_LOCK: asyncio.Lock | None = None
@@ -329,6 +333,33 @@ def _next_scheduled_local(cfg: dict[str, Any], state: dict[str, Any] | None = No
     return tomorrow_rows[0][1] if tomorrow_rows else tomorrow.replace(hour=10, minute=0, second=0, microsecond=0)
 
 
+def _read_worker_pid() -> int | None:
+    try:
+        value = int(WORKER_PID_FILE.read_text(encoding="utf-8").strip())
+        return value if value > 0 else None
+    except Exception:
+        return None
+
+
+def _worker_is_running() -> bool:
+    pid = _read_worker_pid()
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        try:
+            WORKER_PID_FILE.unlink()
+        except OSError:
+            pass
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
 def stock_sync_public_status() -> dict[str, Any]:
     cfg = drive_sync_config()
     state = _read_json(STATE_FILE, {}) or {}
@@ -336,6 +367,8 @@ def stock_sync_public_status() -> dict[str, Any]:
     return {
         **cfg,
         "running": bool(_TASK and not _TASK.done()),
+        "workerRunning": _worker_is_running(),
+        "workerPid": _read_worker_pid(),
         "lastStatus": state.get("lastStatus") or ("WAITING_CONFIGURATION" if not cfg["configured"] else "WAITING"),
         "lastSuccessAt": state.get("lastSuccessAt"),
         "lastAttemptAt": state.get("lastAttemptAt"),
@@ -572,6 +605,50 @@ def _save_history(data: dict[str, Any], *, file_id: str) -> None:
             pass
 
 
+def _persist_stock_snapshot_blocking(data: dict[str, Any]) -> None:
+    from .config import get_settings
+    import httpx
+
+    cfg_settings = get_settings()
+    endpoint = cfg_settings.supabase_url.rstrip("/") + "/functions/v1/dismepe-admin"
+    headers = {
+        "apikey": cfg_settings.supabase_publishable_key,
+        "x-dismepe-token": cfg_settings.edge_token,
+        "content-type": "application/json",
+        "accept": "application/json",
+    }
+    encoded = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    body = {
+        "acao": "CACHE_SET",
+        "modulo": STOCK_CACHE_MODULE,
+        "payload": data,
+        "atualizado_por": "STOCK_WORKER",
+        "nome": TARGET_PDF_NAME,
+        "tamanho": len(encoded),
+        "versao": "PROD5.9.8.23.11_STOCK_WORKER_V1",
+    }
+    try:
+        with httpx.Client(timeout=max(60.0, cfg_settings.request_timeout_seconds)) as client:
+            response = client.post(endpoint, json=body, headers=headers)
+    except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        raise RuntimeError("Não foi possível persistir o mapa no Supabase.") from exc
+
+    try:
+        result = response.json()
+    except ValueError as exc:
+        raise RuntimeError(
+            f"O Supabase respondeu em formato inválido (HTTP {response.status_code})."
+        ) from exc
+    if response.status_code < 200 or response.status_code >= 300:
+        raise RuntimeError(
+            str(result.get("erro") or result.get("error") or f"Supabase HTTP {response.status_code}.")
+        )
+    if result.get("sucesso") is not True and result.get("success") is not True and result.get("ok") is not True:
+        raise RuntimeError(
+            str(result.get("erro") or result.get("error") or "O Supabase não confirmou a gravação do mapa.")
+        )
+
+
 def _sync_stock_once_blocking(force: bool = False) -> dict[str, Any]:
     cfg = drive_sync_config()
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -624,6 +701,7 @@ def _sync_stock_once_blocking(force: bool = False) -> dict[str, Any]:
     parsed["importado_em"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     parsed["sha256"] = digest
 
+    _persist_stock_snapshot_blocking(parsed)
     _atomic_json(CURRENT_FILE, parsed)
     _save_history(parsed, file_id=str(newest.get("id") or "drive"))
     return _state_update(
@@ -640,20 +718,57 @@ def _sync_stock_once_blocking(force: bool = False) -> dict[str, Any]:
     )
 
 
+def _launch_stock_worker(force: bool = False) -> dict[str, Any]:
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if _worker_is_running():
+        return _state_update(
+            lastStatus="RUNNING",
+            lastAttemptAt=now_iso,
+            workerPid=_read_worker_pid(),
+            lastError=None,
+        )
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        if WORKER_LOG_FILE.exists() and WORKER_LOG_FILE.stat().st_size > 2 * 1024 * 1024:
+            WORKER_LOG_FILE.write_bytes(b"")
+    except OSError:
+        pass
+
+    command = [sys.executable, "-m", "api.industries_stock_worker"]
+    if force:
+        command.append("--force")
+
+    log_handle = WORKER_LOG_FILE.open("ab")
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=str(ROOT),
+            stdin=subprocess.DEVNULL,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            close_fds=True,
+            env=os.environ.copy(),
+        )
+    finally:
+        log_handle.close()
+
+    WORKER_PID_FILE.write_text(str(process.pid), encoding="utf-8")
+    return _state_update(
+        lastStatus="QUEUED",
+        lastAttemptAt=now_iso,
+        workerPid=process.pid,
+        lastError=None,
+    )
+
+
 async def sync_stock_once(force: bool = False) -> dict[str, Any]:
     global _SYNC_LOCK
     if _SYNC_LOCK is None:
         _SYNC_LOCK = asyncio.Lock()
     async with _SYNC_LOCK:
-        try:
-            return await asyncio.to_thread(_sync_stock_once_blocking, force)
-        except Exception as exc:
-            _state_update(
-                lastStatus="ERROR",
-                lastAttemptAt=datetime.now(timezone.utc).isoformat(),
-                lastError=str(exc)[:700],
-            )
-            raise
+        return await asyncio.to_thread(_launch_stock_worker, force)
 
 
 async def _sync_loop() -> None:
