@@ -32350,5 +32350,108 @@ body #v21105MoreMenu .v21105-menu-label{
 }
 </style>
 
+
+
+<!-- =========================================================
+     DISMEPE ONE - PROD5.9.8.23.8
+     CORRECAO EXCLUSIVA DO MENU "MAIS" NO DESKTOP
+     MOBILE TOTALMENTE PRESERVADO
+     ========================================================= -->
+<style id="prod598238-more-menu-desktop-only">
+@media screen and (min-width:769px){
+
+  body #v21105MoreMenu .v21105-menu-grid{
+    display:grid !important;
+    grid-template-columns:repeat(2,minmax(165px,1fr)) !important;
+    gap:10px !important;
+    padding:10px !important;
+    align-items:stretch !important;
+  }
+
+  body #v21105MoreMenu .v21105-menu-item{
+    display:grid !important;
+    grid-template-columns:40px minmax(108px,1fr) !important;
+    align-items:center !important;
+    justify-items:start !important;
+    column-gap:10px !important;
+    row-gap:0 !important;
+    width:100% !important;
+    min-width:0 !important;
+    min-height:58px !important;
+    height:auto !important;
+    padding:10px !important;
+    box-sizing:border-box !important;
+    text-align:left !important;
+    white-space:normal !important;
+    overflow:visible !important;
+  }
+
+  body #v21105MoreMenu .v21105-menu-item,
+  body #v21105MoreMenu .v21105-menu-item *{
+    writing-mode:horizontal-tb !important;
+    text-orientation:mixed !important;
+  }
+
+  body #v21105MoreMenu .v21105-menu-icon{
+    grid-column:1 !important;
+    grid-row:1 !important;
+    align-self:center !important;
+    justify-self:start !important;
+    width:40px !important;
+    min-width:40px !important;
+    max-width:40px !important;
+    height:40px !important;
+    min-height:40px !important;
+    max-height:40px !important;
+    display:flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    margin:0 !important;
+    padding:0 !important;
+    border-radius:12px !important;
+    overflow:visible !important;
+  }
+
+  body #v21105MoreMenu .v21105-menu-icon i{
+    font-size:16px !important;
+    line-height:1 !important;
+    transform:none !important;
+  }
+
+  body #v21105MoreMenu .v21105-menu-label{
+    grid-column:2 !important;
+    grid-row:1 !important;
+    display:block !important;
+    align-self:center !important;
+    justify-self:start !important;
+    width:100% !important;
+    min-width:108px !important;
+    max-width:none !important;
+    margin:0 !important;
+    padding:0 !important;
+
+    writing-mode:horizontal-tb !important;
+    text-orientation:mixed !important;
+    transform:none !important;
+    rotate:none !important;
+
+    text-align:left !important;
+    white-space:normal !important;
+    word-break:keep-all !important;
+    overflow-wrap:normal !important;
+    line-break:auto !important;
+    hyphens:none !important;
+
+    font-size:11px !important;
+    line-height:1.2 !important;
+    font-weight:800 !important;
+
+    overflow:visible !important;
+    text-overflow:clip !important;
+  }
+
+}
+</style>
+
 </body>
 </html>
