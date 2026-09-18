@@ -1114,7 +1114,7 @@ function v171Details(item){
             #managerOverview table { min-width: 720px; }
             #managerOverview .card-glass { padding: 14px !important; }
         }
-    #btnChangePassword{flex:0 0 auto}\n</style>
+    #btnChangePassword,#btnConfig{flex:0 0 auto}\n</style>
 
 <style id="mobile-kpi-colors">
 @media (max-width: 768px) {
@@ -1475,7 +1475,7 @@ function v171Details(item){
 }
 
 @media(max-width:640px){.home-wrap{width:100%;}.home-grid{grid-template-columns:1fr;gap:10px}.home-card{min-height:76px;padding:13px 14px;border-radius:16px}.home-icon{width:40px;height:40px;flex-basis:40px;border-radius:12px;font-size:16px}.home-hero{padding:18px!important}.home-stat{padding:11px 12px}}
-  body.home-active #userSessionBox > button:not(#btnHome):not(#btnLogout):not(#btnUpdateCenter):not(#btnNotificationsV81):not(#btnChangePassword):not(#btnPermissions):not(#btnCreateUser):not(#btnAccessLog):not(#btnPremiacao):not(#btnClientesPED):not(#btnResumoPremiacao){display:none!important;}
+  body.home-active #userSessionBox > button:not(#btnHome):not(#btnConfig):not(#btnLogout):not(#btnUpdateCenter):not(#btnNotificationsV81):not(#btnChangePassword):not(#btnPermissions):not(#btnCreateUser):not(#btnAccessLog):not(#btnPremiacao):not(#btnClientesPED):not(#btnResumoPremiacao){display:none!important;}
   body.home-active #btnHome{display:inline-flex!important;}
   body.home-active header > div:last-child{display:none!important;}
 </style>
@@ -4543,7 +4543,7 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
                     <div id="loggedUser" class="text-xs font-bold text-white"></div>
                     <div id="loggedRole" class="text-[10px] text-slate-400 uppercase"></div>
                 </div>
-                <button id="btnHome" onclick="openHome()" title="Início" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-house"></i></button><button id="btnChangePassword" onclick="openChangePasswordOnly()" title="Configurações" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-gear"></i></button>
+                <button id="btnHome" onclick="openHome()" title="Início" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-house"></i></button><button id="btnConfig" onclick="openIndustrySettingsOnly()" title="Configurações" aria-label="Configurações" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-gear"></i></button><button id="btnChangePassword" onclick="openChangePasswordOnly()" title="Alterar senha" aria-label="Alterar senha" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-key"></i></button>
                 <button id="btnPermissions" onclick="openPermissionsModal()" title="Permissões" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-user-shield"></i></button>
                 <button id="btnCreateUser" onclick="openCreateUserModal()" title="Criar usuário" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-user-plus"></i></button>
                 <button id="btnAccessLog" onclick="openAccessLog()" title="Controle de Acessos" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-clock-rotate-left"></i></button>
@@ -8198,6 +8198,7 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
     if(session){session.classList.remove('hidden');session.classList.add('flex');}
     setHidden('btnPermissions',!hasPerm('PERMISSOES_VISUALIZAR'));
     setHidden('btnIndustries',!hasPerm('INDUSTRIA_PORTAL_INTERNO'));
+    setHidden('btnConfig',!(isAdmin(currentUser) || hasPerm('INDUSTRIA_MAPA_ATUALIZAR')));
     setHidden('btnCreateUser',!hasPerm('USUARIOS_CRIAR'));
     const podeCentroAtualizacoes = isAdmin(currentUser) || hasPerm('CENTRO_ATUALIZACOES') || hasPerm('MENSAL_BASE_ATUALIZADA') || hasPerm('EXTRAS_BASE_ATUALIZADA');
     setHidden('btnUpdateCenter',!podeCentroAtualizacoes);
@@ -8240,10 +8241,7 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
 
     setHidden(
       'btnChangePassword',
-      !(
-        hasPerm('ALTERAR_SENHA') ||
-        podeGerenciarHistorico
-      )
+      !(isAdmin(currentUser) || hasPerm('ALTERAR_SENHA'))
     );
 
     setHidden(
@@ -8302,15 +8300,11 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
   window.applyAccessControl=applyAccessControlV2;
 
   window.openChangePasswordOnly=function(){
-    const podeHistorico =
+    const permitido =
       isAdmin(currentUser) ||
-      hasPerm('CADASTRO_CAMPANHAS_MENSAIS') ||
-      hasPerm('CAMPANHAS_EXTRAS');
+      hasPerm('ALTERAR_SENHA');
 
-    if(
-      !hasPerm('ALTERAR_SENHA') &&
-      !podeHistorico
-    ){
+    if(!permitido){
       return;
     }
 
@@ -8320,17 +8314,10 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
     modal.classList.remove('hidden');
     document.getElementById('configMessage')?.classList.add('hidden');
 
-    setHidden(
-      'changePasswordForm',
-      !hasPerm('ALTERAR_SENHA')
-    );
-
-    setHidden(
-      'historyConfigSection',
-      !podeHistorico
-    );
-
-    window.hist39LoadHistoryConfig?.();
+    setHidden('changePasswordForm',false);
+    setHidden('historyConfigSection',true);
+    setHidden('manualIndicatorsSection',true);
+    setHidden('industrySettingsSection',true);
   };
 
   function normalizeLoginResult(result){
@@ -10867,10 +10854,6 @@ window.restoreViewState=function(){
     if(has('USUARIOS_CRIAR')) add('createuser','Criar Usuário','Cadastre um novo usuário no painel','fa-user-plus','openCreateUserModal()');
     if(has('PERMISSOES_VISUALIZAR')) add('perm','Permissões','Consulte as permissões de acesso','fa-user-shield','openPermissionsModal()');
   }
-  if(admin || has('ALTERAR_SENHA')){
-    add('password','Alterar Senha','Atualize sua senha de acesso','fa-key','openChangePasswordOnly()');
-  }
-
   // Sem permissão, não exibimos um atalho apenas para preencher a Home.
   if(!cards.length){
     el.innerHTML='<div class="col-span-full rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">Nenhum módulo está liberado para este usuário.</div>';
@@ -28146,6 +28129,7 @@ async function salvarIndicadoresManuaisV174(){
 #btnResumoPremiacao.hidden,
 #btnUpdateCenter.hidden,
 #btnClientesPED.hidden,
+#btnConfig.hidden,
 #btnChangePassword.hidden,
 #btnTabVend.hidden,
 #btnTabTlvs.hidden,
@@ -28216,6 +28200,7 @@ async function salvarIndicadoresManuaisV174(){
   function apply(){
     show('btnPermissions', isAdminStrict() || strictPerm('PERMISSOES_VISUALIZAR'));
     show('btnIndustries', strictPerm('INDUSTRIA_PORTAL_INTERNO'));
+    show('btnConfig', isAdminStrict() || strictPerm('INDUSTRIA_MAPA_ATUALIZAR'));
     show('btnCreateUser', isAdminStrict() || strictPerm('USUARIOS_CRIAR'));
     show('btnAccessLog', isAdminStrict() || strictPerm('CONTROLE_DE_ACESSOS'));
     show('btnPremiacao', strictPerm('PREMIACOES_VISUALIZAR'));
@@ -28336,7 +28321,6 @@ async function salvarIndicadoresManuaisV174(){
         if(strictPerm('USUARIOS_CRIAR')) add('createuser','Criar Usuário','Cadastre um novo usuário no painel','fa-user-plus','openCreateUserModal()');
         if(strictPerm('PERMISSOES_VISUALIZAR')) add('perm','Permissões','Consulte as permissões de acesso','fa-user-shield','openPermissionsModal()');
       }
-      if(admin || strictPerm('ALTERAR_SENHA')) add('password','Alterar Senha','Atualize sua senha de acesso','fa-key','openChangePasswordOnly()');
       if(!cards.length){
         el.innerHTML='<div class="col-span-full rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">Nenhum módulo está liberado para este usuário.</div>';
         return;
@@ -28635,6 +28619,7 @@ body.home-active #userSessionBox{
 #userSessionBox > #btnAccessLog,
 #userSessionBox > #btnPremiacao,
 #userSessionBox > #btnClientesPED,
+#userSessionBox > #btnIndustries,
 #userSessionBox > #btnResumoPremiacao{
   display:none !important;
 }
@@ -28643,6 +28628,7 @@ body.home-active #userSessionBox{
 #userSessionBox > #devPanelButton:not(.hidden),
 #userSessionBox > #auditLogButton:not(.hidden),
 #userSessionBox > #btnHome:not(.hidden),
+#userSessionBox > #btnConfig:not(.hidden),
 #userSessionBox > #btnNotificationsV81:not(.hidden),
 #userSessionBox > #btnUpdateCenter:not(.hidden),
 #userSessionBox > #btnV21105More:not(.hidden),
@@ -28650,6 +28636,7 @@ body.home-active #userSessionBox{
 body.home-active #userSessionBox > #devPanelButton:not(.hidden),
 body.home-active #userSessionBox > #auditLogButton:not(.hidden),
 body.home-active #userSessionBox > #btnHome:not(.hidden),
+body.home-active #userSessionBox > #btnConfig:not(.hidden),
 body.home-active #userSessionBox > #btnNotificationsV81:not(.hidden),
 body.home-active #userSessionBox > #btnUpdateCenter:not(.hidden),
 body.home-active #userSessionBox > #btnV21105More:not(.hidden),
@@ -28691,6 +28678,7 @@ body.home-active #userSessionBox > #btnLogout:not(.hidden){
 #userSessionBox > #devPanelButton:hover,
 #userSessionBox > #auditLogButton:hover,
 #userSessionBox > #btnHome:hover,
+#userSessionBox > #btnConfig:hover,
 #userSessionBox > #btnNotificationsV81:hover,
 #userSessionBox > #btnUpdateCenter:hover,
 #userSessionBox > #btnV21105More:hover{
@@ -28719,9 +28707,10 @@ body.home-active #btnHome{
 #auditLogButton{order:2 !important;}
 #btnHome{order:3 !important;}
 #btnNotificationsV81{order:4 !important;}
-#btnUpdateCenter{order:5 !important;}
-#btnV21105More{order:6 !important;}
-#btnLogout{order:7 !important;}
+#btnConfig{order:5 !important;}
+#btnUpdateCenter{order:6 !important;}
+#btnV21105More{order:7 !important;}
+#btnLogout{order:8 !important;}
 
 #btnV21105More .v21105-more-label,
 #btnLogout .v21105-logout-label{
@@ -28880,6 +28869,7 @@ body.home-active #btnHome{
   #userSessionBox > #devPanelButton:not(.hidden),
   #userSessionBox > #auditLogButton:not(.hidden),
   #userSessionBox > #btnHome:not(.hidden),
+  #userSessionBox > #btnConfig:not(.hidden),
   #userSessionBox > #btnNotificationsV81:not(.hidden),
   #userSessionBox > #btnUpdateCenter:not(.hidden),
   #userSessionBox > #btnV21105More:not(.hidden),
@@ -28990,10 +28980,12 @@ body.home-active #btnHome{
   }
 
   #userSessionBox > #btnHome:not(.hidden),
+  #userSessionBox > #btnConfig:not(.hidden),
   #userSessionBox > #btnNotificationsV81:not(.hidden),
   #userSessionBox > #btnV21105More:not(.hidden),
   #userSessionBox > #btnLogout:not(.hidden),
   body.home-active #userSessionBox > #btnHome:not(.hidden),
+  body.home-active #userSessionBox > #btnConfig:not(.hidden),
   body.home-active #userSessionBox > #btnNotificationsV81:not(.hidden),
   body.home-active #userSessionBox > #btnV21105More:not(.hidden),
   body.home-active #userSessionBox > #btnLogout:not(.hidden){
@@ -29104,6 +29096,7 @@ body.home-active #btnHome{
     max-width:96px !important;
   }
   #userSessionBox > #btnHome:not(.hidden),
+  #userSessionBox > #btnConfig:not(.hidden),
   #userSessionBox > #btnNotificationsV81:not(.hidden),
   #userSessionBox > #btnV21105More:not(.hidden),
   #userSessionBox > #btnLogout:not(.hidden){

@@ -365,25 +365,23 @@
 
   function syncIndustriesHeaderButton(){
     const b=document.getElementById('btnIndustries');
-    if(!b)return;
-    b.classList.toggle('hidden',!canAccessIndustryPortal);
-    b.setAttribute('aria-hidden',canAccessIndustryPortal?'false':'true');
+    if(b){
+      b.classList.toggle('hidden',!canAccessIndustryPortal);
+      b.setAttribute('aria-hidden',canAccessIndustryPortal?'false':'true');
+    }
+
+    const config=document.getElementById('btnConfig');
+    if(config){
+      const canOpenConfig=isAdministrator||canUpdateStock;
+      config.classList.toggle('hidden',!canOpenConfig);
+      config.setAttribute('aria-hidden',canOpenConfig?'false':'true');
+    }
   }
 
   function ensureIndustriesHomeCard(){
-    const el=document.getElementById('homeCards');
-    if(!el)return;
-    const existing=document.getElementById('homeIndustriesPortal');
-    if(!canAccessIndustryPortal){existing?.remove();return;}
-    if(existing)return;
-    if(!el.querySelector('.home-card'))el.innerHTML='';
-    const b=document.createElement('button');
-    b.type='button';
-    b.id='homeIndustriesPortal';
-    b.className='home-card text-left';
-    b.innerHTML='<span class="home-icon"><i class="fa-solid fa-capsules"></i></span><span class="min-w-0"><span class="block font-black text-[14px] text-slate-800">DISMEPE ONE INDÚSTRIAS</span><span class="block text-[11px] leading-4 text-slate-500 mt-0.5">Acesse a visão de todos os laboratórios autorizada para usuários internos</span></span><i class="home-arrow fa-solid fa-chevron-right"></i>';
-    b.addEventListener('click',()=>{location.href='/industrias';});
-    el.appendChild(b);
+    // A HOME já possui o card nativo controlado por renderHomeCards().
+    // Este injetor antigo era a origem do segundo card em caixa alta.
+    document.getElementById('homeIndustriesPortal')?.remove();
   }
 
   let industryUsers=[];
@@ -541,6 +539,43 @@
     ensureSettingsSection();
     if(canUpdateStock||isAdministrator)loadStockSyncStatus();
   }
+
+  window.openIndustrySettingsOnly=function(){
+    if(!isAdministrator&&!canUpdateStock)return false;
+
+    ensureSettingsSection();
+
+    const modal=document.getElementById('configModal');
+    if(!modal)return false;
+
+    modal.classList.remove('hidden');
+    document.getElementById('configMessage')?.classList.add('hidden');
+
+    const hide=id=>{
+      const el=document.getElementById(id);
+      if(!el)return;
+      el.classList.add('hidden');
+      el.style.setProperty('display','none','important');
+      el.setAttribute('aria-hidden','true');
+    };
+
+    hide('changePasswordForm');
+    hide('historyConfigSection');
+    hide('manualIndicatorsSection');
+
+    const section=document.getElementById('industrySettingsSection');
+    if(section){
+      section.classList.remove('hidden');
+      section.style.removeProperty('display');
+      section.removeAttribute('aria-hidden');
+    }
+
+    if(canUpdateStock||isAdministrator){
+      loadStockSyncStatus();
+    }
+
+    return true;
+  };
 
   function wrapLaunchers(){
     const oldCreate=window.openCreateUserModal;
