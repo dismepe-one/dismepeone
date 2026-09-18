@@ -33110,5 +33110,390 @@ body #v21105MoreMenu .v21105-menu-label{
 })();
 </script>
 
+<!-- PROD5.9.8.23.28 — prioridade final: histórico mensal + card único Indústrias -->
+<script id="prod5982328-history-home-final">
+(function(){
+  'use strict';
+  if(window.__prod5982328HistoryHomeFinal)return;
+  window.__prod5982328HistoryHomeFinal=true;
+
+  const exactIndustryTitle='Dismepe One Indústrias';
+  let homeObserver=null;
+  let historyObserver=null;
+  let homeSyncing=false;
+  let historyLoading=false;
+  let lastHistoryLoad=0;
+
+  function norm(value){
+    return String(value||'')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g,'')
+      .replace(/\s+/g,' ')
+      .trim()
+      .toUpperCase();
+  }
+
+  function isIndustryHomeCard(el){
+    if(!el)return false;
+    const onclick=String(el.getAttribute?.('onclick')||'');
+    const href=String(el.getAttribute?.('href')||'');
+    const text=norm(el.textContent);
+    return (
+      /\/industrias(?:['\"?#]|$)/i.test(onclick) ||
+      /\/industrias(?:[?#]|$)/i.test(href) ||
+      text.includes('DISMEPE ONE INDUSTRIAS')
+    );
+  }
+
+  function normalizeIndustryHomeCards(){
+    if(homeSyncing)return;
+    const home=document.getElementById('homeCards');
+    if(!home)return;
+
+    homeSyncing=true;
+    try{
+      const cards=[...home.querySelectorAll('button,a')]
+        .filter(isIndustryHomeCard);
+
+      if(!cards.length)return;
+
+      const keep=cards[0];
+      cards.slice(1).forEach(card=>{
+        try{card.remove();}catch(e){}
+      });
+
+      const spans=[...keep.querySelectorAll('span')];
+      const titleSpan=
+        spans.find(span=>norm(span.textContent).includes('DISMEPE ONE INDUSTRIAS')) ||
+        keep.querySelector('.font-black');
+
+      if(titleSpan){
+        titleSpan.textContent=exactIndustryTitle;
+      }
+
+      keep.setAttribute('title',exactIndustryTitle);
+      keep.setAttribute('aria-label',exactIndustryTitle);
+
+      if(String(keep.tagName||'').toUpperCase()==='A'){
+        keep.setAttribute('href','/industrias');
+      }else{
+        keep.setAttribute('onclick',"location.href='/industrias'");
+      }
+    }finally{
+      homeSyncing=false;
+    }
+  }
+
+  function installHomeGuard(){
+    normalizeIndustryHomeCards();
+
+    const home=document.getElementById('homeCards');
+    if(home && !homeObserver && typeof MutationObserver!=='undefined'){
+      homeObserver=new MutationObserver(()=>normalizeIndustryHomeCards());
+      homeObserver.observe(home,{childList:true,subtree:true});
+      window.__prod5982328HomeObserver=homeObserver;
+    }
+
+    const old=window.renderHomeCards;
+    if(typeof old==='function' && !old.__prod5982328Wrapped){
+      const wrapped=function(){
+        const result=old.apply(this,arguments);
+        try{queueMicrotask(normalizeIndustryHomeCards);}catch(e){setTimeout(normalizeIndustryHomeCards,0);}
+        setTimeout(normalizeIndustryHomeCards,0);
+        return result;
+      };
+      wrapped.__prod5982328Wrapped=true;
+      wrapped.__prod5982328Original=old;
+      window.renderHomeCards=wrapped;
+    }
+  }
+
+  function esc(value){
+    return String(value??'').replace(/[&<>\"']/g,ch=>({
+      '&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'
+    }[ch]));
+  }
+
+  function historyLabel(item){
+    const raw=String(item?.dataHoraFormatado || item?.dataHoraISO || '').trim();
+    const m=raw.match(/^(\d{2})\/(\d{2})\/\d{4}[ T](\d{2}:\d{2})/);
+    if(m)return m[1]+'/'+m[2]+' · '+m[3];
+
+    try{
+      const d=new Date(raw);
+      if(!Number.isNaN(d.getTime())){
+        return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+
+          ' · '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+      }
+    }catch(e){}
+
+    return raw||'Atualização';
+  }
+
+  function ensureHistoryShell(){
+    let box=document.getElementById('hist39HistoryFilter');
+    if(box)return box;
+
+    const dashboard=document.getElementById('channelDashboard');
+    const section=dashboard?.querySelector('section');
+    if(!section)return null;
+
+    section.classList.add('flex-wrap');
+    section.style.overflow='visible';
+
+    box=document.createElement('div');
+    box.id='hist39HistoryFilter';
+    box.className='w-full xl:w-[560px]';
+    box.innerHTML=
+      '<label class="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">Histórico de Atualizações</label>'+
+      '<div class="flex flex-wrap items-center gap-1.5">'+
+        '<span class="text-[9px] uppercase font-black text-slate-500 mr-1">Visualizar:</span>'+
+        '<button id="hist39LiveBtn" type="button" class="px-2.5 py-1.5 rounded-lg border text-[10px] font-black transition-colors whitespace-nowrap bg-emerald-600 border-emerald-600 text-white">ATUAL</button>'+
+        '<div id="hist39QuickChoices" class="flex flex-wrap gap-1.5"></div>'+
+        '<select id="hist39Primary" class="hidden" aria-hidden="true"><option value="LIVE">Última atualização</option></select>'+
+      '</div>'+
+      '<div class="flex flex-wrap items-center gap-2 mt-2">'+
+        '<span id="hist39HistoryStatus" class="text-[10px] text-slate-400">Carregando histórico...</span>'+
+        '<div class="ml-auto flex flex-wrap gap-2">'+
+          '<button id="hist39RefreshBtn" type="button" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black"><i class="fa-solid fa-rotate mr-1"></i>ATUALIZAR HISTÓRICO</button>'+
+          '<button id="hist39DeleteBtn" type="button" disabled class="hidden px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-[10px] font-black"><i class="fa-solid fa-trash mr-1"></i>EXCLUIR ATUALIZAÇÃO</button>'+
+        '</div>'+
+      '</div>';
+
+    const actions=section.lastElementChild;
+    section.insertBefore(box,actions||null);
+
+    document.getElementById('hist39LiveBtn')?.addEventListener('click',()=>{
+      const select=document.getElementById('hist39Primary');
+      if(select)select.value='LIVE';
+      Promise.resolve(window.hist39SelectPrimary?.()).catch(()=>{});
+      renderHistoryButtons(window.__prod5982328HistoryItems||[]);
+    });
+
+    document.getElementById('hist39Primary')?.addEventListener('change',()=>{
+      Promise.resolve(window.hist39SelectPrimary?.()).catch(()=>{});
+    });
+
+    document.getElementById('hist39RefreshBtn')?.addEventListener('click',()=>{
+      forceHistoryDirect(true);
+    });
+
+    document.getElementById('hist39DeleteBtn')?.addEventListener('click',()=>{
+      window.hist39DeleteSelected?.();
+    });
+
+    return box;
+  }
+
+  function renderHistoryButtons(items){
+    const box=ensureHistoryShell();
+    if(!box)return;
+
+    const list=(Array.isArray(items)?items:[])
+      .filter(item=>item&&String(item.idAtualizacao||'').trim())
+      .slice(0,3);
+
+    window.__prod5982328HistoryItems=list;
+
+    // API oficial: [0] atual, [1] anterior, [2] anterior.
+    // A tela mostra ATUAL + [1] + [2].
+    const previous=list.slice(1,3);
+
+    const select=document.getElementById('hist39Primary');
+    const host=document.getElementById('hist39QuickChoices');
+    const live=document.getElementById('hist39LiveBtn');
+    const status=document.getElementById('hist39HistoryStatus');
+    const selected=String(select?.value||'LIVE');
+
+    if(select){
+      select.innerHTML=
+        '<option value="LIVE">Última atualização</option>'+
+        previous.map(item=>
+          '<option value="'+esc(item.idAtualizacao)+'">'+esc(historyLabel(item))+'</option>'
+        ).join('');
+
+      select.value=[...select.options].some(option=>option.value===selected)
+        ?selected
+        :'LIVE';
+    }
+
+    const active=String(select?.value||'LIVE');
+
+    if(live){
+      live.className=
+        'px-2.5 py-1.5 rounded-lg border text-[10px] font-black transition-colors whitespace-nowrap '+
+        (active==='LIVE'
+          ?'bg-emerald-600 border-emerald-600 text-white'
+          :'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300');
+    }
+
+    if(host){
+      host.innerHTML='';
+      previous.forEach(item=>{
+        const id=String(item.idAtualizacao||'');
+        const button=document.createElement('button');
+        button.type='button';
+        button.title=String(item.dataHoraFormatado||item.dataHoraISO||historyLabel(item));
+        button.textContent=historyLabel(item);
+        button.className=
+          'px-2.5 py-1.5 rounded-lg border text-[10px] font-black transition-colors whitespace-nowrap '+
+          (id===active
+            ?'bg-emerald-600 border-emerald-600 text-white'
+            :'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300');
+
+        button.addEventListener('click',()=>{
+          const current=document.getElementById('hist39Primary');
+          if(current)current.value=id;
+          Promise.resolve(window.hist39SelectPrimary?.())
+            .finally(()=>renderHistoryButtons(window.__prod5982328HistoryItems||[]));
+        });
+
+        host.appendChild(button);
+      });
+    }
+
+    if(status){
+      status.textContent=list.length>=3
+        ?'3 de 3 últimas atualizações disponíveis.'
+        :(list.length
+          ?list.length+' de 3 últimas atualizações disponíveis.'
+          :'Nenhuma atualização histórica registrada.');
+      status.className='mt-2 text-[10px] leading-4 '+
+        (list.length?'text-emerald-600':'text-slate-400');
+    }
+  }
+
+  async function forceHistoryDirect(force){
+    ensureHistoryShell();
+
+    const now=Date.now();
+    if(historyLoading)return false;
+    if(!force && now-lastHistoryLoad<1200)return false;
+
+    const hasSession=window.__v2Authenticated===true || (()=>{
+      try{return !!String(authToken||'').trim();}catch(e){return false;}
+    })();
+
+    if(!hasSession)return false;
+
+    historyLoading=true;
+
+    try{
+      const response=await fetch(
+        '/data/history-list?kind=mensal&_prod5982328='+Date.now(),
+        {
+          method:'GET',
+          credentials:'same-origin',
+          cache:'no-store',
+          headers:{
+            'Accept':'application/json',
+            'Cache-Control':'no-cache'
+          }
+        }
+      );
+
+      let payload={};
+      try{payload=await response.json();}catch(e){}
+
+      if(!response.ok || payload?.sucesso!==true){
+        throw new Error(
+          typeof payload?.detail==='string'
+            ?payload.detail
+            :(payload?.erro||'Não foi possível carregar o histórico.')
+        );
+      }
+
+      const items=Array.isArray(payload?.atualizacoes)
+        ?payload.atualizacoes.slice(0,3)
+        :[];
+
+      // Pinta primeiro a lista oficial do PostgreSQL.
+      renderHistoryButtons(items);
+      lastHistoryLoad=Date.now();
+
+      // Sincroniza a rotina antiga apenas para manter o clique histórico funcional.
+      try{
+        await window.hist39RefreshHistoryList?.({
+          preserveSelection:true,
+          force:true
+        });
+      }catch(e){}
+
+      // Qualquer redraw antigo é sobrescrito pela lista oficial.
+      renderHistoryButtons(items);
+      return items.length>0;
+
+    }catch(error){
+      const status=document.getElementById('hist39HistoryStatus');
+      if(status){
+        status.textContent=String(error?.message||'Não foi possível carregar o histórico.');
+        status.className='mt-2 text-[10px] leading-4 text-rose-500';
+      }
+      return false;
+
+    }finally{
+      historyLoading=false;
+    }
+  }
+
+  function installHistoryGuard(){
+    ensureHistoryShell();
+
+    const dashboard=document.getElementById('channelDashboard');
+    if(dashboard && !historyObserver && typeof MutationObserver!=='undefined'){
+      let wasVisible=!dashboard.classList.contains('hidden');
+
+      historyObserver=new MutationObserver(()=>{
+        ensureHistoryShell();
+        const visible=!dashboard.classList.contains('hidden');
+        if(visible && !wasVisible){
+          setTimeout(()=>forceHistoryDirect(true),0);
+        }
+        wasVisible=visible;
+      });
+
+      historyObserver.observe(dashboard,{
+        attributes:true,
+        attributeFilter:['class','style']
+      });
+
+      window.__prod5982328HistoryObserver=historyObserver;
+    }
+
+    const oldSwitch=window.switchChannel;
+    if(typeof oldSwitch==='function' && !oldSwitch.__prod5982328Wrapped){
+      const wrapped=function(){
+        const result=oldSwitch.apply(this,arguments);
+        setTimeout(()=>forceHistoryDirect(true),0);
+        setTimeout(()=>forceHistoryDirect(true),350);
+        return result;
+      };
+      wrapped.__prod5982328Wrapped=true;
+      wrapped.__prod5982328Original=oldSwitch;
+      window.switchChannel=wrapped;
+    }
+  }
+
+  function boot(){
+    installHomeGuard();
+    installHistoryGuard();
+
+    [0,250,900,2200].forEach(delay=>{
+      setTimeout(()=>{
+        normalizeIndustryHomeCards();
+        ensureHistoryShell();
+        forceHistoryDirect(delay>0);
+      },delay);
+    });
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',boot,{once:true});
+  }else{
+    boot();
+  }
+})();
+</script>
+
 </body>
 </html>
