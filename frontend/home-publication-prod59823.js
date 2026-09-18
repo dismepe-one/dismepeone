@@ -324,6 +324,20 @@
         body:JSON.stringify({atualizarHorario,inserirHistorico})
       });
       await applyFreshHome();
+
+      // PROD5.9.8.23.20:
+      // Mensal/Extras e o snapshot histórico já terminaram neste ponto.
+      // Força a lista visual das 3 últimas atualizações a reler o PostgreSQL,
+      // evitando manter em memória a lista capturada antes da atualização.
+      try{
+        if(typeof window.hist39RefreshHistoryList==='function'){
+          await window.hist39RefreshHistoryList({
+            preserveSelection:false,
+            force:true
+          });
+        }
+      }catch(e){}
+
       const status=await request('/admin/home-publication/status?_='+Date.now());
       renderStatus(status);
       setMessage(

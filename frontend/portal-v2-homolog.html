@@ -21286,6 +21286,25 @@ window.hist39DeleteSelected=async function(){
       h39UpdateDeleteButton();
       h39LastListErrorStatus=0;
       h39LastListRefreshAt=Date.now();
+
+      // PROD5.9.8.23.20:
+      // Durante uma atualização o snapshot do histórico pode terminar de ser
+      // persistido alguns segundos depois da primeira leitura da sessão.
+      // Se a carga AUTOMATICA recebeu menos de 3 itens, devolvemos false
+      // para o agendador existente repetir a leitura. A lista manual continua
+      // mostrando imediatamente tudo o que já estiver disponível.
+      if(
+        opts.automatic===true &&
+        H39.configured===true &&
+        H39.list.length<3
+      ){
+        h39Status(
+          `${H39.list.length} de 3 atualizações carregadas. Sincronizando histórico...`,
+          'info'
+        );
+        return false;
+      }
+
       return true;
 
     }catch(e){
