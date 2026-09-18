@@ -20561,12 +20561,75 @@ window.abrirExcluirUsuarioPopup = function(){
   }
 
   function h39SelectableHistory(){
-    // PROD5.9.8.23.25:
-    // H39.list[0] corresponde a mesma fotografia exibida por ATUAL.
-    // Na escolha visual mostramos somente as duas fotografias anteriores.
-    return (H39.list||[])
-      .slice(0,3)
-      .slice(1,3);
+    // PROD5.9.8.23.26:
+    // A lista oficial possui 3 snapshots. "ATUAL" representa a mesma
+    // fotografia do snapshot corrente; removemos apenas essa duplicata e
+    // deixamos visiveis as duas fotografias anteriores.
+    const list=(H39.list||[])
+      .filter(x=>x&&String(x.idAtualizacao||'').trim())
+      .slice(0,3);
+
+    const currentRaw=String(
+      window.__lastUpdateInfo?.monthlyRaw ||
+      window.__v2BootstrapHorarios?.mensal ||
+      window.__v2BootstrapHorarios?.mensalISO ||
+      ''
+    ).trim();
+
+    let currentDate=null;
+
+    if(currentRaw){
+      try{
+        currentDate=
+          typeof parseBackendDate==='function'
+            ?parseBackendDate(currentRaw)
+            :new Date(currentRaw);
+      }catch(e){
+        currentDate=null;
+      }
+    }
+
+    let removedCurrent=false;
+
+    const previous=list.filter(x=>{
+      if(removedCurrent||!currentDate)return true;
+
+      const raw=String(
+        x?.dataHoraISO ||
+        x?.dataHoraFormatado ||
+        ''
+      ).trim();
+
+      let d=null;
+
+      try{
+        d=
+          typeof parseBackendDate==='function'
+            ?parseBackendDate(raw)
+            :new Date(raw);
+      }catch(e){
+        d=null;
+      }
+
+      if(
+        d &&
+        !Number.isNaN(d.getTime()) &&
+        Math.abs(d.getTime()-currentDate.getTime())<=120000
+      ){
+        removedCurrent=true;
+        return false;
+      }
+
+      return true;
+    });
+
+    // Fallback conservador: se o horario da Base Atual ainda nao chegou,
+    // a API devolve os snapshots em ordem decrescente; o primeiro e o atual.
+    if(!removedCurrent && previous.length>=3){
+      previous.shift();
+    }
+
+    return previous.slice(0,2);
   }
 
   function h39RenderQuickChoices(){
@@ -21303,11 +21366,23 @@ window.hist39DeleteSelected=async function(){
 
       if(h39SessionKey()!==requestKey)return;
 
-      if(ok===true){
+      // PROD5.9.8.23.26:
+      // Uma resposta HTTP 200 com somente 1 ou 2 snapshots NAO encerra
+      // a carga automatica. O PostgreSQL possui 3 fotografias oficiais.
+      if(ok===true && H39.list.length>=3){
         h39AutoSessionCompletedKey=requestKey;
         h39AutoRetryCount=0;
-        console.info('[G9D HIST AUTO] histórico pronto');
+        console.info('[G9D HIST AUTO] histórico pronto com 3 snapshots');
         return;
+      }
+
+      if(ok===true && H39.list.length<3){
+        console.info(
+          '[PROD5.9.8.23.26 HIST]',
+          'resposta parcial:',
+          H39.list.length,
+          'de 3; nova leitura sera feita'
+        );
       }
 
       const status=Number(h39LastListErrorStatus||0);
@@ -21751,12 +21826,141 @@ window.hist39DeleteSelected=async function(){
     window.logout=wrapped;
   }
 
+  function h39InstallChannelVisibleRefresh(){
+    if(window.__h39ChannelVisibleRefreshInstalled)return;
+    window.__h39ChannelVisibleRefreshInstalled=true;
+
+    let refreshTimer=null;
+    let lastRefreshAt=0;
+
+    function channelVisible(){
+      const el=h39$('channelDashboard');
+      if(!el || el.hidden===true || el.classList.contains('hidden')){
+        return false;
+      }
+
+      try{
+        const st=window.getComputedStyle?.(el);
+        if(st && (st.display==='none' || st.visibility==='hidden')){
+          return false;
+        }
+      }catch(e){}
+
+      return true;
+    }
+
+    function sessionReady(){
+      return (
+        window.__v2Authenticated===true ||
+        !!String(authToken||'').trim()
+      );
+    }
+
+    function refreshHistory(reason){
+      if(!channelVisible() || !sessionReady())return false;
+
+      const now=Date.now();
+
+      // Evita chamadas duplicadas do clique + MutationObserver no mesmo paint.
+      if(now-lastRefreshAt<700)return false;
+
+      clearTimeout(refreshTimer);
+
+      refreshTimer=setTimeout(()=>{
+        if(!channelVisible() || !sessionReady())return;
+
+        lastRefreshAt=Date.now();
+
+        console.info(
+          '[PROD5.9.8.23.26 HIST]',
+          'atualizando ao exibir canal:',
+          reason||'canal'
+        );
+
+        Promise.resolve(
+          window.hist39RefreshHistoryList?.({
+            preserveSelection:true,
+            force:true
+          })
+        ).catch(e=>{
+          console.warn(
+            '[PROD5.9.8.23.26 HIST]',
+            e?.message||e
+          );
+        });
+      },80);
+
+      return true;
+    }
+
+    // Clique real em Vendedores/Televendas, inclusive pelos cards da Home.
+    document.addEventListener('click',event=>{
+      const el=event.target.closest?.(
+        '#btnTabVend,#btnTabTlvs,#homeCards button'
+      );
+
+      if(!el)return;
+
+      const onclick=String(
+        el.getAttribute?.('onclick')||''
+      );
+
+      if(
+        el.id==='btnTabVend' ||
+        el.id==='btnTabTlvs' ||
+        /switchChannel\s*\(/.test(onclick)
+      ){
+        setTimeout(
+          ()=>refreshHistory('navegacao'),
+          0
+        );
+      }
+    },true);
+
+    // Tambem cobre F5/restauracao de tela e navegacao programatica.
+    const dashboard=h39$('channelDashboard');
+
+    if(
+      dashboard &&
+      typeof MutationObserver!=='undefined'
+    ){
+      let wasVisible=channelVisible();
+
+      const observer=new MutationObserver(()=>{
+        const visibleNow=channelVisible();
+
+        if(visibleNow && !wasVisible){
+          refreshHistory('modulo-visivel');
+        }
+
+        wasVisible=visibleNow;
+      });
+
+      observer.observe(
+        dashboard,
+        {
+          attributes:true,
+          attributeFilter:['class','style']
+        }
+      );
+
+      window.__h39ChannelVisibleObserver=observer;
+    }
+
+    // Se a pagina ja restaurou Vendedores/Televendas antes deste script.
+    setTimeout(
+      ()=>refreshHistory('inicio'),
+      250
+    );
+  }
+
 function start(){
     h39EnsureFilter();
     h39InstallLoadWrapper();
     h39InstallV2SessionHook();
     h39InstallLogoutHook();
     h39InstallAuthReadyObserver();
+    h39InstallChannelVisibleRefresh();
 
     if(
       Array.isArray(dataVendedores) ||
