@@ -485,7 +485,7 @@ def _finish_row(raw: dict[str, Any], supplier: str) -> dict[str, str]:
     return {k: str(v) for k, v in row.items()}
 
 
-def parse_stock_pdf(pdf_bytes: bytes, *, source_name: str = "Mapa de Estoque.pdf") -> dict[str, Any]:
+def _parse_stock_pdf_layout(pdf_bytes: bytes, *, source_name: str = "Mapa de Estoque.pdf") -> dict[str, Any]:
     text = _pdftotext_layout(pdf_bytes)
     rows: list[dict[str, str]] = []
     suppliers: list[str] = []
@@ -581,6 +581,419 @@ def parse_stock_pdf(pdf_bytes: bytes, *, source_name: str = "Mapa de Estoque.pdf
     }
 
 
+def _pdftotext_tsv(pdf_bytes: bytes) -> str:
+    executable = shutil.which("pdftotext")
+    if not executable:
+        raise RuntimeError(
+            "O leitor de PDF (pdftotext/poppler) não está instalado no servidor."
+        )
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as tmp:
+        tmp.write(pdf_bytes)
+        tmp.flush()
+        proc = subprocess.run(
+            [executable, "-tsv", "-enc", "UTF-8", tmp.name, "-"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=90,
+            check=False,
+        )
+    if proc.returncode != 0:
+        message = proc.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError("Não foi possível ler o PDF do mapa" + (f": {message}" if message else "."))
+    return proc.stdout.decode("utf-8", errors="replace")
+
+
+_TSV_CODE_RE = re.compile(r"^[\d.]+$")
+_TSV_NUM_RE = re.compile(r"^-?[\d.]+$")
+_TSV_VALID_NUM_RE = re.compile(r"^-?(?:\d+|\d{1,3}(?:\.\d{3})+)$")
+_TSV_PRICE_RE = re.compile(r"^-?[\d.]+,\d{2}$")
+_TSV_DATE_RE = re.compile(r"^\d{2}/\d{2}/\d{4}$")
+_TSV_CURVE_RE = re.compile(r"^[A-Z]/[A-Z]$")
+_TSV_NUMERIC_RIGHTS = (285.0, 309.6, 333.6, 357.6, 381.6, 405.6, 429.6)
+_TSV_CHAR_WIDTH = 4.2
+
+
+def _tsv_number_splits(value: str, parts_count: int) -> list[list[str]]:
+    result: list[list[str]] = []
+
+    def walk(pos: int, parts: list[str]) -> None:
+        remaining = parts_count - len(parts)
+        if remaining == 0:
+            if pos == len(value):
+                result.append(parts[:])
+            return
+        max_end = min(len(value) - (remaining - 1), pos + 11)
+        for end in range(pos + 1, max_end + 1):
+            part = value[pos:end]
+            if _TSV_VALID_NUM_RE.fullmatch(part):
+                walk(end, [*parts, part])
+
+    walk(0, [])
+    return result
+
+
+def _tsv_numeric_columns(record: list[dict[str, Any]], row_top: float) -> list[str]:
+    tokens = [
+        word
+        for word in record
+        if 265 <= word["left"] < 430
+        and abs(word["top"] - row_top) < 1.0
+        and _TSV_NUM_RE.fullmatch(word["text"])
+    ]
+    candidates: dict[int, list[tuple[float, int, int, list[str]]]] = {}
+    for token_index, word in enumerate(tokens):
+        value = word["text"]
+        for start in range(7):
+            for count in range(1, 8 - start):
+                for parts in _tsv_number_splits(value, count):
+                    starts = [
+                        _TSV_NUMERIC_RIGHTS[start + offset] - _TSV_CHAR_WIDTH * len(part)
+                        for offset, part in enumerate(parts)
+                    ]
+                    predicted_left = min(starts)
+                    predicted_right = _TSV_NUMERIC_RIGHTS[start + count - 1]
+                    score = abs(predicted_left - word["left"]) + 0.5 * abs(
+                        predicted_right - word["right"]
+                    )
+                    if score <= 18:
+                        candidates.setdefault(start, []).append(
+                            (score, token_index, count, parts)
+                        )
+
+    best_score = float("inf")
+    best_values: list[str] | None = None
+
+    def solve(
+        field_index: int,
+        used: set[int],
+        values: list[str],
+        score: float,
+    ) -> None:
+        nonlocal best_score, best_values
+        if score >= best_score:
+            return
+        if field_index >= 7:
+            final_score = score + 5.0 * (len(tokens) - len(used))
+            if final_score < best_score:
+                best_score = final_score
+                best_values = values[:]
+            return
+
+        for cand_score, token_index, count, parts in candidates.get(field_index, []):
+            if token_index not in used:
+                solve(
+                    field_index + count,
+                    used | {token_index},
+                    [*values, *parts],
+                    score + cand_score,
+                )
+
+        solve(field_index + 1, used, [*values, ""], score + 25.0)
+
+    solve(0, set(), [], 0.0)
+    return (best_values or [""] * 7)[:7]
+
+
+def _parse_stock_pdf_tsv(
+    pdf_bytes: bytes,
+    *,
+    source_name: str = "Mapa de Estoque.pdf",
+) -> dict[str, Any]:
+    tsv = _pdftotext_tsv(pdf_bytes)
+    words: list[dict[str, Any]] = []
+    generated_at = ""
+    origin_file = ""
+
+    for raw in tsv.splitlines()[1:]:
+        cols = raw.split("\t", 11)
+        if len(cols) != 12 or cols[0] != "5":
+            continue
+        try:
+            word = {
+                "page": int(cols[1]),
+                "left": float(cols[6]),
+                "top": float(cols[7]),
+                "width": float(cols[8]),
+                "text": cols[11],
+            }
+        except (TypeError, ValueError):
+            continue
+
+        word["right"] = word["left"] + word["width"]
+        words.append(word)
+
+        if not generated_at and word["text"].startswith("Data:"):
+            generated_at = word["text"].split("Data:", 1)[-1]
+        elif (
+            generated_at
+            and len(generated_at) == 10
+            and re.fullmatch(r"\d{2}:\d{2}:\d{2}", word["text"])
+        ):
+            generated_at += " " + word["text"]
+
+        if not origin_file and word["text"].startswith("Arquivo:"):
+            origin_file = word["text"].split("Arquivo:", 1)[-1].strip()
+
+    pages: dict[int, list[dict[str, Any]]] = {}
+    for word in words:
+        pages.setdefault(word["page"], []).append(word)
+
+    rows: list[dict[str, str]] = []
+    suppliers: list[str] = []
+
+    def first(items: list[dict[str, Any]], key=lambda word: 0):
+        return min(items, key=key) if items else None
+
+    for page_number in sorted(pages):
+        page_words = sorted(
+            pages[page_number],
+            key=lambda word: (word["top"], word["left"]),
+        )
+        supplier = ""
+        for word in page_words:
+            if word["text"].startswith("FORNECEDOR:"):
+                y = word["top"]
+                same_line = sorted(
+                    [
+                        item
+                        for item in page_words
+                        if abs(item["top"] - y) < 0.2 and item["left"] < 216
+                    ],
+                    key=lambda item: item["left"],
+                )
+                supplier_line = " ".join(item["text"] for item in same_line)
+                supplier = _clean_spaces(
+                    supplier_line.split("FORNECEDOR:", 1)[-1]
+                ).upper()
+                break
+
+        if supplier and supplier not in suppliers:
+            suppliers.append(supplier)
+
+        starts = [
+            word
+            for word in page_words
+            if 15 <= word["left"] < 45
+            and word["top"] > 90
+            and _TSV_CODE_RE.fullmatch(word["text"])
+        ]
+        totals = sorted(
+            {
+                word["top"]
+                for word in page_words
+                if word["text"] == "Totais" and 45 <= word["left"] < 80
+            }
+        )
+        footers = sorted(
+            {
+                word["top"]
+                for word in page_words
+                if word["text"].startswith("Seleção:") and word["left"] < 40
+            }
+        )
+
+        for index, start_word in enumerate(starts):
+            bounds = (
+                ([starts[index + 1]["top"]] if index + 1 < len(starts) else [])
+                + [value for value in totals if value > start_word["top"]]
+                + [value for value in footers if value > start_word["top"]]
+                + [560.0]
+            )
+            end_top = min(bounds)
+            record = [
+                word
+                for word in page_words
+                if start_word["top"] - 0.1 <= word["top"] < end_top
+            ]
+
+            curve = first(
+                [
+                    word
+                    for word in record
+                    if 205 <= word["left"] < 238
+                    and _TSV_CURVE_RE.fullmatch(word["text"])
+                ],
+                key=lambda word: abs(word["left"] - 216.6),
+            )
+            price = first(
+                [
+                    word
+                    for word in record
+                    if 225 <= word["left"] < 270
+                    and _TSV_PRICE_RE.fullmatch(word["text"])
+                ],
+                key=lambda word: (
+                    abs(word["top"] - start_word["top"]),
+                    abs(word["right"] - 265.8),
+                ),
+            )
+
+            numeric = _tsv_numeric_columns(record, start_word["top"])
+
+            ean_words = [
+                word
+                for word in record
+                if 430 <= word["left"] < 500
+                and not _TSV_DATE_RE.fullmatch(word["text"])
+            ]
+            ean = _clean_spaces(
+                " ".join(
+                    word["text"]
+                    for word in sorted(
+                        ean_words,
+                        key=lambda item: (item["top"], item["left"]),
+                    )
+                )
+            )
+
+            est_ate = first(
+                [
+                    word
+                    for word in record
+                    if 495 <= word["left"] < 536
+                    and _TSV_DATE_RE.fullmatch(word["text"])
+                ],
+                key=lambda word: (word["top"], word["left"]),
+            )
+            ultima = first(
+                [
+                    word
+                    for word in record
+                    if 532 <= word["left"] < 585
+                    and _TSV_DATE_RE.fullmatch(word["text"])
+                ],
+                key=lambda word: (word["top"], word["left"]),
+            )
+
+            tail = sorted(
+                [
+                    word
+                    for word in record
+                    if 555 <= word["left"] < 624.5
+                    and _TSV_NUM_RE.fullmatch(word["text"])
+                ],
+                key=lambda word: (word["top"], word["left"]),
+            )
+            quant = first(
+                tail,
+                key=lambda word: abs(word["right"] - 594.6),
+            )
+            sugest = (
+                first(
+                    [word for word in tail if word is not quant],
+                    key=lambda word: abs(word["right"] - 621.6),
+                )
+                if len(tail) > 1
+                else None
+            )
+            blocked = first(
+                [
+                    word
+                    for word in record
+                    if word["left"] >= 645 and word["text"].upper() == "BC"
+                ]
+            )
+
+            excluded = {id(start_word), *(id(word) for word in ean_words)}
+            for selected in (curve, price, est_ate, ultima, quant, sugest, blocked):
+                if selected:
+                    excluded.add(id(selected))
+
+            for word in record:
+                if (
+                    265 <= word["left"] < 430
+                    and abs(word["top"] - start_word["top"]) < 1.0
+                    and _TSV_NUM_RE.fullmatch(word["text"])
+                ):
+                    excluded.add(id(word))
+
+            description_words = [
+                word
+                for word in record
+                if id(word) not in excluded
+                and 48 <= word["left"] < 305
+                and word["text"]
+                not in {
+                    "Código",
+                    "Descrição",
+                    "Curva",
+                    "Preço",
+                    "UFO",
+                    "Resumo",
+                    "Tot.Unds.",
+                    "Tot.Pc.Custo",
+                    "Tot.Pc.Venda",
+                }
+            ]
+            description = _clean_spaces(
+                " ".join(
+                    word["text"]
+                    for word in sorted(
+                        description_words,
+                        key=lambda item: (item["top"], item["left"]),
+                    )
+                )
+            )
+
+            raw_row = {
+                "codigo": start_word["text"],
+                "descricao": description,
+                "curva": curve["text"] if curve else "",
+                "preco": price["text"] if price else "",
+                "ufo": numeric[0],
+                "estoque": numeric[1],
+                "jun_26": numeric[2],
+                "jul_26": numeric[3],
+                "ago_26": numeric[4],
+                "set_26": numeric[5],
+                "media": numeric[6],
+                "ean": ean,
+                "est_ate": est_ate["text"] if est_ate else "",
+                "ultima_entrada": ultima["text"] if ultima else "",
+                "quant": quant["text"] if quant else "",
+                "sugest": sugest["text"] if sugest else "",
+                "bloq_compra": "BC" if blocked else "",
+            }
+
+            if (
+                supplier
+                and raw_row["codigo"]
+                and raw_row["descricao"]
+                and raw_row["curva"]
+                and raw_row["preco"]
+                and raw_row["estoque"] != ""
+                and raw_row["media"] != ""
+            ):
+                rows.append(_finish_row(raw_row, supplier))
+
+    if len(rows) < 50 or not suppliers:
+        raise RuntimeError(
+            f"Leitura posicional insuficiente: {len(rows)} itens e "
+            f"{len(suppliers)} fornecedores."
+        )
+
+    return {
+        "gerado_em": generated_at
+        or datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        "arquivo_origem": origin_file,
+        "fonte": source_name,
+        "fornecedores": suppliers,
+        "linhas": rows,
+    }
+
+
+def parse_stock_pdf(
+    pdf_bytes: bytes,
+    *,
+    source_name: str = "Mapa de Estoque.pdf",
+) -> dict[str, Any]:
+    try:
+        return _parse_stock_pdf_tsv(pdf_bytes, source_name=source_name)
+    except Exception:
+        # Compatibilidade: se o Poppler do ambiente não suportar TSV ou
+        # aparecer um relatório legado, preserva exatamente o parser anterior.
+        return _parse_stock_pdf_layout(pdf_bytes, source_name=source_name)
+
 def _validate_against_current(data: dict[str, Any]) -> None:
     new_count = len(data.get("linhas") or [])
     current = _read_json(CURRENT_FILE) or _read_json(FALLBACK_FILE) or {}
@@ -625,7 +1038,7 @@ def _persist_stock_snapshot_blocking(data: dict[str, Any]) -> None:
         "atualizado_por": "STOCK_WORKER",
         "nome": TARGET_PDF_NAME,
         "tamanho": len(encoded),
-        "versao": "PROD5.9.8.23.12_STOCK_WORKER_V2",
+        "versao": "PROD5.9.8.23.13_FAST_PARSER_V1",
     }
     try:
         with httpx.Client(timeout=max(60.0, cfg_settings.request_timeout_seconds)) as client:
