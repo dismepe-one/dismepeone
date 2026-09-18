@@ -4548,7 +4548,7 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
                 <button id="btnCreateUser" onclick="openCreateUserModal()" title="Criar usuário" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-user-plus"></i></button>
                 <button id="btnAccessLog" onclick="openAccessLog()" title="Controle de Acessos" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-clock-rotate-left"></i></button>
                 <button id="btnPremiacao" onclick="openPremiacao()" title="Minhas Premiações" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-trophy"></i></button>
-                <button id="btnClientesPED" onclick="openClientesPED()" title="Clientes PED" aria-label="Clientes PED" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-clipboard-check"></i></button><button id="btnIndustries" onclick="location.href='/industrias'" title="DISMEPE ONE INDÚSTRIAS" aria-label="DISMEPE ONE INDÚSTRIAS" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-capsules"></i></button>
+                <button id="btnClientesPED" onclick="openClientesPED()" title="Clientes PED" aria-label="Clientes PED" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-clipboard-check"></i></button><button id="btnIndustries" onclick="location.href='/industrias'" title="Dismepe One Indústrias" aria-label="Dismepe One Indústrias" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-capsules"></i></button>
                 <button id="btnResumoPremiacao" onclick="openResumoPremiacoes()" title="Resumo de Ganhos" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-sack-dollar"></i></button>
                 <button id="btnUpdateCenter" onclick="openUpdateCenter()" title="Centro de Atualizações" aria-label="Centro de Atualizações" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-arrows-rotate"></i></button>
                 <button id="btnLogout" onclick="logout()" title="Sair" class="w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-right-from-bracket"></i></button>
@@ -8028,9 +8028,9 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
 (function(){
   const ROLE = { ADMIN:'ADMINISTRADOR', COMMERCIAL:'COMERCIAL', VEND:'VENDEDOR', TLV:'TELEVENDAS', SVEND:'SUP VENDAS', STLV:'SUP TELEVENDAS', CAP:'CONTAS A PAGAR' };
   const PERMISSION_GROUPS = [
-    {title:'DISMEPE ONE INDÚSTRIAS',icon:'fa-industry',note:'Permissões operacionais do portal externo de indústrias.',items:[
+    {title:'Dismepe One Indústrias',icon:'fa-industry',note:'Permissões operacionais do portal externo de indústrias.',items:[
       {key:'INDUSTRIA_MAPA_ATUALIZAR',label:'Atualizar mapa de estoque',desc:'Permite usar “Atualizar mapa agora” para importar o PDF oficial do Google Drive. Não concede outras permissões administrativas.'},
-      {key:'INDUSTRIA_PORTAL_INTERNO',label:'Acessar DISMEPE ONE INDÚSTRIAS',desc:'Exibe o atalho do portal de indústrias para usuários internos e permite visualizar todos os laboratórios. Não concede permissão para atualizar o mapa de estoque.'}
+      {key:'INDUSTRIA_PORTAL_INTERNO',label:'Acessar Dismepe One Indústrias',desc:'Exibe o atalho do portal de indústrias para usuários internos e permite visualizar todos os laboratórios. Não concede permissão para atualizar o mapa de estoque.'}
     ]},
     {title:'Painéis e canais',icon:'fa-chart-line',note:'Tabela, detalhes e gráficos ficam disponíveis automaticamente quando o usuário possui acesso ao módulo.',items:[
       {key:'VENDEDORES',label:'Acessar Vendedores',desc:'Abre o módulo Vendedores. O cargo VENDEDOR continua limitado somente ao próprio nome.'},
@@ -8443,6 +8443,20 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
     }catch(e){
       console.warn('[V2] O navegador não permitiu persistir a sessão legada.');
     }
+
+    // PROD5.9.8.23.27:
+    // O histórico automático pode terminar as tentativas antes de o token
+    // legado ficar pronto. Reconsulta depois da sessão legada existir para
+    // permitir recuperar as fotografias anteriores quando a rota 2.0 vier parcial.
+    setTimeout(()=>{
+      try{
+        window.hist39RefreshHistoryList?.({
+          preserveSelection:true,
+          force:true
+        });
+      }catch(e){}
+    },1200);
+
     return true;
   }
 
@@ -9000,7 +9014,7 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
 }
 
 window.openCreateUserModal=function(){
-    if(!isAdmin(currentUser)) return;
+    if(!isAdmin(currentUser) && !hasPerm('USUARIOS_CRIAR')) return;
     document.getElementById('createUserModal')?.classList.remove('hidden');
     document.getElementById('createUserMessage')?.classList.add('hidden');
     document.getElementById('createUserForm')?.reset();
@@ -9182,7 +9196,7 @@ window.openCreateUserModal=function(){
 
       showCreateUserMessage(
         norm(tipo)==='COMPRADOR'
-          ? 'Usuário '+(r?.usuario||usuario)+' criado como COMPRADOR com acesso somente ao DISMEPE ONE INDÚSTRIAS e a todos os laboratórios.'
+          ? 'Usuário '+(r?.usuario||usuario)+' criado como COMPRADOR com acesso somente ao Dismepe One Indústrias e a todos os laboratórios.'
           : 'Usuário '+(r?.usuario||usuario)+' criado com sucesso.',
         true
       );
@@ -10813,7 +10827,10 @@ window.restoreViewState=function(){
   function renderHomeCards(){
   const el=document.getElementById('homeCards'); if(!el)return;
   const cards=[];
-  const add=(id,title,desc,icon,fn)=>cards.push({id,title,desc,icon,fn});
+  const add=(id,title,desc,icon,fn)=>{
+    if(cards.some(card=>card.id===id))return;
+    cards.push({id,title,desc,icon,fn});
+  };
   const role=String(currentUser?.tipo||currentUser?.cargo||'').trim().toUpperCase();
   let admin=false;
   try{ admin=!!window.panelIsAdmin?.(currentUser); }catch(e){}
@@ -10828,7 +10845,7 @@ window.restoreViewState=function(){
     add('tlv','Televendas','Acompanhamento do canal de Televendas','fa-headset',"switchChannel('televendas')");
     add('overview','Visão Geral','Desempenho consolidado da equipe','fa-chart-column','switchOverview()');
     add('summary','Resumo de Ganhos','Visão consolidada das premiações','fa-sack-dollar','openResumoPremiacoes()');
-    add('industries','DISMEPE ONE INDÚSTRIAS','Portal de indústrias e mapa de estoque','fa-capsules',"location.href='/industrias'");
+    add('industries','Dismepe One Indústrias','Portal de indústrias e mapa de estoque','fa-capsules',"location.href='/industrias'");
     add('extras','Campanhas Extras','Campanhas especiais e resultados','fa-bullseye','openCampanhasExtras()');
     add('monthly','Gestão de Campanhas Mensais','Base Mensal + Regras/Métricas por competência','fa-calendar-days','openMonthlyCampaignManager()');
     add('access','Controle de Acessos','Acompanhe acessos e atividade dos usuários','fa-clock-rotate-left','openAccessLog()');
@@ -10842,7 +10859,7 @@ window.restoreViewState=function(){
       || (role.includes('SUPERVISOR') && (role.includes('VEND') || role.includes('TELE')));
     if(podePrem && has('PREMIACOES_VISUALIZAR')) add('prem','Minhas Premiações','Suas premiações por laboratório','fa-trophy','openPremiacao()');
     if(has('RESUMO_PREMIACOES')) add('summary','Resumo de Ganhos','Visão consolidada das premiações','fa-sack-dollar','openResumoPremiacoes()');
-    if(has('INDUSTRIA_PORTAL_INTERNO')) add('industries','DISMEPE ONE INDÚSTRIAS','Portal de indústrias e mapa de estoque','fa-capsules',"location.href='/industrias'");
+    if(has('INDUSTRIA_PORTAL_INTERNO')) add('industries','Dismepe One Indústrias','Portal de indústrias e mapa de estoque','fa-capsules',"location.href='/industrias'");
     // V99 — Home usa as permissões granulares que realmente autorizam abrir o módulo.
     if(has('CAMPANHAS_EXTRAS_VISUALIZAR')) add('extras','Campanhas Extras','Campanhas especiais e resultados','fa-bullseye','openCampanhasExtras()');
     if(has('CAMPANHAS_MENSAIS_VISUALIZAR')) add('monthly','Gestão de Campanhas Mensais','Base Mensal + Regras/Métricas por competência','fa-calendar-days','openMonthlyCampaignManager()');
@@ -13176,8 +13193,23 @@ function resetExtraForm(){
   // Captura cliques de navegação antes dos handlers existentes.
   document.addEventListener('click', function(ev){
     const el=ev.target.closest?.('#homeCards button, #btnTabVend, #btnTabTlvs, #btnTabOverview, #btnTabPremiacao, #btnTabResumoPremiacao, #btnTabCampanhasExtras');
-    if(el && !el.closest('#homeModule')?.matches('#homeModule')) closeHomeForModule();
-    else if(el && el.closest('#homeCards')) closeHomeForModule();
+    if(!el)return;
+
+    // PROD5.9.8.23.27:
+    // Criar Usuário é modal. Se a Home for ocultada no capture phase antes
+    // do onclick, a tela fica em branco. Mantém a Home ao fundo, igual ao
+    // comportamento funcional do botão do cabeçalho.
+    const onclick=String(el.getAttribute?.('onclick')||'');
+    if(
+      el.closest('#homeCards') &&
+      /openCreateUserModal\s*\(/.test(onclick)
+    ){
+      try{ window.painelSetReturnTarget?.('home'); }catch(e){}
+      return;
+    }
+
+    if(!el.closest('#homeModule')?.matches('#homeModule')) closeHomeForModule();
+    else if(el.closest('#homeCards')) closeHomeForModule();
   }, true);
 })();
 </script>
@@ -20185,6 +20217,57 @@ window.abrirExcluirUsuarioPopup = function(){
       try{payload=await response.json();}catch(e){}
 
       if(response.ok && payload?.sucesso===true){
+        const directItems=
+          Array.isArray(payload?.atualizacoes)
+            ?payload.atualizacoes
+            :[];
+
+        // PROD5.9.8.23.27:
+        // A rota FastAPI pode responder 200 com apenas a fotografia atual.
+        // Nesse caso o catch nunca era acionado e o HIST39_LISTAR legado,
+        // que ainda possui as fotografias anteriores, ficava inacessível.
+        // Só usamos a compatibilidade quando a lista direta está parcial.
+        if(
+          kind==='mensal' &&
+          directItems.length<3 &&
+          requestToken
+        ){
+          try{
+            const legacy=await postApi({
+              acao:legacyAction,
+              token:requestToken
+            });
+
+            const legacyItems=
+              Array.isArray(legacy?.atualizacoes)
+                ?legacy.atualizacoes
+                :[];
+
+            if(
+              (
+                legacy?.sucesso===true ||
+                legacy?.success===true ||
+                legacy?.ok===true
+              ) &&
+              legacyItems.length>directItems.length
+            ){
+              console.info(
+                '[PROD5.9.8.23.27 HIST]',
+                'lista direta parcial; usando histórico legado completo',
+                directItems.length,
+                legacyItems.length
+              );
+              return legacy;
+            }
+          }catch(legacyError){
+            console.warn(
+              '[PROD5.9.8.23.27 HIST]',
+              'compatibilidade legado indisponível',
+              legacyError?.message||legacyError
+            );
+          }
+        }
+
         return payload;
       }
 
@@ -28222,7 +28305,10 @@ async function salvarIndicadoresManuaisV174(){
     window.renderHomeCards=function(){
       const el=document.getElementById('homeCards'); if(!el)return;
       const cards=[];
-      const add=(id,title,desc,icon,fn)=>cards.push({id,title,desc,icon,fn});
+      const add=(id,title,desc,icon,fn)=>{
+    if(cards.some(card=>card.id===id))return;
+    cards.push({id,title,desc,icon,fn});
+  };
       const r=role();
       const admin=isAdminStrict();
       if(admin){
@@ -28230,7 +28316,7 @@ async function salvarIndicadoresManuaisV174(){
         add('tlv','Televendas','Acompanhamento do canal de Televendas','fa-headset',"switchChannel('televendas')");
         add('overview','Visão Geral','Desempenho consolidado da equipe','fa-chart-column','switchOverview()');
         add('summary','Resumo de Ganhos','Visão consolidada das premiações','fa-sack-dollar','openResumoPremiacoes()');
-    add('industries','DISMEPE ONE INDÚSTRIAS','Portal de indústrias e mapa de estoque','fa-capsules',"location.href='/industrias'");
+    add('industries','Dismepe One Indústrias','Portal de indústrias e mapa de estoque','fa-capsules',"location.href='/industrias'");
         add('extras','Campanhas Extras','Campanhas especiais e resultados','fa-bullseye','openCampanhasExtras()');
         add('monthly','Gestão de Campanhas Mensais','Base Mensal + Regras/Métricas por competência','fa-calendar-days','openMonthlyCampaignManager()');
         add('access','Controle de Acessos','Acompanhe acessos e atividade dos usuários','fa-clock-rotate-left','openAccessLog()');
@@ -28243,7 +28329,7 @@ async function salvarIndicadoresManuaisV174(){
         const podePrem=['VENDEDOR','TELEVENDAS','SUP VENDAS','SUP TELEVENDAS','SUPERVISOR VENDAS','SUPERVISOR TELEVENDAS','SUPERVISOR DE VENDAS','SUPERVISOR DE TELEVENDAS'].includes(r) || (r.includes('SUPERVISOR')&&(r.includes('VEND')||r.includes('TELE')));
         if(podePrem && strictPerm('PREMIACOES_VISUALIZAR')) add('prem','Minhas Premiações','Suas premiações por laboratório','fa-trophy','openPremiacao()');
         if(strictPerm('RESUMO_PREMIACOES')) add('summary','Resumo de Ganhos','Visão consolidada das premiações','fa-sack-dollar','openResumoPremiacoes()');
-        if(strictPerm('INDUSTRIA_PORTAL_INTERNO')) add('industries','DISMEPE ONE INDÚSTRIAS','Portal de indústrias e mapa de estoque','fa-capsules',"location.href='/industrias'");
+        if(strictPerm('INDUSTRIA_PORTAL_INTERNO')) add('industries','Dismepe One Indústrias','Portal de indústrias e mapa de estoque','fa-capsules',"location.href='/industrias'");
         if(strictPerm('CAMPANHAS_EXTRAS_VISUALIZAR')) add('extras','Campanhas Extras','Campanhas especiais e resultados','fa-bullseye','openCampanhasExtras()');
         if(strictPerm('CAMPANHAS_MENSAIS_VISUALIZAR')) add('monthly','Gestão de Campanhas Mensais','Base Mensal + Regras/Métricas por competência','fa-calendar-days','openMonthlyCampaignManager()');
         if(strictPerm('CONTROLE_DE_ACESSOS')) add('access','Controle de Acessos','Acompanhe acessos e atividade','fa-clock-rotate-left','openAccessLog()');
