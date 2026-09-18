@@ -457,25 +457,39 @@ async def history_list(
     )
 
     if normalized == "mensal":
+        raw: list[dict[str, Any]] = []
+        row: dict[str, Any] = {}
+
         try:
             raw, row = await _monthly_history_metadata_fast(
                 settings=settings,
             )
         except HistoryReadError:
-            # Fallback conservador para o caminho anterior.
+            # A consulta completa abaixo continua sendo o fallback oficial.
+            pass
+
+        # PROD5.9.8.23.23:
+        # Se uma resposta leve intermediaria vier com menos de 3 itens,
+        # confirma o snapshot completo ja persistido no PostgreSQL.
+        if len(raw) < 3:
             try:
-                payload, row = await cache_get(
+                payload_full, row_full = await cache_get(
                     modulo=modulo,
                     settings=settings,
                 )
             except CacheReadError as exc:
-                raise HistoryReadError(str(exc)) from exc
+                if not raw:
+                    raise HistoryReadError(str(exc)) from exc
+            else:
+                raw_full = (
+                    payload_full.get("atualizacoes")
+                    if isinstance(payload_full.get("atualizacoes"), list)
+                    else []
+                )
+                if len(raw_full) > len(raw):
+                    raw = raw_full
+                    row = row_full
 
-            raw = (
-                payload.get("atualizacoes")
-                if isinstance(payload.get("atualizacoes"), list)
-                else []
-            )
     else:
         try:
             payload, row = await cache_get(

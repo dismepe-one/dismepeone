@@ -10824,6 +10824,7 @@ window.restoreViewState=function(){
     add('tlv','Televendas','Acompanhamento do canal de Televendas','fa-headset',"switchChannel('televendas')");
     add('overview','Visão Geral','Desempenho consolidado da equipe','fa-chart-column','switchOverview()');
     add('summary','Resumo de Ganhos','Visão consolidada das premiações','fa-sack-dollar','openResumoPremiacoes()');
+    add('industries','DISMEPE ONE INDÚSTRIAS','Portal de indústrias e mapa de estoque','fa-capsules',"location.href='/industrias'");
     add('extras','Campanhas Extras','Campanhas especiais e resultados','fa-bullseye','openCampanhasExtras()');
     add('monthly','Gestão de Campanhas Mensais','Base Mensal + Regras/Métricas por competência','fa-calendar-days','openMonthlyCampaignManager()');
     add('access','Controle de Acessos','Acompanhe acessos e atividade dos usuários','fa-clock-rotate-left','openAccessLog()');
@@ -10837,6 +10838,7 @@ window.restoreViewState=function(){
       || (role.includes('SUPERVISOR') && (role.includes('VEND') || role.includes('TELE')));
     if(podePrem && has('PREMIACOES_VISUALIZAR')) add('prem','Minhas Premiações','Suas premiações por laboratório','fa-trophy','openPremiacao()');
     if(has('RESUMO_PREMIACOES')) add('summary','Resumo de Ganhos','Visão consolidada das premiações','fa-sack-dollar','openResumoPremiacoes()');
+    if(has('INDUSTRIA_PORTAL_INTERNO')) add('industries','DISMEPE ONE INDÚSTRIAS','Portal de indústrias e mapa de estoque','fa-capsules',"location.href='/industrias'");
     // V99 — Home usa as permissões granulares que realmente autorizam abrir o módulo.
     if(has('CAMPANHAS_EXTRAS_VISUALIZAR')) add('extras','Campanhas Extras','Campanhas especiais e resultados','fa-bullseye','openCampanhasExtras()');
     if(has('CAMPANHAS_MENSAIS_VISUALIZAR')) add('monthly','Gestão de Campanhas Mensais','Base Mensal + Regras/Métricas por competência','fa-calendar-days','openMonthlyCampaignManager()');
@@ -20165,7 +20167,8 @@ window.abrirExcluirUsuarioPopup = function(){
     try{
       const url=
         '/data/history-list?kind='+
-        encodeURIComponent(kind);
+        encodeURIComponent(kind)+
+        '&_history='+encodeURIComponent(String(Date.now()));
 
       const response=await fetch(url,{
         method:'GET',
@@ -27876,6 +27879,7 @@ async function salvarIndicadoresManuaisV174(){
         add('tlv','Televendas','Acompanhamento do canal de Televendas','fa-headset',"switchChannel('televendas')");
         add('overview','Visão Geral','Desempenho consolidado da equipe','fa-chart-column','switchOverview()');
         add('summary','Resumo de Ganhos','Visão consolidada das premiações','fa-sack-dollar','openResumoPremiacoes()');
+    add('industries','DISMEPE ONE INDÚSTRIAS','Portal de indústrias e mapa de estoque','fa-capsules',"location.href='/industrias'");
         add('extras','Campanhas Extras','Campanhas especiais e resultados','fa-bullseye','openCampanhasExtras()');
         add('monthly','Gestão de Campanhas Mensais','Base Mensal + Regras/Métricas por competência','fa-calendar-days','openMonthlyCampaignManager()');
         add('access','Controle de Acessos','Acompanhe acessos e atividade dos usuários','fa-clock-rotate-left','openAccessLog()');
@@ -27888,6 +27892,7 @@ async function salvarIndicadoresManuaisV174(){
         const podePrem=['VENDEDOR','TELEVENDAS','SUP VENDAS','SUP TELEVENDAS','SUPERVISOR VENDAS','SUPERVISOR TELEVENDAS','SUPERVISOR DE VENDAS','SUPERVISOR DE TELEVENDAS'].includes(r) || (r.includes('SUPERVISOR')&&(r.includes('VEND')||r.includes('TELE')));
         if(podePrem && strictPerm('PREMIACOES_VISUALIZAR')) add('prem','Minhas Premiações','Suas premiações por laboratório','fa-trophy','openPremiacao()');
         if(strictPerm('RESUMO_PREMIACOES')) add('summary','Resumo de Ganhos','Visão consolidada das premiações','fa-sack-dollar','openResumoPremiacoes()');
+        if(strictPerm('INDUSTRIA_PORTAL_INTERNO')) add('industries','DISMEPE ONE INDÚSTRIAS','Portal de indústrias e mapa de estoque','fa-capsules',"location.href='/industrias'");
         if(strictPerm('CAMPANHAS_EXTRAS_VISUALIZAR')) add('extras','Campanhas Extras','Campanhas especiais e resultados','fa-bullseye','openCampanhasExtras()');
         if(strictPerm('CAMPANHAS_MENSAIS_VISUALIZAR')) add('monthly','Gestão de Campanhas Mensais','Base Mensal + Regras/Métricas por competência','fa-calendar-days','openMonthlyCampaignManager()');
         if(strictPerm('CONTROLE_DE_ACESSOS')) add('access','Controle de Acessos','Acompanhe acessos e atividade','fa-clock-rotate-left','openAccessLog()');
@@ -29641,6 +29646,16 @@ body.home-active > header.card-glass > div:last-child > .flex.bg-slate-800{
     if(!target)return;
     if(target.id==='btnHome')return;
 
+    // PROD5.9.8.23.23 — no Administrador, a aba "Premiações"
+    // representa a visão administrativa já migrada (Resumo de Ganhos).
+    // Não bloqueia o clique esperando o token legado.
+    if(
+      target.id==='btnTabPremiacao' &&
+      window.panelIsAdmin?.(currentUser)===true
+    ){
+      return;
+    }
+
     // FASE 2B — módulos já migrados não dependem mais da sessão legada.
     if(
       target.id==='btnClientesPED' ||
@@ -29651,6 +29666,7 @@ body.home-active > header.card-glass > div:last-child > .flex.bg-slate-800{
       target.id==='btnTabTlvs' ||
       target.id==='btnTabOverview' ||
       target.id==='btnTabCampanhasExtras' ||
+      target.id==='monthlyCampaignManagerButton' ||
       target.id==='btnAccessLog'
     ){
       return;
@@ -29662,6 +29678,8 @@ body.home-active > header.card-glass > div:last-child > .flex.bg-slate-800{
       /switchChannel\s*\(/.test(onclick) ||
       /switchOverview\s*\(/.test(onclick) ||
       /openCampanhasExtras\s*\(/.test(onclick) ||
+      /openMonthlyCampaignManager\s*\(/.test(onclick) ||
+      /\/industrias(?:['\"?#]|$)/i.test(onclick) ||
       /openAccessLog\s*\(/.test(onclick)
     ){
       return;
@@ -30011,6 +30029,10 @@ body.home-active > header.card-glass > div:last-child > .flex.bg-slate-800{
     window.v2GlobalLoadingReleaseAfterPaint?.();
 
     const migrated=
+      (
+        target.id==='btnTabPremiacao' &&
+        window.panelIsAdmin?.(currentUser)===true
+      ) ||
       target.id==='btnClientesPED' ||
       target.id==='btnTabClientesPED' ||
       target.id==='btnResumoPremiacao' ||
@@ -30019,10 +30041,13 @@ body.home-active > header.card-glass > div:last-child > .flex.bg-slate-800{
       target.id==='btnTabTlvs' ||
       target.id==='btnTabOverview' ||
       target.id==='btnTabCampanhasExtras' ||
+      target.id==='monthlyCampaignManagerButton' ||
       target.id==='btnAccessLog' ||
       /switchChannel\s*\(/.test(onclick) ||
       /switchOverview\s*\(/.test(onclick) ||
       /openCampanhasExtras\s*\(/.test(onclick) ||
+      /openMonthlyCampaignManager\s*\(/.test(onclick) ||
+      /\/industrias(?:['\"?#]|$)/i.test(onclick) ||
       /openAccessLog\s*\(/.test(onclick);
 
     if(window.__v2Authenticated===true && !authToken && !migrated){
@@ -32616,6 +32641,37 @@ body #v21105MoreMenu .v21105-menu-label{
 
 }
 </style>
+
+
+<!-- PROD5.9.8.23.23 — correção final de navegação administrativa -->
+<script id="prod5982323-navigation-final">
+(function(){
+  'use strict';
+  if(window.__prod5982323NavigationFinal)return;
+  window.__prod5982323NavigationFinal=true;
+
+  document.addEventListener('click',function(ev){
+    const target=ev.target.closest?.('#btnTabPremiacao');
+    if(!target)return;
+
+    let admin=false;
+    try{
+      admin=window.panelIsAdmin?.(currentUser)===true;
+    }catch(e){}
+
+    if(!admin)return;
+
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+
+    try{
+      localStorage.setItem('painelV68LastScreen','resumo');
+    }catch(e){}
+
+    window.openResumoPremiacoes?.();
+  },true);
+})();
+</script>
 
 </body>
 </html>
