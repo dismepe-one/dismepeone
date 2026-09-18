@@ -225,16 +225,86 @@
     return true;
   }
 
+  async function refreshSourceCaches(){
+    if(typeof window.postApi!=='function'){
+      throw new Error('O atualizador das bases nao esta disponivel nesta sessao.');
+    }
+
+    const before=await request('/admin/home-publication/status?_before='+Date.now());
+    const beforeMensal=String(before?.fontes?.mensal?.atualizadoEm||'');
+    const beforeExtras=String(before?.fontes?.extras?.atualizadoEm||'');
+
+    const modules=[
+      {modulo:'MENSAL',label:'Campanhas Mensais',syncKey:'mensalSync'},
+      {modulo:'EXTRAS',label:'Campanhas Extras',syncKey:'extrasSync'}
+    ];
+
+    for(let i=0;i<modules.length;i++){
+      const item=modules[i];
+      setMessage(`Atualizando ${item.label} (${i+1}/${modules.length})...`,'neutral');
+
+      const result=await window.postApi({
+        acao:'OPCACHE_ATUALIZAR',
+        acoes:[{
+          modulo:item.modulo,
+          atualizar:true,
+          notificar:false,
+          observacao:'Atualizacao solicitada pelo botao da HOME'
+        }]
+      });
+
+      const ok=result?.sucesso===true||result?.ok===true||result?.success===true;
+      if(!ok){
+        throw new Error(
+          result?.erro||
+          result?.error||
+          `Nao foi possivel atualizar ${item.label}.`
+        );
+      }
+
+      const sync=String(result?.[item.syncKey]||'').trim().toUpperCase();
+      const erros=Array.isArray(result?.erros)
+        ?result.erros.map(x=>String(x||'').trim()).filter(Boolean)
+        :[];
+
+      if(sync.includes('ERRO')||erros.length){
+        throw new Error(
+          erros.join(' | ')||
+          `A atualizacao de ${item.label} nao foi confirmada no PostgreSQL.`
+        );
+      }
+    }
+
+    const after=await request('/admin/home-publication/status?_after='+Date.now());
+    const afterMensal=String(after?.fontes?.mensal?.atualizadoEm||'');
+    const afterExtras=String(after?.fontes?.extras?.atualizadoEm||'');
+
+    if(!afterMensal||afterMensal===beforeMensal){
+      throw new Error(
+        'Campanhas Mensais nao foram regravadas no PostgreSQL. A HOME nao sera publicada.'
+      );
+    }
+    if(!afterExtras||afterExtras===beforeExtras){
+      throw new Error(
+        'Campanhas Extras nao foram regravadas no PostgreSQL. A HOME nao sera publicada.'
+      );
+    }
+
+    return after;
+  }
+
   async function publish(){
     const button=document.getElementById('hp59823Publish');
     const atualizarHorario=!!document.getElementById('hp59823Time')?.checked;
     const inserirHistorico=!!document.getElementById('hp59823History')?.checked;
     if(button){
       button.disabled=true;
-      button.innerHTML='<i class="fa-solid fa-spinner fa-spin" style="margin-right:6px;"></i>Publicando...';
+      button.innerHTML='<i class="fa-solid fa-spinner fa-spin" style="margin-right:6px;"></i>Atualizando...';
     }
-    setMessage('Publicando a fotografia mais recente...','neutral');
+    setMessage('Atualizando Campanhas Mensais e Extras...','neutral');
     try{
+      await refreshSourceCaches();
+      setMessage('Bases atualizadas no PostgreSQL. Publicando a HOME...','neutral');
       const result=await request('/admin/home-publication/publish',{
         method:'POST',
         body:JSON.stringify({atualizarHorario,inserirHistorico})
@@ -244,8 +314,8 @@
       renderStatus(status);
       setMessage(
         result.atualizouHorario
-          ?'Números publicados e horário da HOME atualizado.'
-          :'Números publicados. O horário anterior da HOME foi mantido.',
+          ?'Mensal e Extras atualizados; números publicados e horário da HOME atualizado.'
+          :'Mensal e Extras atualizados; números publicados. O horário anterior da HOME foi mantido.',
         'ok'
       );
       setTimeout(()=>{
