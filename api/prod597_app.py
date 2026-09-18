@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import httpx
 import jwt
@@ -155,6 +157,519 @@ async def _persisted_monthly_time() -> tuple[str, str]:
     except (CacheReadError, RuntimeError):
         return "", ""
 
+    raw = str(row.get("atualizado_em") or "").strip()
+    if not raw:
+        return "", ""
+    return main_module._format_snapshot_time(raw), raw
+
+
+UPDATE_CENTER_SQL_SYNC_VERSION = "PROD5.9.8.23.14_UPDATE_CENTER_SQL_SYNC_V1"
+
+
+def _updated_modules(payload: dict) -> set[str]:
+    rows = payload.get("acoes") if isinstance(payload.get("acoes"), list) else []
+    names: set[str] = set()
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        if item.get("atualizar") is False:
+            continue
+        name = str(item.get("modulo") or "").strip().upper()
+        if name:
+            names.add(name)
+    return names
+
+
+def _comp_value(value: Any) -> str:
+    if isinstance(value, dict):
+        value = (
+            value.get("competencia")
+            or value.get("COMPETENCIA")
+            or value.get("competência")
+            or value.get("Competencia")
+            or value.get("Competência")
+            or ""
+        )
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if len(text) >= 7:
+        text = text[:7]
+    if len(text) == 7 and text[2] == "/":
+        mm, yyyy = text[:2], text[3:]
+        if mm.isdigit() and yyyy.isdigit():
+            return f"{int(mm):02d}/{int(yyyy):04d}"
+    if len(text) == 7 and text[4] == "-":
+        yyyy, mm = text[:4], text[5:]
+        if mm.isdigit() and yyyy.isdigit():
+            return f"{int(mm):02d}/{int(yyyy):04d}"
+    if len(text) == 7 and text[2] == "-":
+        mm, yyyy = text[:2], text[3:]
+        if mm.isdigit() and yyyy.isdigit():
+            return f"{int(mm):02d}/{int(yyyy):04d}"
+    return text
+
+
+def _row_comp(row: Any) -> str:
+    if not isinstance(row, dict):
+        return ""
+    return _comp_value(
+        row.get("__COMPETENCIA")
+        or row.get("competencia")
+        or row.get("COMPETENCIA")
+        or row.get("Competencia")
+        or row.get("Competência")
+        or ""
+    )
+
+
+def _comp_order(comp: str) -> int:
+    comp = _comp_value(comp)
+    try:
+        mm, yyyy = comp.split("/")
+        return int(yyyy) * 100 + int(mm)
+    except Exception:
+        return 0
+
+
+def _latest_comp(payload: dict) -> str:
+    values: list[str] = []
+    for key in ("competenciasAtivas", "competenciasSelecionadas", "competenciasDisponiveis", "competencias"):
+        rows = payload.get(key)
+        if isinstance(rows, list):
+            for item in rows:
+                comp = _comp_value(item)
+                if comp:
+                    values.append(comp)
+
+    direct = _comp_value(payload.get("competenciaPrincipal"))
+    if direct:
+        values.append(direct)
+
+    current = payload.get("campanhaMensalAtual")
+    if isinstance(current, dict):
+        comp = _comp_value(current.get("competencia"))
+        if comp:
+            values.append(comp)
+
+    for key in ("dadosVendedores", "dadosTelevendas"):
+        rows = payload.get(key)
+        if isinstance(rows, list):
+            for row in rows:
+                comp = _row_comp(row)
+                if comp:
+                    values.append(comp)
+
+    values = list(dict.fromkeys(values))
+    values.sort(key=_comp_order, reverse=True)
+    return values[0] if values else ""
+
+
+def _list_from_legacy(payload: dict, *keys: str) -> list[dict]:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, list):
+            return [row for row in value if isinstance(row, dict)]
+    return []
+
+
+def _normalize_rows_comp(rows: list[dict], comp: str) -> list[dict]:
+    out: list[dict] = []
+    for row in rows:
+        item = dict(row)
+        if comp and not _row_comp(item):
+            item["competencia"] = comp
+            item["__COMPETENCIA"] = comp
+        out.append(item)
+    return out
+
+
+def _merge_rows_by_comp(old_rows: Any, new_rows: list[dict], comps: set[str]) -> list[dict]:
+    old_list = [row for row in old_rows if isinstance(row, dict)] if isinstance(old_rows, list) else []
+    kept = [row for row in old_list if _row_comp(row) not in comps]
+    return kept + new_rows
+
+
+def _merge_competencias(old_items: Any, new_items: Any) -> list[Any]:
+    old_list = list(old_items) if isinstance(old_items, list) else []
+    new_list = list(new_items) if isinstance(new_items, list) else []
+    if not new_list:
+        return old_list
+
+    replacements = {
+        _comp_value(item): item
+        for item in new_list
+        if _comp_value(item)
+    }
+    out: list[Any] = []
+    seen: set[str] = set()
+
+    for item in old_list:
+        comp = _comp_value(item)
+        if comp and comp in replacements:
+            out.append(replacements[comp])
+            seen.add(comp)
+        else:
+            out.append(item)
+            if comp:
+                seen.add(comp)
+
+    for item in new_list:
+        comp = _comp_value(item)
+        if not comp or comp not in seen:
+            out.append(item)
+            if comp:
+                seen.add(comp)
+
+    return out
+
+
+async def _legacy_read(
+    *,
+    action: str,
+    legacy_token: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    endpoint = settings.supabase_url.rstrip("/") + "/functions/v1/dismepe-gateway"
+    body: dict[str, Any] = {
+        "acao": str(action or "").strip().upper(),
+        "token": str(legacy_token or "").strip(),
+    }
+    if extra:
+        body.update(extra)
+
+    timeout_seconds = 125.0 if body["acao"] == "DADOS" else 65.0
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout_seconds),
+            follow_redirects=True,
+        ) as client:
+            response = await client.post(
+                endpoint,
+                json=body,
+                headers={
+                    "Content-Type": "application/json;charset=utf-8",
+                    "Accept": "application/json",
+                    "Cache-Control": "no-store",
+                },
+            )
+    except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        raise RuntimeError(
+            f"Leitura {body['acao']} do legado indisponivel."
+        ) from exc
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Leitura {body['acao']} retornou resposta invalida (HTTP {response.status_code})."
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Leitura {body['acao']} retornou payload invalido.")
+
+    if response.status_code < 200 or response.status_code >= 300 or data.get("sucesso") is False:
+        message = (
+            data.get("erro")
+            or data.get("error")
+            or data.get("mensagem")
+            or f"HTTP {response.status_code}"
+        )
+        raise RuntimeError(f"{body['acao']}: {message}")
+
+    return data
+
+
+async def _cache_set_snapshot(
+    *,
+    modulo: str,
+    payload: dict[str, Any],
+    profile: dict[str, Any],
+) -> tuple[str, str]:
+    endpoint = settings.supabase_url.rstrip("/") + "/functions/v1/dismepe-admin"
+    serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    body = {
+        "acao": "CACHE_SET",
+        "modulo": modulo,
+        "payload": payload,
+        "atualizado_por": str(profile.get("usuario") or "").strip(),
+        "nome": str(profile.get("nome") or profile.get("usuario") or "").strip(),
+        "tamanho": len(serialized),
+        "versao": UPDATE_CENTER_SQL_SYNC_VERSION,
+    }
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(65.0),
+            follow_redirects=True,
+        ) as client:
+            response = await client.post(
+                endpoint,
+                json=body,
+                headers={
+                    "apikey": settings.supabase_publishable_key,
+                    "x-dismepe-token": settings.edge_token,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "Cache-Control": "no-store",
+                },
+            )
+    except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        raise RuntimeError(f"Falha ao gravar snapshot {modulo} no PostgreSQL.") from exc
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Snapshot {modulo} retornou resposta invalida (HTTP {response.status_code})."
+        ) from exc
+
+    if (
+        response.status_code < 200
+        or response.status_code >= 300
+        or not isinstance(data, dict)
+        or data.get("sucesso") is False
+    ):
+        message = (
+            data.get("erro")
+            if isinstance(data, dict)
+            else ""
+        ) or (
+            data.get("error")
+            if isinstance(data, dict)
+            else ""
+        ) or f"HTTP {response.status_code}"
+        raise RuntimeError(f"Snapshot {modulo}: {message}")
+
+    _saved, row = await cache_get(modulo=modulo, settings=settings)
+    raw = str(row.get("atualizado_em") or "").strip()
+    if not raw:
+        raise RuntimeError(f"Snapshot {modulo} foi gravado sem atualizado_em.")
+    return main_module._format_snapshot_time(raw), raw
+
+
+async def _refresh_monthly_snapshot(
+    *,
+    legacy_token: str,
+    profile: dict[str, Any],
+) -> tuple[str, str]:
+    current, _row = await cache_get(modulo="MENSAL", settings=settings)
+    fresh = await _legacy_read(
+        action="DADOS",
+        legacy_token=legacy_token,
+    )
+
+    vend = _list_from_legacy(
+        fresh,
+        "dadosVendedores",
+        "CAMPANHA VEND",
+        "CAMPANHAS VND",
+    )
+    tlv = _list_from_legacy(
+        fresh,
+        "dadosTelevendas",
+        "CAMPANHAS TLVS",
+        "CAMPANHA TLVS",
+    )
+
+    if not vend and not tlv:
+        raise RuntimeError(
+            "DADOS retornou sem dadosVendedores/dadosTelevendas; snapshot anterior preservado."
+        )
+
+    comps: set[str] = set()
+    for key in ("competenciasAtivas", "competenciasSelecionadas"):
+        values = fresh.get(key)
+        if isinstance(values, list):
+            comps.update(_comp_value(x) for x in values if _comp_value(x))
+
+    for value in (
+        fresh.get("competenciaPrincipal"),
+        (fresh.get("campanhaMensalAtual") or {}).get("competencia")
+        if isinstance(fresh.get("campanhaMensalAtual"), dict)
+        else "",
+    ):
+        comp = _comp_value(value)
+        if comp:
+            comps.add(comp)
+
+    for row in vend + tlv:
+        comp = _row_comp(row)
+        if comp:
+            comps.add(comp)
+
+    if not comps:
+        fallback = _latest_comp(current)
+        if fallback:
+            comps.add(fallback)
+
+    if not comps:
+        raise RuntimeError(
+            "Nao foi possivel identificar a competencia atual; snapshot anterior preservado."
+        )
+
+    primary_comp = sorted(comps, key=_comp_order, reverse=True)[0]
+    vend = _normalize_rows_comp(vend, primary_comp if len(comps) == 1 else "")
+    tlv = _normalize_rows_comp(tlv, primary_comp if len(comps) == 1 else "")
+
+    fresh_rules = _list_from_legacy(fresh, "regrasPremiacao")
+    if fresh_rules and len(comps) == 1:
+        normalized_rules: list[dict] = []
+        for row in fresh_rules:
+            item = dict(row)
+            if not _row_comp(item):
+                item["competencia"] = primary_comp
+            normalized_rules.append(item)
+        fresh_rules = normalized_rules
+
+    merged = dict(current)
+    merged["dadosVendedores"] = _merge_rows_by_comp(
+        current.get("dadosVendedores"),
+        vend,
+        comps,
+    )
+    merged["dadosTelevendas"] = _merge_rows_by_comp(
+        current.get("dadosTelevendas"),
+        tlv,
+        comps,
+    )
+
+    if fresh_rules:
+        merged["regrasPremiacao"] = _merge_rows_by_comp(
+            current.get("regrasPremiacao"),
+            fresh_rules,
+            comps,
+        )
+
+    new_competencias = (
+        fresh.get("competenciasDisponiveis")
+        if isinstance(fresh.get("competenciasDisponiveis"), list)
+        else fresh.get("competencias")
+    )
+    merged["competencias"] = _merge_competencias(
+        current.get("competencias"),
+        new_competencias,
+    )
+
+    old_days = current.get("diasUteisPorCompetencia")
+    old_days = dict(old_days) if isinstance(old_days, dict) else {}
+    new_days = fresh.get("diasUteisPorCompetencia")
+    if isinstance(new_days, dict):
+        old_days.update(new_days)
+    merged["diasUteisPorCompetencia"] = old_days
+
+    for key in (
+        "versaoCalculoVendedores",
+        "versaoDadosSql",
+    ):
+        value = fresh.get(key)
+        if value not in (None, ""):
+            merged[key] = value
+
+    merged["geradoEmSql"] = datetime.now(timezone.utc).isoformat()
+
+    return await _cache_set_snapshot(
+        modulo="MENSAL",
+        payload=merged,
+        profile=profile,
+    )
+
+
+def _extra_observation(value: Any) -> str:
+    if isinstance(value, list):
+        return " | ".join(str(x).strip() for x in value if str(x).strip())
+    return str(value or "").strip()
+
+
+async def _refresh_extras_snapshot(
+    *,
+    legacy_token: str,
+    profile: dict[str, Any],
+) -> tuple[str, str]:
+    listing = await _legacy_read(
+        action="LISTARCAMPANHASEXTRAS",
+        legacy_token=legacy_token,
+    )
+    source = listing.get("todas")
+    if not isinstance(source, list):
+        source = listing.get("campanhas")
+    if not isinstance(source, list):
+        raise RuntimeError(
+            "LISTARCAMPANHASEXTRAS retornou sem campanhas; snapshot anterior preservado."
+        )
+
+    campaigns = [dict(row) for row in source if isinstance(row, dict)]
+    sales_by_campaign: dict[str, list[dict[str, Any]]] = {}
+
+    for campaign in campaigns:
+        campaign_id = str(campaign.get("id") or "").strip()
+        if not campaign_id:
+            continue
+
+        partial = await _legacy_read(
+            action="PARCIALCAMPANHAEXTRA",
+            legacy_token=legacy_token,
+            extra={
+                "id": campaign_id,
+                "campanhaId": campaign_id,
+                "idCampanha": campaign_id,
+            },
+        )
+        records = partial.get("registros")
+        if not isinstance(records, list):
+            raise RuntimeError(
+                f"Campanha Extra {campaign_id} retornou sem registros; snapshot anterior preservado."
+            )
+
+        focus_code = str(campaign.get("codigoProdutoFoco") or "").strip()
+        normalized: list[dict[str, Any]] = []
+        for row in records:
+            if not isinstance(row, dict):
+                continue
+            qty = row.get("quantidadeProdutoFoco")
+            if qty in (None, ""):
+                qty = row.get("quantidade")
+            normalized.append({
+                "colaborador": str(row.get("colaborador") or "").strip(),
+                "laboratorio": str(
+                    row.get("laboratorio")
+                    or campaign.get("laboratorio")
+                    or ""
+                ).strip(),
+                "data": "",
+                "venda": row.get("venda") or 0,
+                "codigoProduto": str(
+                    row.get("codigoProduto")
+                    or (focus_code if qty not in (None, "", 0, 0.0, "0") else "")
+                ).strip(),
+                "quantidade": qty or 0,
+                "observacao": _extra_observation(
+                    row.get("observacoes")
+                    if row.get("observacoes") is not None
+                    else row.get("observacao")
+                ),
+                "idCampanha": campaign_id,
+                "campanhaNome": str(campaign.get("nome") or "").strip(),
+            })
+
+        sales_by_campaign[campaign_id] = normalized
+
+    snapshot = {
+        "campanhas": campaigns,
+        "vendasPorCampanha": sales_by_campaign,
+    }
+    return await _cache_set_snapshot(
+        modulo="EXTRAS",
+        payload=snapshot,
+        profile=profile,
+    )
+
+
+async def _persisted_cache_time(modulo: str) -> tuple[str, str]:
+    try:
+        _payload, row = await cache_get(modulo=modulo, settings=settings)
+    except (CacheReadError, RuntimeError):
+        return "", ""
     raw = str(row.get("atualizado_em") or "").strip()
     if not raw:
         return "", ""
@@ -436,19 +951,61 @@ async def prod597_update_center(
 
     if action == "OPCACHE_ATUALIZAR" and _successful(result):
         names = _requested_modules(payload)
+        updated_names = _updated_modules(payload)
         immediate_times = {
             name: prod4._time_from_result(result, name)
             for name in names
         }
 
-        # Mantém literalmente o comportamento PROD5.9.6 para todos os módulos
-        # que não sejam MENSAL (inclusive EXTRAS).
         completed_display, completed_iso = prod4._update_center_now()
         requested_times = {
             name: immediate_times.get(name) or completed_display
             for name in names
-            if name != "MENSAL"
+            if name not in {"MENSAL", "EXTRAS"}
         }
+        sync_errors: list[str] = []
+
+        if "MENSAL" in updated_names:
+            try:
+                mensal_display, mensal_iso = await _refresh_monthly_snapshot(
+                    legacy_token=legacy_token,
+                    profile=profile,
+                )
+                requested_times["MENSAL"] = mensal_display
+                result["horarioMensal"] = mensal_display
+                result["horarioMensalISO"] = mensal_iso
+                result["mensalSnapshotFonte"] = "POSTGRESQL_REGRAVADO"
+                result["mensalSync"] = UPDATE_CENTER_SQL_SYNC_VERSION
+            except Exception as exc:
+                sync_errors.append(
+                    "Campanhas Mensais: a base legada foi atualizada, mas o "
+                    "snapshot PostgreSQL nao foi regravado. A fotografia anterior "
+                    f"foi preservada. Detalhe: {str(exc)[:350]}"
+                )
+                result.pop("horarioMensal", None)
+                result.pop("horarioMensalISO", None)
+                result["mensalSync"] = "ERRO_POSTGRESQL_PRESERVADO"
+
+        if "EXTRAS" in updated_names:
+            try:
+                extras_display, extras_iso = await _refresh_extras_snapshot(
+                    legacy_token=legacy_token,
+                    profile=profile,
+                )
+                requested_times["EXTRAS"] = extras_display
+                result["horarioExtras"] = extras_display
+                result["horarioExtrasISO"] = extras_iso
+                result["extrasSnapshotFonte"] = "POSTGRESQL_REGRAVADO"
+                result["extrasSync"] = UPDATE_CENTER_SQL_SYNC_VERSION
+            except Exception as exc:
+                sync_errors.append(
+                    "Campanhas Extras: a base legada foi atualizada, mas o "
+                    "snapshot PostgreSQL nao foi regravado. A fotografia anterior "
+                    f"foi preservada. Detalhe: {str(exc)[:350]}"
+                )
+                result.pop("horarioExtras", None)
+                result.pop("horarioExtrasISO", None)
+                result["extrasSync"] = "ERRO_POSTGRESQL_PRESERVADO"
 
         try:
             status = await call_update_center_legacy(
@@ -462,28 +1019,28 @@ async def prod597_update_center(
         except UpdateCenterBridgeError:
             pass
 
-        # MENSAL: a única fonte de verdade de conclusão passa a ser o
-        # atualizado_em realmente persistido no PostgreSQL. Nunca usamos o
-        # horário do clique nem um fallback visual para este módulo.
-        if "MENSAL" in names:
-            mensal_display, mensal_iso = await _persisted_monthly_time()
-            if mensal_display:
-                requested_times["MENSAL"] = mensal_display
-                result["horarioMensal"] = mensal_display
-                result["horarioMensalISO"] = mensal_iso
-                result["mensalSnapshotFonte"] = "POSTGRESQL"
-            else:
-                result.pop("horarioMensal", None)
-                result.pop("horarioMensalISO", None)
-
         prod4._stamp_requested_modules(result, requested_times)
 
-        if "EXTRAS" in names:
-            result["horarioExtras"] = requested_times["EXTRAS"]
-            if not immediate_times.get("EXTRAS"):
-                result["horarioExtrasISO"] = completed_iso
+        if "MENSAL" in requested_times:
+            mensal_display, mensal_iso = await _persisted_cache_time("MENSAL")
+            if mensal_display:
+                result["horarioMensal"] = mensal_display
+                result["horarioMensalISO"] = mensal_iso
+
+        if "EXTRAS" in requested_times:
+            extras_display, extras_iso = await _persisted_cache_time("EXTRAS")
+            if extras_display:
+                result["horarioExtras"] = extras_display
+                result["horarioExtrasISO"] = extras_iso
+
+        if sync_errors:
+            existing = result.get("erros")
+            if not isinstance(existing, list):
+                existing = []
+                result["erros"] = existing
+            existing.extend(sync_errors)
 
     result["transporte"] = "FASTAPI_UPDATE_CENTER_DIRECT"
-    if mensal_requested:
+    if mensal_requested and not result.get("mensalSync"):
         result["mensalSync"] = "POSTGRESQL_ATUALIZADO_EM"
     return result
