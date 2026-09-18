@@ -19193,17 +19193,77 @@ window.abrirExcluirUsuarioPopup = function(){
   }
 
 
+  async function cm231LoadManagerSnapshotSql(compDesejada){
+    const alvo=
+      comp(compDesejada||managerSelected||currentComp()) ||
+      currentComp();
+
+    const response=await fetch(
+      '/data/bootstrap?competencia='+
+      encodeURIComponent(alvo)+
+      '&_cm231='+Date.now(),
+      {
+        method:'GET',
+        credentials:'same-origin',
+        cache:'no-store',
+        headers:{
+          'Accept':'application/json',
+          'Cache-Control':'no-store'
+        }
+      }
+    );
+
+    let payload=null;
+    try{
+      payload=await response.json();
+    }catch(e){}
+
+    if(!response.ok || payload?.sucesso!==true){
+      const detail=
+        payload?.detail ||
+        payload?.erro ||
+        payload?.error ||
+        `HTTP ${response.status}`;
+
+      throw new Error(
+        typeof detail==='string'
+          ?detail
+          :'Não foi possível carregar a base Mensal do PostgreSQL.'
+      );
+    }
+
+    return payload;
+  }
+
   async function loadManager(){
     hideMessage();
 
-    // Mantém a abertura imediata/local introduzida na V211.32.
+    const alvo=
+      comp(managerSelected||currentComp()) ||
+      currentComp();
+
+    let payload=null;
+
+    try{
+      // PROD5.9.8.23.21:
+      // abre a Gestão Mensal usando a fotografia oficial MENSAL do PostgreSQL.
+      payload=await cm231LoadManagerSnapshotSql(alvo);
+    }catch(e){
+      console.warn(
+        '[PROD5.9.8.23.21 Gestão Mensal / fallback local]',
+        e?.message||e
+      );
+
+      // Mantem o comportamento anterior somente como fallback.
+      payload=cm21132PayloadLocal();
+    }
+
     const detalhe=await cm20LoadManagerFromDados(
-      managerSelected||currentComp(),
-      cm21132PayloadLocal()
+      alvo,
+      payload
     );
 
-    // V211.33 — Histórico complementa a lista em paralelo.
-    // Falha/timeout aqui não bloqueia a competência atual.
+    // Histórico é apenas complemento e nunca bloqueia a tela atual.
     setTimeout(()=>{ cm21133AtualizarListaHistorica(); },0);
 
     return detalhe;

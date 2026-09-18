@@ -5,6 +5,8 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import httpx
+
 from .cache_reads import CacheReadError, cache_get
 from .config import Settings
 from .security import normalizar
@@ -356,6 +358,83 @@ async def history_get(
     return result
 
 
+async def _monthly_history_metadata_fast(
+    *,
+    settings: Settings,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    # PROD5.9.8.23.21
+    # Lista somente os metadados das 3 ultimas atualizacoes.
+    endpoint = (
+        settings.supabase_url.rstrip("/")
+        + "/functions/v1/dismepe-admin"
+    )
+    headers = {
+        "apikey": settings.supabase_publishable_key,
+        "x-dismepe-token": settings.edge_token,
+        "content-type": "application/json",
+        "accept": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=max(8.0, settings.request_timeout_seconds)
+        ) as client:
+            response = await client.post(
+                endpoint,
+                json={
+                    "acao": "HISTORY_CACHE_LIST",
+                    "modulo": "HISTORICO_MENSAL",
+                },
+                headers=headers,
+            )
+    except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        raise HistoryReadError(
+            "A lista leve do histórico não respondeu dentro do tempo esperado."
+        ) from exc
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise HistoryReadError(
+            f"A lista leve do histórico respondeu em formato inválido "
+            f"(HTTP {response.status_code})."
+        ) from exc
+
+    if response.status_code < 200 or response.status_code >= 300:
+        raise HistoryReadError(
+            str(data.get("erro") or f"Histórico HTTP {response.status_code}.")
+        )
+
+    if data.get("sucesso") is not True:
+        raise HistoryReadError(
+            str(data.get("erro") or "Falha ao consultar a lista do histórico.")
+        )
+
+    if data.get("encontrado") is not True:
+        return [], {
+            "atualizado_em": "",
+            "versao": "",
+        }
+
+    raw = (
+        data.get("atualizacoes")
+        if isinstance(data.get("atualizacoes"), list)
+        else []
+    )
+
+    return (
+        [
+            copy.deepcopy(item)
+            for item in raw
+            if isinstance(item, dict)
+        ][:3],
+        {
+            "atualizado_em": str(data.get("snapshotAtualizadoEm") or ""),
+            "versao": str(data.get("snapshotVersao") or ""),
+        },
+    )
+
+
 async def history_list(
     *,
     kind: str,
@@ -377,21 +456,40 @@ async def history_list(
         else "HISTORICO_EXTRAS"
     )
 
-    try:
-        payload, row = await cache_get(
-            modulo=modulo,
-            settings=settings,
-        )
-    except CacheReadError as exc:
-        # O frontend preserva o Apps Script apenas como fallback caso
-        # esta fotografia SQL ainda não exista.
-        raise HistoryReadError(str(exc)) from exc
+    if normalized == "mensal":
+        try:
+            raw, row = await _monthly_history_metadata_fast(
+                settings=settings,
+            )
+        except HistoryReadError:
+            # Fallback conservador para o caminho anterior.
+            try:
+                payload, row = await cache_get(
+                    modulo=modulo,
+                    settings=settings,
+                )
+            except CacheReadError as exc:
+                raise HistoryReadError(str(exc)) from exc
 
-    raw = (
-        payload.get("atualizacoes")
-        if isinstance(payload.get("atualizacoes"), list)
-        else []
-    )
+            raw = (
+                payload.get("atualizacoes")
+                if isinstance(payload.get("atualizacoes"), list)
+                else []
+            )
+    else:
+        try:
+            payload, row = await cache_get(
+                modulo=modulo,
+                settings=settings,
+            )
+        except CacheReadError as exc:
+            raise HistoryReadError(str(exc)) from exc
+
+        raw = (
+            payload.get("atualizacoes")
+            if isinstance(payload.get("atualizacoes"), list)
+            else []
+        )
 
     mapper = _monthly_public if normalized == "mensal" else _extras_public
 
