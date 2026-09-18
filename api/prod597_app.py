@@ -276,38 +276,12 @@ async def prod5989_audit_log(
             detail="Voce nao possui permissao para visualizar o Log de Alteracoes.",
         )
 
-    session_key = hashlib.sha256(session.encode("utf-8")).hexdigest()
-    token = ""
-
-    for _ in range(16):
-        state = await get_state(session_key)
-        if str(state.get("status") or "").upper() == "READY":
-            token = str(state.get("token") or "").strip()
-            if token:
-                break
-
-        persisted = _legacy_cookie_value(request, session)
-        if persisted:
-            token = persisted
-            break
-
-        if str(state.get("status") or "").upper() == "ERROR":
-            break
-
-        await asyncio.sleep(0.25)
-
-    if not token:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "A sessao do LOG ainda esta sendo preparada. "
-                "Aguarde alguns segundos e clique em Atualizar."
-            ),
-        )
-
+    endpoint = (
+        settings.supabase_url.rstrip("/")
+        + "/functions/v1/dismepe-admin"
+    )
     body = {
-        "acao": "LISTARLOGALTERACOES",
-        "token": token,
+        "acao": "LOG_ALTERACOES_LIST",
         "limite": 300,
     }
 
@@ -317,10 +291,12 @@ async def prod5989_audit_log(
             follow_redirects=True,
         ) as client:
             upstream = await client.post(
-                APPS_SCRIPT_UPDATE_CENTER_URL,
-                content=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+                endpoint,
+                json=body,
                 headers={
-                    "Content-Type": "text/plain;charset=utf-8",
+                    "apikey": settings.supabase_publishable_key,
+                    "x-dismepe-token": settings.edge_token,
+                    "Content-Type": "application/json",
                     "Accept": "application/json",
                     "Cache-Control": "no-store",
                 },
@@ -366,7 +342,7 @@ async def prod5989_audit_log(
         )
         raise HTTPException(status_code=502, detail=str(message))
 
-    data["transporte"] = "FASTAPI_AUDIT_DIRECT"
+    data["transporte"] = "FASTAPI_AUDIT_SQL_DIRECT"
     data["limiteAplicado"] = 300
     return data
 
