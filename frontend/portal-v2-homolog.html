@@ -5047,7 +5047,6 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
                             <th class="p-3.5 font-semibold text-right">Objetivo</th>
                             <th class="p-3.5 font-semibold text-right">Venda</th>
                             <th class="p-3.5 font-semibold text-right">Vender por dia</th>
-                            <th class="p-3.5 font-semibold text-right">Falta vender</th>
                             <th class="p-3.5 font-semibold text-center">Atingimento (%)</th>
                             <th class="p-3.5 font-semibold text-center min-w-[140px] whitespace-nowrap">Status</th>
                         </tr>
@@ -7269,12 +7268,12 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
                         );
 
                 const dia =
-                    isIntegralProductPoints
+                    (isIntegralProductPoints || isItemFoco)
                         ? '—'
                         : venderPorDia(
                             item.objetivo,
                             item.venda,
-                            isItemFoco
+                            false
                         );
 
                 const falta =
@@ -7509,7 +7508,7 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
             const tableBody = document.getElementById('tableBody');
 
             if (!filtered.length) {
-                tableBody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-slate-500">Nenhum registro encontrado para os filtros selecionados.</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-500">Nenhum registro encontrado para os filtros selecionados.</td></tr>`;
             } else {
                 const filteredOrdered = [...filtered].sort((a,b) => {
                     const labA = getBaseLab(a.lab || '');
@@ -7566,8 +7565,7 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
                             </td>
                             <td class="p-3.5 text-right font-mono">${isIntegralProductPoints ? '—' : formatValue(item.objetivo, isItemFoco)}</td>
                             <td class="p-3.5 text-right font-mono ${isIntegralProductPoints ? 'text-slate-500' : metricClass}">${isIntegralProductPoints ? '—' : formatValue(item.venda, isItemFoco)}</td>
-                            <td class="p-3.5 text-right font-mono font-bold text-slate-700 detail-vender-dia">${isIntegralProductPoints ? '—' : venderPorDia(item.objetivo,item.venda,isItemFoco)}</td>
-                            <td class="p-3.5 text-right font-mono font-bold detail-falta-vender">${isIntegralProductPoints ? '—' : formatValue(faltaVender, isItemFoco)}</td>
+                            <td class="p-3.5 text-right font-mono font-bold text-slate-700 detail-vender-dia">${isIntegralProductPoints || isItemFoco ? '—' : venderPorDia(item.objetivo,item.venda,false)}</td>
                             <td class="p-3.5 text-center detail-atingimento">
                                 <span class="${isIntegralProductPoints ? 'text-slate-500' : metricClass}">${isIntegralProductPoints ? '—' : ating.toFixed(1)+'%'}</span>
                             </td>
@@ -31958,6 +31956,237 @@ html body
     font-size:8px !important;
 }
 
+}
+
+</style>
+
+
+
+
+<!-- =========================================================
+     DISMEPE ONE - PROD5.9.8.23.5
+     DESKTOP 7 COLUNAS / POSITIVACOES COMPACTAS
+     MOBILE PRESERVADO
+     ========================================================= -->
+<style id="prod598235-desktop-7col-positivacoes">
+
+@media screen and (min-width:769px){
+
+  /* Tabela desktop ocupa a largura disponível sem scroll horizontal. */
+  html body
+  #channelDashboard
+  #channelPrintTable
+  #detailTableScroll{
+    width:100% !important;
+    max-width:100% !important;
+    overflow-x:hidden !important;
+  }
+
+  html body
+  #channelDashboard
+  #channelPrintTable
+  #detailTableScroll > table{
+    width:100% !important;
+    min-width:0 !important;
+    max-width:100% !important;
+    table-layout:fixed !important;
+  }
+
+  html body
+  #channelDashboard
+  #channelPrintTable
+  #detailTableScroll th,
+
+  html body
+  #channelDashboard
+  #channelPrintTable
+  #detailTableScroll td{
+    min-width:0 !important;
+    max-width:none !important;
+    box-sizing:border-box !important;
+    vertical-align:middle !important;
+  }
+
+  /* =======================================================
+     7 COLUNAS
+     1 Colaborador
+     2 Laboratório / Produto Foco
+     3 Objetivo
+     4 Venda
+     5 Vender por dia
+     6 Atingimento
+     7 Status
+     ======================================================= */
+
+  html body #channelDashboard #channelPrintTable #detailTableScroll th:nth-child(1),
+  html body #channelDashboard #channelPrintTable #detailTableScroll td:nth-child(1){
+    width:26% !important;
+  }
+
+  html body #channelDashboard #channelPrintTable #detailTableScroll th:nth-child(2),
+  html body #channelDashboard #channelPrintTable #detailTableScroll td:nth-child(2){
+    width:24% !important;
+  }
+
+  html body #channelDashboard #channelPrintTable #detailTableScroll th:nth-child(3),
+  html body #channelDashboard #channelPrintTable #detailTableScroll td:nth-child(3){
+    width:10% !important;
+  }
+
+  html body #channelDashboard #channelPrintTable #detailTableScroll th:nth-child(4),
+  html body #channelDashboard #channelPrintTable #detailTableScroll td:nth-child(4){
+    width:10% !important;
+  }
+
+  html body #channelDashboard #channelPrintTable #detailTableScroll th:nth-child(5),
+  html body #channelDashboard #channelPrintTable #detailTableScroll td:nth-child(5){
+    width:11% !important;
+  }
+
+  html body #channelDashboard #channelPrintTable #detailTableScroll th:nth-child(6),
+  html body #channelDashboard #channelPrintTable #detailTableScroll td:nth-child(6){
+    width:8% !important;
+  }
+
+  html body #channelDashboard #channelPrintTable #detailTableScroll th:nth-child(7),
+  html body #channelDashboard #channelPrintTable #detailTableScroll td:nth-child(7){
+    width:11% !important;
+  }
+
+  /* Laboratório continua como célula normal da tabela. */
+  html body
+  #channelDashboard
+  #channelPrintTable
+  #detailTableScroll td:nth-child(2){
+    display:table-cell !important;
+  }
+
+  /* Nomes e laboratório podem quebrar linha de forma limpa. */
+  html body
+  #channelDashboard
+  #channelPrintTable
+  #detailTableScroll td:nth-child(1),
+
+  html body
+  #channelDashboard
+  #channelPrintTable
+  #detailTableScroll td:nth-child(2){
+    white-space:normal !important;
+    word-break:normal !important;
+    overflow-wrap:break-word !important;
+  }
+
+  /* =======================================================
+     POSITIVAÇÕES / MÉTRICAS ESPECIAIS
+     Corrige especialmente GLOBO e HERBAMED.
+     O bloco antigo tinha min-width:230px e estourava a coluna.
+     ======================================================= */
+
+  html body
+  #channelDashboard
+  #channelPrintTable
+  #detailTableScroll td:nth-child(1) .v171-metrics{
+    display:block !important;
+    width:100% !important;
+    min-width:0 !important;
+    max-width:100% !important;
+
+    margin:6px 0 0 !important;
+    padding:6px 7px !important;
+
+    box-sizing:border-box !important;
+
+    white-space:normal !important;
+    word-break:normal !important;
+    overflow-wrap:anywhere !important;
+
+    font-size:8.25px !important;
+    line-height:1.28 !important;
+  }
+
+  html body
+  #channelDashboard
+  #channelPrintTable
+  #detailTableScroll td:nth-child(1) .v171-globo-metrics{
+    width:100% !important;
+    min-width:0 !important;
+    max-width:100% !important;
+  }
+
+  html body
+  #channelDashboard
+  #channelPrintTable
+  #detailTableScroll td:nth-child(1) .v171-component{
+    width:100% !important;
+    min-width:0 !important;
+    max-width:100% !important;
+
+    margin:0 !important;
+    padding:0 !important;
+
+    white-space:normal !important;
+    word-break:normal !important;
+    overflow-wrap:anywhere !important;
+  }
+
+  html body
+  #channelDashboard
+  #channelPrintTable
+  #detailTableScroll td:nth-child(1) .v171-component + .v171-component{
+    margin-top:5px !important;
+    padding-top:5px !important;
+  }
+
+  html body
+  #channelDashboard
+  #channelPrintTable
+  #detailTableScroll td:nth-child(1) .v171-component b{
+    font-size:8.5px !important;
+    line-height:1.2 !important;
+  }
+
+  html body
+  #channelDashboard
+  #channelPrintTable
+  #detailTableScroll .detail-colaborador-name{
+    display:block !important;
+    width:100% !important;
+    min-width:0 !important;
+    max-width:100% !important;
+
+    margin:0 !important;
+    padding:0 !important;
+
+    white-space:normal !important;
+    word-break:normal !important;
+    overflow-wrap:break-word !important;
+
+    line-height:1.25 !important;
+  }
+
+  html body
+  #channelDashboard
+  #channelPrintTable
+  #detailTableScroll .detail-status{
+    min-width:0 !important;
+    max-width:100% !important;
+  }
+
+  html body
+  #channelDashboard
+  #channelPrintTable
+  #detailTableScroll .detail-status > span{
+    width:100% !important;
+    min-width:0 !important;
+    max-width:100% !important;
+
+    padding:5px 3px !important;
+
+    font-size:8px !important;
+    line-height:1.1 !important;
+
+    white-space:normal !important;
+  }
 }
 
 </style>
