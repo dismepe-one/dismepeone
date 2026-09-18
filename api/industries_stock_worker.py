@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import time
 from datetime import datetime, timezone
 
 from .industries_stock_sync import (
@@ -16,10 +17,7 @@ def main() -> int:
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
-    try:
-        os.nice(15)
-    except (AttributeError, OSError):
-        pass
+    started_monotonic = time.monotonic()
 
     pid = os.getpid()
     WORKER_PID_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -32,16 +30,25 @@ def main() -> int:
     )
 
     try:
-        _sync_stock_once_blocking(force=bool(args.force))
+        result = _sync_stock_once_blocking(force=bool(args.force))
+        duration = round(time.monotonic() - started_monotonic, 2)
+        _state_update(lastDurationSeconds=duration, workerPid=None)
+        print(
+            f"stock-worker complete status={result.get('lastStatus')} "
+            f"rows={result.get('lastRows')} duration={duration}s",
+            flush=True,
+        )
         return 0
     except Exception as exc:
+        duration = round(time.monotonic() - started_monotonic, 2)
         _state_update(
             lastStatus="ERROR",
             lastAttemptAt=datetime.now(timezone.utc).isoformat(),
+            lastDurationSeconds=duration,
             workerPid=None,
             lastError=str(exc)[:700],
         )
-        print(f"stock-worker error: {exc}", flush=True)
+        print(f"stock-worker error duration={duration}s: {exc}", flush=True)
         return 1
     finally:
         try:

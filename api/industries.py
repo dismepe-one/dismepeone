@@ -2017,7 +2017,7 @@ async def industries_stock_sync_run(
 ):
     await _stock_update_profile(session)
     try:
-        result = await sync_stock_once(force=True)
+        result = await sync_stock_once(force=False)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"sucesso": True, **result}

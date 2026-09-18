@@ -625,7 +625,7 @@ def _persist_stock_snapshot_blocking(data: dict[str, Any]) -> None:
         "atualizado_por": "STOCK_WORKER",
         "nome": TARGET_PDF_NAME,
         "tamanho": len(encoded),
-        "versao": "PROD5.9.8.23.11_STOCK_WORKER_V1",
+        "versao": "PROD5.9.8.23.12_STOCK_WORKER_V2",
     }
     try:
         with httpx.Client(timeout=max(60.0, cfg_settings.request_timeout_seconds)) as client:
@@ -647,6 +647,42 @@ def _persist_stock_snapshot_blocking(data: dict[str, Any]) -> None:
         raise RuntimeError(
             str(result.get("erro") or result.get("error") or "O Supabase não confirmou a gravação do mapa.")
         )
+
+
+def _load_persisted_stock_snapshot_blocking() -> dict[str, Any] | None:
+    # Lê somente o último mapa confirmado no Supabase.
+    # Falha desta consulta nunca derruba a atualização.
+    from .config import get_settings
+    import httpx
+
+    cfg_settings = get_settings()
+    endpoint = cfg_settings.supabase_url.rstrip("/") + "/functions/v1/dismepe-admin"
+    headers = {
+        "apikey": cfg_settings.supabase_publishable_key,
+        "x-dismepe-token": cfg_settings.edge_token,
+        "content-type": "application/json",
+        "accept": "application/json",
+    }
+    try:
+        with httpx.Client(timeout=max(15.0, cfg_settings.request_timeout_seconds)) as client:
+            response = client.post(
+                endpoint,
+                json={"acao": "CACHE_GET", "modulo": STOCK_CACHE_MODULE},
+                headers=headers,
+            )
+        if response.status_code < 200 or response.status_code >= 300:
+            return None
+        result = response.json()
+    except Exception:
+        return None
+
+    if result.get("sucesso") is not True or result.get("encontrado") is not True:
+        return None
+    cache = result.get("cache")
+    if not isinstance(cache, dict):
+        return None
+    payload = cache.get("payload")
+    return payload if isinstance(payload, dict) else None
 
 
 def _sync_stock_once_blocking(force: bool = False) -> dict[str, Any]:
@@ -671,28 +707,52 @@ def _sync_stock_once_blocking(force: bool = False) -> dict[str, Any]:
         )
 
     state = _read_json(STATE_FILE, {}) or {}
-    same_file = (
+    persisted = _load_persisted_stock_snapshot_blocking() or {}
+
+    local_same_file = (
         state.get("lastFileId") == newest.get("id")
         and state.get("lastFileModifiedTime") == newest.get("modifiedTime")
     )
-    if same_file and not force:
-        return _state_update(
-            lastStatus="UP_TO_DATE",
-            lastAttemptAt=now_iso,
-            lastError=None,
-        )
-
-    pdf_bytes = _download_drive_file(service, str(newest["id"]))
-    digest = hashlib.sha256(pdf_bytes).hexdigest()
-    if not force and state.get("lastSha256") == digest:
+    persisted_same_file = (
+        persisted.get("drive_file_id") == newest.get("id")
+        and persisted.get("drive_modified_time") == newest.get("modifiedTime")
+    )
+    if (local_same_file or persisted_same_file) and not force:
         return _state_update(
             lastStatus="UP_TO_DATE",
             lastAttemptAt=now_iso,
             lastFileId=newest.get("id"),
             lastFileName=newest.get("name"),
             lastFileModifiedTime=newest.get("modifiedTime"),
+            lastSha256=persisted.get("sha256") or state.get("lastSha256"),
+            lastRows=len(persisted.get("linhas") or []) or state.get("lastRows"),
+            lastSuppliers=persisted.get("fornecedores") or state.get("lastSuppliers") or [],
             lastError=None,
         )
+
+    _state_update(lastStatus="DOWNLOADING", lastAttemptAt=now_iso, lastError=None)
+    pdf_bytes = _download_drive_file(service, str(newest["id"]))
+    digest = hashlib.sha256(pdf_bytes).hexdigest()
+    known_sha = state.get("lastSha256") or persisted.get("sha256")
+    if not force and known_sha == digest:
+        if persisted:
+            persisted = dict(persisted)
+            persisted["drive_file_id"] = str(newest.get("id") or "")
+            persisted["drive_modified_time"] = str(newest.get("modifiedTime") or "")
+            _persist_stock_snapshot_blocking(persisted)
+        return _state_update(
+            lastStatus="UP_TO_DATE",
+            lastAttemptAt=now_iso,
+            lastFileId=newest.get("id"),
+            lastFileName=newest.get("name"),
+            lastFileModifiedTime=newest.get("modifiedTime"),
+            lastSha256=digest,
+            lastRows=len(persisted.get("linhas") or []) or state.get("lastRows"),
+            lastSuppliers=persisted.get("fornecedores") or state.get("lastSuppliers") or [],
+            lastError=None,
+        )
+
+    _state_update(lastStatus="PARSING", lastAttemptAt=now_iso, lastError=None)
 
     parsed = parse_stock_pdf(pdf_bytes, source_name=str(newest.get("name") or "Mapa de Estoque.pdf"))
     _validate_against_current(parsed)
@@ -701,6 +761,7 @@ def _sync_stock_once_blocking(force: bool = False) -> dict[str, Any]:
     parsed["importado_em"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     parsed["sha256"] = digest
 
+    _state_update(lastStatus="PERSISTING", lastAttemptAt=now_iso, lastError=None)
     _persist_stock_snapshot_blocking(parsed)
     _atomic_json(CURRENT_FILE, parsed)
     _save_history(parsed, file_id=str(newest.get("id") or "drive"))
@@ -729,30 +790,21 @@ def _launch_stock_worker(force: bool = False) -> dict[str, Any]:
         )
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    try:
-        if WORKER_LOG_FILE.exists() and WORKER_LOG_FILE.stat().st_size > 2 * 1024 * 1024:
-            WORKER_LOG_FILE.write_bytes(b"")
-    except OSError:
-        pass
 
     command = [sys.executable, "-m", "api.industries_stock_worker"]
     if force:
         command.append("--force")
 
-    log_handle = WORKER_LOG_FILE.open("ab")
-    try:
-        process = subprocess.Popen(
-            command,
-            cwd=str(ROOT),
-            stdin=subprocess.DEVNULL,
-            stdout=log_handle,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            close_fds=True,
-            env=os.environ.copy(),
-        )
-    finally:
-        log_handle.close()
+    process = subprocess.Popen(
+        command,
+        cwd=str(ROOT),
+        stdin=subprocess.DEVNULL,
+        stdout=None,
+        stderr=None,
+        start_new_session=True,
+        close_fds=True,
+        env=os.environ.copy(),
+    )
 
     WORKER_PID_FILE.write_text(str(process.pid), encoding="utf-8")
     return _state_update(
