@@ -225,11 +225,33 @@
     return true;
   }
 
-  async function refreshSourceCaches(){
-    if(typeof window.postApi!=='function'){
-      throw new Error('O atualizador das bases nao esta disponivel nesta sessao.');
-    }
+  function legacyTokenNow(){
+    try{
+      if(typeof authToken!=='undefined' && authToken)return String(authToken);
+    }catch(e){}
+    try{return String(localStorage.getItem('painelToken')||'');}catch(e){return '';}
+  }
 
+  async function updateCenterDirect(moduleName){
+    const token=legacyTokenNow();
+    const payload={
+      acao:'OPCACHE_ATUALIZAR',
+      acoes:[{
+        modulo:moduleName,
+        atualizar:true,
+        notificar:false,
+        observacao:'Atualizacao solicitada pelo botao da HOME'
+      }]
+    };
+    if(token)payload.token=token;
+
+    return await request('/admin/update-center',{
+      method:'POST',
+      body:JSON.stringify(payload)
+    });
+  }
+
+  async function refreshSourceCaches(){
     const before=await request('/admin/home-publication/status?_before='+Date.now());
     const beforeMensal=String(before?.fontes?.mensal?.atualizadoEm||'');
     const beforeExtras=String(before?.fontes?.extras?.atualizadoEm||'');
@@ -243,15 +265,7 @@
       const item=modules[i];
       setMessage(`Atualizando ${item.label} (${i+1}/${modules.length})...`,'neutral');
 
-      const result=await window.postApi({
-        acao:'OPCACHE_ATUALIZAR',
-        acoes:[{
-          modulo:item.modulo,
-          atualizar:true,
-          notificar:false,
-          observacao:'Atualizacao solicitada pelo botao da HOME'
-        }]
-      });
+      const result=await updateCenterDirect(item.modulo);
 
       const ok=result?.sucesso===true||result?.ok===true||result?.success===true;
       if(!ok){
