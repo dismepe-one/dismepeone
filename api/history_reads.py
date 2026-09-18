@@ -457,38 +457,24 @@ async def history_list(
     )
 
     if normalized == "mensal":
-        raw: list[dict[str, Any]] = []
-        row: dict[str, Any] = {}
-
+        # PROD5.9.8.23.25:
+        # O Historico Mensal usa a fotografia oficial completa persistida no
+        # PostgreSQL. A lista leve podia informar 3 registros, mas devolver
+        # metadados incompletos em 2 deles; por isso o navegador acabava vendo
+        # somente a atualizacao mais recente.
         try:
-            raw, row = await _monthly_history_metadata_fast(
+            payload_full, row = await cache_get(
+                modulo=modulo,
                 settings=settings,
             )
-        except HistoryReadError:
-            # A consulta completa abaixo continua sendo o fallback oficial.
-            pass
+        except CacheReadError as exc:
+            raise HistoryReadError(str(exc)) from exc
 
-        # PROD5.9.8.23.23:
-        # Se uma resposta leve intermediaria vier com menos de 3 itens,
-        # confirma o snapshot completo ja persistido no PostgreSQL.
-        if len(raw) < 3:
-            try:
-                payload_full, row_full = await cache_get(
-                    modulo=modulo,
-                    settings=settings,
-                )
-            except CacheReadError as exc:
-                if not raw:
-                    raise HistoryReadError(str(exc)) from exc
-            else:
-                raw_full = (
-                    payload_full.get("atualizacoes")
-                    if isinstance(payload_full.get("atualizacoes"), list)
-                    else []
-                )
-                if len(raw_full) > len(raw):
-                    raw = raw_full
-                    row = row_full
+        raw = (
+            payload_full.get("atualizacoes")
+            if isinstance(payload_full.get("atualizacoes"), list)
+            else []
+        )
 
     else:
         try:
