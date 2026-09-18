@@ -19238,32 +19238,15 @@ window.abrirExcluirUsuarioPopup = function(){
   async function loadManager(){
     hideMessage();
 
-    const alvo=
-      comp(managerSelected||currentComp()) ||
-      currentComp();
-
-    let payload=null;
-
-    try{
-      // PROD5.9.8.23.21:
-      // abre a Gestão Mensal usando a fotografia oficial MENSAL do PostgreSQL.
-      payload=await cm231LoadManagerSnapshotSql(alvo);
-    }catch(e){
-      console.warn(
-        '[PROD5.9.8.23.21 Gestão Mensal / fallback local]',
-        e?.message||e
-      );
-
-      // Mantem o comportamento anterior somente como fallback.
-      payload=cm21132PayloadLocal();
-    }
-
+    // PROD5.9.8.23.22 — restaura a abertura local conhecida como estável.
+    // A Gestão usa a fotografia já carregada na sessão e não bloqueia a tela
+    // esperando uma nova chamada /data/bootstrap.
     const detalhe=await cm20LoadManagerFromDados(
-      alvo,
-      payload
+      managerSelected||currentComp(),
+      cm21132PayloadLocal()
     );
 
-    // Histórico é apenas complemento e nunca bloqueia a tela atual.
+    // Histórico complementa a lista em paralelo e nunca bloqueia a tela atual.
     setTimeout(()=>{ cm21133AtualizarListaHistorica(); },0);
 
     return detalhe;
@@ -21346,24 +21329,6 @@ window.hist39DeleteSelected=async function(){
       h39UpdateDeleteButton();
       h39LastListErrorStatus=0;
       h39LastListRefreshAt=Date.now();
-
-      // PROD5.9.8.23.20:
-      // Durante uma atualização o snapshot do histórico pode terminar de ser
-      // persistido alguns segundos depois da primeira leitura da sessão.
-      // Se a carga AUTOMATICA recebeu menos de 3 itens, devolvemos false
-      // para o agendador existente repetir a leitura. A lista manual continua
-      // mostrando imediatamente tudo o que já estiver disponível.
-      if(
-        opts.automatic===true &&
-        H39.configured===true &&
-        H39.list.length<3
-      ){
-        h39Status(
-          `${H39.list.length} de 3 atualizações carregadas. Sincronizando histórico...`,
-          'info'
-        );
-        return false;
-      }
 
       return true;
 
