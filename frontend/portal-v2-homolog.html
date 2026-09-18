@@ -17197,13 +17197,15 @@ window.abrirExcluirUsuarioPopup = function(){
   }
 
   function canManage(){
-    try{
-      return window.panelIsAdmin?.(currentUser) ||
-        window.panelHasPerm?.(PERM) ||
-        false;
-    }catch(e){
-      return false;
-    }
+    // PROD5.9.8.23.19:
+    // O card da HOME e a abertura da Gestão Mensal precisam usar a mesma
+    // permissão. Antes, o card podia aparecer com CAMPANHAS_MENSAIS_VISUALIZAR
+    // enquanto esta função ainda exigia a chave antiga
+    // CADASTRO_CAMPANHAS_MENSAIS, bloqueando a abertura silenciosamente.
+    return (
+      cmPermissionAllowed('CAMPANHAS_MENSAIS_VISUALIZAR') ||
+      cmPermissionAllowed(PERM)
+    );
   }
 
   async function api(acao,extra={}){
@@ -19391,14 +19393,31 @@ window.abrirExcluirUsuarioPopup = function(){
   };
 
   window.openMonthlyCampaignManager=async function(){
-    if(!canManage())return;
+    if(!canManage()){
+      return;
+    }
 
     try{
+      // Garante que a estrutura da tela exista mesmo quando o clique acontece
+      // durante uma reconstrução de navegação/DOM.
+      makeUi();
+
       document.body.classList.remove('home-active');
       $('homeModule')?.classList.add('hidden');
-      window.hideModules?.();
+
+      try{
+        window.hideModules?.();
+      }catch(e){}
+
+      const module=$('monthlyCampaignManagerModule');
+      if(!module){
+        throw new Error('A estrutura da Gestão de Campanhas Mensais não foi carregada.');
+      }
+
+      module.classList.remove('hidden');
+      module.style.display='';
+
       window.scrollTo?.({top:0,left:0,behavior:'smooth'});
-      $('monthlyCampaignManagerModule')?.classList.remove('hidden');
 
       try{
         if(typeof setTabActive==='function'){
@@ -19407,7 +19426,18 @@ window.abrirExcluirUsuarioPopup = function(){
       }catch(e){}
 
       await loadManager();
+
+      // Proteção contra rotinas de navegação que ocultem o módulo durante
+      // a carga assíncrona.
+      module.classList.remove('hidden');
+      module.style.display='';
+
     }catch(e){
+      const module=$('monthlyCampaignManagerModule');
+      if(module){
+        module.classList.remove('hidden');
+        module.style.display='';
+      }
       message(e?.message||'Erro ao carregar a Gestão Mensal.','error');
     }
   };
