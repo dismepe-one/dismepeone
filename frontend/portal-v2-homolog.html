@@ -20432,13 +20432,32 @@ window.abrirExcluirUsuarioPopup = function(){
         Histórico de Atualizações
       </label>
 
-      <div class="grid grid-cols-1 gap-2">
-        <label class="flex flex-col gap-1">
-          <span class="text-[9px] uppercase font-black text-slate-500">Visualizar atualização</span>
-          <select id="hist39Primary" onchange="hist39SelectPrimary()" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors">
-            <option value="LIVE">Última atualização</option>
-          </select>
-        </label>
+      <div class="flex flex-wrap items-center gap-1.5">
+        <span class="text-[9px] uppercase font-black text-slate-500 mr-1">
+          Visualizar:
+        </span>
+
+        <button
+          id="hist39LiveBtn"
+          type="button"
+          onclick="h39ChooseQuick('LIVE')"
+          class="px-2.5 py-1.5 rounded-lg border text-[10px] font-black transition-colors"
+        >
+          ATUAL
+        </button>
+
+        <div id="hist39QuickChoices" class="flex flex-wrap gap-1.5"></div>
+
+        <!-- O select permanece como estado interno do histórico.
+             Só a interface visual foi simplificada. -->
+        <select
+          id="hist39Primary"
+          onchange="hist39SelectPrimary()"
+          class="hidden"
+          aria-hidden="true"
+        >
+          <option value="LIVE">Última atualização</option>
+        </select>
       </div>
 
       <div class="flex flex-wrap items-center gap-2 mt-2">
@@ -20514,6 +20533,92 @@ window.abrirExcluirUsuarioPopup = function(){
 
 
 
+  function h39QuickButtonClass(active){
+    return (
+      'px-2.5 py-1.5 rounded-lg border text-[10px] font-black '+
+      'transition-colors whitespace-nowrap '+
+      (
+        active
+          ?'bg-emerald-600 border-emerald-600 text-white'
+          :'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'
+      )
+    );
+  }
+
+  function h39QuickLabel(x){
+    const full=h39HistoryLabel(x);
+    const m=String(full||'').match(
+      /^(\d{2}\/\d{2})(?:\/\d{4})?\s*-\s*(\d{2}:\d{2})/
+    );
+
+    return m
+      ?`${m[1]} · ${m[2]}`
+      :full;
+  }
+
+  function h39RenderQuickChoices(){
+    const p=h39$('hist39Primary');
+    const liveBtn=h39$('hist39LiveBtn');
+    const host=h39$('hist39QuickChoices');
+
+    if(!p||!liveBtn||!host)return;
+
+    const selected=p.value||H39.primary||'LIVE';
+
+    liveBtn.className=h39QuickButtonClass(
+      selected==='LIVE'
+    );
+
+    host.innerHTML=
+      (H39.list||[])
+        .slice(0,3)
+        .map(x=>{
+          const id=String(x?.idAtualizacao||'');
+          const active=id===selected;
+          const label=h39QuickLabel(x);
+          const title=h39HistoryLabel(x);
+
+          return (
+            `<button type="button" `+
+            `title="${h39Esc(title)}" `+
+            `onclick="h39ChooseQuick('${h39Esc(id)}')" `+
+            `class="${h39QuickButtonClass(active)}">`+
+            `${h39Esc(label)}`+
+            `</button>`
+          );
+        })
+        .join('');
+  }
+
+  window.h39ChooseQuick=async function(id){
+    const p=h39$('hist39Primary');
+    if(!p)return;
+
+    const target=String(id||'LIVE');
+
+    if(
+      ![...p.options].some(
+        o=>String(o.value)===target
+      )
+    ){
+      return;
+    }
+
+    p.value=target;
+    H39.primary=target;
+
+    h39RenderQuickChoices();
+    h39UpdateDeleteButton();
+
+    try{
+      await window.hist39SelectPrimary?.();
+    }finally{
+      h39RenderQuickChoices();
+      h39UpdateDeleteButton();
+    }
+  };
+
+
   function h39PopulateSelects(preserve){
     h39EnsureFilter();
 
@@ -20543,6 +20648,7 @@ window.abrirExcluirUsuarioPopup = function(){
 
     H39.primary=p.value;
 
+    h39RenderQuickChoices();
     h39UpdateDeleteButton();
   }
 
@@ -23700,7 +23806,15 @@ table thead tr{
     /* Módulos exclusivos: somente um deve estar visível. */
     if(classVisible('monthlyCampaignManagerModule'))return 'monthlyCampaignManagerButton';
     if(classVisible('campanhasExtrasModule'))return 'btnTabCampanhasExtras';
-    if(classVisible('resumoPremiacoesModule'))return 'btnTabResumoPremiacao';
+    if(classVisible('resumoPremiacoesModule')){
+      let adminResumo=false;
+      try{
+        adminResumo=window.panelIsAdmin?.(currentUser)===true;
+      }catch(e){}
+      return adminResumo
+        ?'btnTabPremiacao'
+        :'btnTabResumoPremiacao';
+    }
     if(classVisible('premiacaoModule'))return 'btnTabPremiacao';
     if(classVisible('managerOverview'))return 'btnTabOverview';
     if(classVisible('clientesPEDModule'))return 'btnClientesPED';
@@ -23727,7 +23841,18 @@ table thead tr{
         /* Mantém a persistência de tela alinhada ao conteúdo real quando
            o módulo V68 já estiver instalado. */
         try{
-          const screen=BUTTON_TO_SCREEN[id];
+          let screen=BUTTON_TO_SCREEN[id];
+
+          // PROD5.9.8.23.24:
+          // No Administrador, o botão visível "Premiações" representa
+          // a tela administrativa Resumo de Ganhos.
+          if(
+            id==='btnTabPremiacao' &&
+            classVisible('resumoPremiacoesModule')
+          ){
+            screen='resumo';
+          }
+
           if(screen && typeof window.v68SaveScreen==='function'){
             window.v68SaveScreen(screen);
           }
@@ -23817,7 +23942,18 @@ table thead tr{
   wrap('switchOverview','btnTabOverview');
   wrap('openHome','btnHome');
   wrap('openPremiacao','btnTabPremiacao');
-  wrap('openResumoPremiacoes','btnTabResumoPremiacao');
+  wrap(
+    'openResumoPremiacoes',
+    ()=>{
+      let adminResumo=false;
+      try{
+        adminResumo=window.panelIsAdmin?.(currentUser)===true;
+      }catch(e){}
+      return adminResumo
+        ?'btnTabPremiacao'
+        :'btnTabResumoPremiacao';
+    }
+  );
   wrap('openCampanhasExtras','btnTabCampanhasExtras');
   wrap('openMonthlyCampaignManager','monthlyCampaignManagerButton');
 
