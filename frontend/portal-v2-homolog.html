@@ -4543,7 +4543,7 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
                     <div id="loggedUser" class="text-xs font-bold text-white"></div>
                     <div id="loggedRole" class="text-[10px] text-slate-400 uppercase"></div>
                 </div>
-                <button id="btnHome" onclick="openHome()" title="Início" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-house"></i></button><button id="btnConfig" onclick="openDismepeSettingsOnly()" title="Configurações" aria-label="Configurações" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-gear"></i></button><button id="btnChangePassword" onclick="openChangePasswordOnly()" title="Alterar senha" aria-label="Alterar senha" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-key"></i></button>
+                <button id="btnHome" onclick="openHome()" title="Início" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-house"></i></button><button id="btnChangePassword" onclick="openChangePasswordOnly()" title="Configurações" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-gear"></i></button>
                 <button id="btnPermissions" onclick="openPermissionsModal()" title="Permissões" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-user-shield"></i></button>
                 <button id="btnCreateUser" onclick="openCreateUserModal()" title="Criar usuário" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-user-plus"></i></button>
                 <button id="btnAccessLog" onclick="openAccessLog()" title="Controle de Acessos" class="hidden w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200"><i class="fa-solid fa-clock-rotate-left"></i></button>
@@ -8239,13 +8239,11 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
     setHidden('btnTabClientesPED',true);
 
     setHidden(
-      'btnConfig',
-      !(isAdmin(currentUser) || hasPerm('INDUSTRIA_MAPA_ATUALIZAR'))
-    );
-
-    setHidden(
       'btnChangePassword',
-      !hasPerm('ALTERAR_SENHA')
+      !(
+        hasPerm('ALTERAR_SENHA') ||
+        podeGerenciarHistorico
+      )
     );
 
     setHidden(
@@ -10869,6 +10867,10 @@ window.restoreViewState=function(){
     if(has('USUARIOS_CRIAR')) add('createuser','Criar Usuário','Cadastre um novo usuário no painel','fa-user-plus','openCreateUserModal()');
     if(has('PERMISSOES_VISUALIZAR')) add('perm','Permissões','Consulte as permissões de acesso','fa-user-shield','openPermissionsModal()');
   }
+  if(admin || has('ALTERAR_SENHA')){
+    add('password','Alterar Senha','Atualize sua senha de acesso','fa-key','openChangePasswordOnly()');
+  }
+
   // Sem permissão, não exibimos um atalho apenas para preencher a Home.
   if(!cards.length){
     el.innerHTML='<div class="col-span-full rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">Nenhum módulo está liberado para este usuário.</div>';
@@ -28144,7 +28146,6 @@ async function salvarIndicadoresManuaisV174(){
 #btnResumoPremiacao.hidden,
 #btnUpdateCenter.hidden,
 #btnClientesPED.hidden,
-#btnConfig.hidden,
 #btnChangePassword.hidden,
 #btnTabVend.hidden,
 #btnTabTlvs.hidden,
@@ -28220,7 +28221,6 @@ async function salvarIndicadoresManuaisV174(){
     show('btnPremiacao', strictPerm('PREMIACOES_VISUALIZAR'));
     show('btnResumoPremiacao', isAdminStrict() || strictPerm('RESUMO_PREMIACOES'));
     show('btnUpdateCenter', updateCenterAllowed());
-    show('btnConfig', isAdminStrict() || strictPerm('INDUSTRIA_MAPA_ATUALIZAR'));
     show('btnChangePassword', isAdminStrict() || strictPerm('ALTERAR_SENHA'));
     show('btnClientesPED', clientesPedAllowed());
 
@@ -28336,6 +28336,7 @@ async function salvarIndicadoresManuaisV174(){
         if(strictPerm('USUARIOS_CRIAR')) add('createuser','Criar Usuário','Cadastre um novo usuário no painel','fa-user-plus','openCreateUserModal()');
         if(strictPerm('PERMISSOES_VISUALIZAR')) add('perm','Permissões','Consulte as permissões de acesso','fa-user-shield','openPermissionsModal()');
       }
+      if(admin || strictPerm('ALTERAR_SENHA')) add('password','Alterar Senha','Atualize sua senha de acesso','fa-key','openChangePasswordOnly()');
       if(!cards.length){
         el.innerHTML='<div class="col-span-full rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">Nenhum módulo está liberado para este usuário.</div>';
         return;
@@ -28634,7 +28635,6 @@ body.home-active #userSessionBox{
 #userSessionBox > #btnAccessLog,
 #userSessionBox > #btnPremiacao,
 #userSessionBox > #btnClientesPED,
-#userSessionBox > #btnIndustries,
 #userSessionBox > #btnResumoPremiacao{
   display:none !important;
 }
@@ -33107,317 +33107,6 @@ body #v21105MoreMenu .v21105-menu-label{
 
     window.openResumoPremiacoes?.();
   },true);
-})();
-</script>
-
-
-<!-- PROD5.9.8.23.30 — HOME/cabeçalho/configuração sem duplicações -->
-<style id="prod5982330-interface-style">
-  #userSessionBox > #btnIndustries{
-    display:none !important;
-  }
-
-  #userSessionBox > #btnConfig:not(.hidden),
-  body.home-active #userSessionBox > #btnConfig:not(.hidden){
-    position:relative !important;
-    flex:0 0 auto !important;
-    width:auto !important;
-    min-width:32px !important;
-    max-width:none !important;
-    height:32px !important;
-    min-height:32px !important;
-    max-height:32px !important;
-    padding:0 7px !important;
-    margin:0 !important;
-    display:inline-flex !important;
-    align-items:center !important;
-    justify-content:center !important;
-    border:1px solid transparent !important;
-    border-radius:8px !important;
-    background:transparent !important;
-  }
-</style>
-
-<script id="prod5982330-interface-final">
-(function(){
-  'use strict';
-
-  if(window.__prod5982330InterfaceFinal)return;
-  window.__prod5982330InterfaceFinal=true;
-
-  const CANONICAL_INDUSTRY='Dismepe One Indústrias';
-
-  function currentUserSafe(){
-    try{
-      return typeof currentUser!=='undefined' && currentUser
-        ?currentUser
-        :{};
-    }catch(e){
-      return {};
-    }
-  }
-
-  function isAdmin(){
-    try{
-      return window.panelIsAdmin?.(currentUserSafe())===true;
-    }catch(e){
-      const role=String(
-        currentUserSafe()?.tipo||
-        currentUserSafe()?.cargo||
-        ''
-      ).trim().toUpperCase();
-
-      return role==='ADMINISTRADOR'||role==='ADMIN';
-    }
-  }
-
-  function hasStrictPermission(key){
-    try{
-      return window.panelHasPerm?.(key)===true;
-    }catch(e){
-      return false;
-    }
-  }
-
-  function syncConfigButton(){
-    const button=document.getElementById('btnConfig');
-    if(!button)return;
-
-    const allowed=
-      isAdmin() ||
-      hasStrictPermission('INDUSTRIA_MAPA_ATUALIZAR');
-
-    button.classList.toggle('hidden',!allowed);
-
-    if(allowed){
-      button.style.removeProperty('display');
-      button.removeAttribute('aria-hidden');
-      button.removeAttribute('tabindex');
-    }else{
-      button.style.setProperty('display','none','important');
-      button.setAttribute('aria-hidden','true');
-      button.setAttribute('tabindex','-1');
-    }
-  }
-
-  function setVisible(id,visible){
-    const el=document.getElementById(id);
-    if(!el)return;
-
-    if(visible){
-      el.classList.remove('hidden');
-      el.style.removeProperty('display');
-      el.removeAttribute('aria-hidden');
-    }else{
-      el.classList.add('hidden');
-      el.style.setProperty('display','none','important');
-      el.setAttribute('aria-hidden','true');
-    }
-  }
-
-  window.openDismepeSettingsOnly=function(){
-    const allowed=
-      isAdmin() ||
-      hasStrictPermission('INDUSTRIA_MAPA_ATUALIZAR');
-
-    if(!allowed)return false;
-
-    if(typeof window.openConfigModal==='function'){
-      window.openConfigModal();
-    }else{
-      document.getElementById('configModal')?.classList.remove('hidden');
-    }
-
-    const isolate=function(){
-      setVisible('changePasswordForm',false);
-
-      const industry=document.getElementById('industrySettingsSection');
-      if(industry){
-        industry.classList.remove('hidden');
-        industry.style.removeProperty('display');
-        industry.removeAttribute('aria-hidden');
-      }
-    };
-
-    isolate();
-    setTimeout(isolate,0);
-    setTimeout(isolate,80);
-    return true;
-  };
-
-  const oldPassword=window.openChangePasswordOnly;
-
-  if(
-    typeof oldPassword==='function' &&
-    !oldPassword.__prod5982330Separated
-  ){
-    const wrappedPassword=function(){
-      const result=oldPassword.apply(this,arguments);
-
-      const isolate=function(){
-        setVisible('changePasswordForm',true);
-        setVisible('historyConfigSection',false);
-        setVisible('manualIndicatorsSection',false);
-
-        const industry=document.getElementById('industrySettingsSection');
-        if(industry){
-          industry.classList.add('hidden');
-          industry.style.setProperty('display','none','important');
-          industry.setAttribute('aria-hidden','true');
-        }
-      };
-
-      isolate();
-      setTimeout(isolate,0);
-      setTimeout(isolate,80);
-
-      return result;
-    };
-
-    wrappedPassword.__prod5982330Separated=true;
-    wrappedPassword.__prod5982330Original=oldPassword;
-    window.openChangePasswordOnly=wrappedPassword;
-  }
-
-  function norm(value){
-    return String(value||'')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g,'')
-      .replace(/\s+/g,' ')
-      .trim()
-      .toUpperCase();
-  }
-
-  function isIndustryCard(card){
-    if(!card)return false;
-
-    const onclick=String(
-      card.getAttribute?.('onclick')||
-      ''
-    );
-
-    const href=String(
-      card.getAttribute?.('href')||
-      ''
-    );
-
-    const title=
-      card.querySelector?.('.font-black')?.textContent ||
-      card.textContent ||
-      '';
-
-    return (
-      /\/industrias(?:['"?#]|$)/i.test(onclick) ||
-      /\/industrias(?:[?#]|$)/i.test(href) ||
-      norm(title).includes('DISMEPE ONE INDUSTRIAS')
-    );
-  }
-
-  let dedupeRunning=false;
-
-  function dedupeIndustryHome(){
-    if(dedupeRunning)return;
-
-    const host=document.getElementById('homeCards');
-    if(!host)return;
-
-    dedupeRunning=true;
-
-    try{
-      const cards=[...host.querySelectorAll('button,a')]
-        .filter(isIndustryCard);
-
-      if(!cards.length)return;
-
-      const keep=cards[0];
-
-      cards.slice(1).forEach(card=>{
-        try{card.remove();}catch(e){}
-      });
-
-      const title=keep.querySelector('.font-black');
-
-      if(
-        title &&
-        title.textContent!==CANONICAL_INDUSTRY
-      ){
-        title.textContent=CANONICAL_INDUSTRY;
-      }
-
-      if(
-        keep.getAttribute('title')!==CANONICAL_INDUSTRY
-      ){
-        keep.setAttribute('title',CANONICAL_INDUSTRY);
-      }
-
-      if(
-        keep.getAttribute('aria-label')!==CANONICAL_INDUSTRY
-      ){
-        keep.setAttribute('aria-label',CANONICAL_INDUSTRY);
-      }
-    }finally{
-      dedupeRunning=false;
-    }
-  }
-
-  function installHomeObserver(){
-    const host=document.getElementById('homeCards');
-    if(!host)return;
-
-    dedupeIndustryHome();
-
-    if(
-      window.__prod5982330HomeObserver ||
-      typeof MutationObserver==='undefined'
-    ){
-      return;
-    }
-
-    const observer=
-      new MutationObserver(
-        mutations=>{
-          if(
-            mutations.some(
-              mutation=>mutation.type==='childList'
-            )
-          ){
-            dedupeIndustryHome();
-          }
-        }
-      );
-
-    observer.observe(
-      host,
-      {
-        childList:true,
-        subtree:true
-      }
-    );
-
-    window.__prod5982330HomeObserver=observer;
-  }
-
-  function boot(){
-    syncConfigButton();
-    installHomeObserver();
-
-    [0,120,500,1200].forEach(ms=>{
-      setTimeout(()=>{
-        syncConfigButton();
-        dedupeIndustryHome();
-      },ms);
-    });
-  }
-
-  if(document.readyState==='loading'){
-    document.addEventListener(
-      'DOMContentLoaded',
-      boot,
-      {once:true}
-    );
-  }else{
-    boot();
-  }
 })();
 </script>
 
