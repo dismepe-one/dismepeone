@@ -13,6 +13,7 @@ from .security import normalizar
 from .update_center import APPS_SCRIPT_UPDATE_CENTER_URL
 
 RETENTION_MONTHS = 2
+HISTORY_ITEMS_LIMIT = 3
 TIMEZONE = ZoneInfo("America/Recife")
 
 
@@ -285,18 +286,14 @@ async def retained_monthly_history_list(
         reverse=True,
     )
 
-    latest_by_comp: dict[str, dict[str, Any]] = {}
-    for item in candidates:
-        comp = str(item.get("competencia") or "")
-        if comp not in latest_by_comp:
-            latest_by_comp[comp] = item
-
+    # PROD5.9.8.23.29:
+    # A retenção continua por competência, mas a navegação é por atualização.
+    # 18/09, 17/09 e 16/09 pertencem a 09/2026 e não podem ser colapsadas.
+    # Depois de filtrar as competências permitidas, mantemos as 3 fotografias
+    # mais recentes em ordem cronológica decrescente.
     items: list[dict[str, Any]] = []
-    for comp in retained:
-        item = latest_by_comp.get(comp)
-        if not item:
-            continue
-        item = dict(item)
+    for candidate in candidates[:HISTORY_ITEMS_LIMIT]:
+        item = dict(candidate)
         item.pop("__dateKey", None)
         items.append(item)
 
@@ -306,7 +303,7 @@ async def retained_monthly_history_list(
         "banco": "SUPABASE",
         "origem": "FASTAPI_POSTGRESQL_RETENCAO_2_COMPETENCIAS",
         "atualizacoes": items,
-        "limiteHistorico": RETENTION_MONTHS,
+        "limiteHistorico": HISTORY_ITEMS_LIMIT,
         "limiteHistoricoCompetencias": RETENTION_MONTHS,
         "competenciasRetidas": retained,
         "retencaoAutomatica": True,

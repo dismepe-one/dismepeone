@@ -469,8 +469,66 @@
     }
   }
 
+  function canManageUsersNow(){
+    if(canManageUsers||isAdministrator)return true;
+
+    try{
+      if(
+        window.panelIsAdmin?.(
+          typeof currentUser!=='undefined'?currentUser:null
+        )===true
+      ){
+        isAdministrator=true;
+        canManageUsers=true;
+        return true;
+      }
+    }catch(e){}
+
+    try{
+      if(window.panelHasPerm?.('USUARIOS_CRIAR')===true){
+        canManageUsers=true;
+        return true;
+      }
+    }catch(e){}
+
+    try{
+      const u=
+        typeof currentUser!=='undefined'
+          ?currentUser
+          :null;
+      const role=String(
+        u?.tipo||
+        u?.perfil||
+        u?.role||
+        u?.cargo||
+        ''
+      ).trim().toUpperCase();
+      const p=
+        u?.permissoes&&typeof u.permissoes==='object'
+          ?u.permissoes
+          :{};
+
+      if(
+        role==='ADMINISTRADOR'||
+        role==='ADMIN'||
+        p.USUARIOS_CRIAR===true
+      ){
+        isAdministrator=
+          role==='ADMINISTRADOR'||
+          role==='ADMIN';
+        canManageUsers=true;
+        return true;
+      }
+    }catch(e){}
+
+    return false;
+  }
+
   function ensureUserLauncher(){
-    if(!canManageUsers)return;
+    // PROD5.9.8.23.29:
+    // Este arquivo pode carregar antes do login e receber 401 no primeiro
+    // /auth/me. Recalcula a permissão pela sessão corrente ao abrir o modal.
+    if(!canManageUsersNow())return;
     const form=document.getElementById('createUserForm');if(!form||document.getElementById('industryUserLauncher'))return;
     const wrap=document.createElement('div');wrap.innerHTML='<button type="button" id="industryUserLauncher"><i class="fa-solid fa-industry"></i><span>Criar usuário da indústria</span></button><button type="button" id="industryLabEditLauncher"><i class="fa-solid fa-pen-to-square"></i><span>Editar laboratórios do usuário</span></button><p style="font-size:10px;color:#64748b;margin:6px 2px 0 0">Acesso externo restrito ao(s) laboratório(s) autorizado(s), com senha temporária aleatória e troca obrigatória no primeiro login.</p>';
     form.insertBefore(wrap,form.firstChild);
