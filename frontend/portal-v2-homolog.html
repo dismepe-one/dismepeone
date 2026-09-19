@@ -33124,7 +33124,23 @@ body #v21105MoreMenu .v21105-menu-label{
    if(existing)existing.remove();
    return;
   }
-  if(existing)return;
+  // A HOME pode montar seu proprio card e redesenha-lo apos o login.
+  // Antes de criar outro, localiza qualquer atalho equivalente. Caso dois
+  // estejam na tela, preserva o card original da HOME e remove o adicional.
+  const matches=Array.from(home.children).filter(function(item){
+   const href=String(item.getAttribute('href')||'');
+   const action=String(item.getAttribute('onclick')||'');
+   const label=String(item.querySelector('strong,h2,h3,.font-black')?.textContent||
+     item.getAttribute('aria-label')||'');
+   const clean=label.normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();
+   return href.includes('/positivacoes')||action.includes('/positivacoes')||
+     /^(?:MINHAS? )?POSITIVAC(?:OES|AO(?: GERAL)?)$/.test(clean);
+  });
+  if(matches.length){
+   const keep=matches.find(item=>item.id!=='homePositivacoesDev9')||matches[0];
+   matches.forEach(item=>{if(item!==keep)item.remove();});
+   return;
+  }
   const link=document.createElement('a');
   link.id='homePositivacoesDev9';
   link.href='/positivacoes';

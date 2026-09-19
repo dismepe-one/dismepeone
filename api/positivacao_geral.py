@@ -46,7 +46,7 @@ PDF_NAME = "Comparativo Venda_Cliente por Vendedor.pdf"
 SHEET_NAME = "Positivacoes"
 MODULE = "POSITIVACAO_GERAL_V1"
 CONFIG_MODULE = "POSITIVACAO_META_V1"
-_BUILD = "POS-GERAL-DEV9-ACESSO-INDIVIDUAL"
+_BUILD = "POS-GERAL-DEV9-2-ORIGEM-CARTEIRA"
 _TTL = 600.0
 _CACHE: dict[str, Any] | None = None
 _CACHE_AT = 0.0
@@ -954,9 +954,16 @@ def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, An
     channel = context["canal"]
     owner_seller = channel == "Vendedor"
     mine = _selected(data, "todos", context["setor"], "")
+    # Apenas codigos que pertencem a carteira autenticada chegam ao resultado.
+    # A origem dos demais clientes nunca e devolvida ao usuario individual.
+    source_by_code = {row["codigo"]: row for row in data["clientes"]} if owner_seller else {}
     rows: list[dict[str, Any]] = []
     for original in mine:
         positive = original.get("status") == "Positivado"
+        source = source_by_code.get(original["codigo"], {})
+        other_channels = ([name for name in ("Televendas", "Diretoria/Supervisão")
+                           if name in source.get("origens", [])] if owner_seller else [])
+        visible_channels = ([channel] if positive else []) + other_channels
         rows.append({
             "codigo": original["codigo"], "cliente": original["cliente"],
             "cnpj": original.get("cnpj", ""), "bloqueado": bool(original.get("bloqueado")),
@@ -964,6 +971,7 @@ def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, An
             "setores": [person] if owner_seller else [],
             "televendas": [] if owner_seller else [person],
             "origens": [channel] if positive else [],
+            "origensDaVenda": visible_channels,
             "status": "Positivado" if positive else "Não positivado",
             "carteiraCompartilhada": False,
             "positivacoesVendedor": [person] if owner_seller and positive else [],
@@ -1070,8 +1078,17 @@ async def positivacao_meta(body: MetaRequest, session: str | None = Cookie(defau
 
 
 def _export_fields(row: dict[str, Any]) -> list[str]:
+    # A exportacao individual mostra a origem da venda do cliente autorizado,
+    # sem alterar o indicador de credito da carteira.
+    origins = row.get("origensDaVenda", row["origens"])
+    others = [name for name in origins if name in {"Televendas", "Diretoria/Supervisão"}]
+    situation = row["status"]
+    if situation == "Não positivado" and others:
+        situation = "Positivado por " + " e ".join(
+            "Diretoria" if name == "Diretoria/Supervisão" else name for name in others
+        )
     return [row["codigo"], row["cnpj"], row["cliente"], ", ".join(row["setores"]) or "Sem vínculo cadastrado",
-            ", ".join(row["televendas"]), " + ".join(row["origens"]), row["status"],
+            ", ".join(row["televendas"]), " + ".join(origins), situation,
             "Sim" if row["bloqueado"] else "Não"]
 
 
