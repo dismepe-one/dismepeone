@@ -24,6 +24,66 @@ footer{background:linear-gradient(135deg,var(--head-a),var(--head-b) 50%,var(--h
 
 .account-modal{position:fixed;inset:0;z-index:2147482500;background:rgba(15,23,42,.36);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:16px}.account-modal .pwd-card{position:relative}.modal-close{position:absolute;right:14px;top:14px;width:32px;height:32px;border:1px solid #d0d9d6;border-radius:9px;background:#f5f8f7;color:#52645f}.campaign-wrap{display:grid;gap:10px}.campaign-empty{text-align:center;color:#71807b;padding:28px 16px}.campaign-note{font-size:9px;color:#71807b;margin-top:7px}.campaign-metric{font-weight:900;color:#17332c}.campaign-channel{display:inline-block;padding:3px 7px;border-radius:999px;background:#eef5f2;color:#075b49;font-size:8px;font-weight:900;text-transform:uppercase}.campaign-condition{max-width:430px;white-space:normal;line-height:1.45}.campaign-source{font-size:10px;color:#60746f;margin-top:3px}
 </style>
+
+<style id="prod5982333-industries-mobile-text-fix">
+/* PROD5.9.8.23.33 — SOMENTE MOBILE: impedir textos de ultrapassar os limites. */
+@media screen and (max-width:600px){
+  .topbar,
+  .right,
+  .session,
+  .session > div:first-child,
+  .hero,
+  .hero > div,
+  .panel-head,
+  .panel-title,
+  .table-top,
+  .actions,
+  .module-card,
+  .kpi,
+  .mini{
+    min-width:0 !important;
+    max-width:100% !important;
+    box-sizing:border-box !important;
+  }
+
+  .session > div:first-child{
+    flex:1 1 auto !important;
+  }
+
+  .session-name,
+  .session-role,
+  .hero h1,
+  .hero p,
+  .panel-title h2,
+  .panel-title p,
+  .campaign-source,
+  .campaign-metric,
+  .campaign-note,
+  .campaign-condition,
+  .kpi .label,
+  .kpi .value,
+  .kpi .sub,
+  .mini .l,
+  .mini .v,
+  #homePerformance,
+  #stockUpdated,
+  .stock-count{
+    max-width:100% !important;
+    white-space:normal !important;
+    overflow-wrap:anywhere !important;
+    word-break:normal !important;
+  }
+
+  .actions .btn,
+  .stock-filterbar .btn{
+    min-width:0 !important;
+    max-width:100% !important;
+    white-space:normal !important;
+    text-align:center !important;
+  }
+}
+</style>
+
 </head>
 <body>
 <header>

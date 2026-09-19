@@ -4482,6 +4482,25 @@ console.info('[DISMEPE ONE] Frontend release:', window.DISMEPE_FRONTEND_RELEASE)
   <span id="v68GlobalActivityText"></span>
 </div>
 
+<script id="v36-create-user-popup">
+function showV36CreateUserInfo(){
+  const host=document.getElementById('loginOverlay');
+  if(!host || host.classList.contains('hidden')) return;
+  if(document.getElementById('v36CreateUserPopup')) return;
+  const b=document.createElement('div');
+  b.id='v36CreateUserPopup';
+  b.style.cssText='position:absolute;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(20,34,30,.38);backdrop-filter:blur(4px);';
+  b.innerHTML='<div style="width:min(92vw,410px);background:#fff;border:1px solid #d8e4e0;border-radius:20px;padding:25px;text-align:center;box-shadow:0 24px 70px rgba(0,0,0,.22);color:#173b32;">'+
+  '<div style="width:46px;height:46px;margin:0 auto 11px;border-radius:14px;display:flex;align-items:center;justify-content:center;background:#e8f3ef;color:#075b49;"><i class="fa-solid fa-user-plus"></i></div>'+
+  '<h3 style="margin:0 0 9px;font-size:18px;">Criação de usuário</h3>'+
+  '<p style="margin:0 auto 18px;max-width:340px;color:#62716c;font-size:13px;line-height:1.55;">Não é possível criar um usuário diretamente por este painel.<br><br>Para solicitar a criação de um novo usuário, procure o <strong>Setor Comercial da DISMEPE</strong>.</p>'+
+  '<button type="button" style="min-height:42px;padding:0 24px;border:0;border-radius:10px;background:#075b49;color:#fff;font-weight:800;cursor:pointer;">Entendi</button></div>';
+  host.appendChild(b);
+  b.querySelector('button').onclick=()=>b.remove();
+  b.addEventListener('click',e=>{if(e.target===b)b.remove();});
+}
+</script>
+
 <div id="loginOverlay" class="fixed inset-0 z-[100] flex items-center justify-center p-4 login-overlay">
   <div class="v36-login-bg"></div>
   <main class="v36-login-wrap">
@@ -13834,22 +13853,7 @@ function resetExtraForm(){
 </script>
 
 
-<script id="v36-create-user-popup">
-function showV36CreateUserInfo(){
-  if(document.getElementById('v36CreateUserPopup')) return;
-  const b=document.createElement('div');
-  b.id='v36CreateUserPopup';
-  b.style.cssText='position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(20,34,30,.38);backdrop-filter:blur(4px);';
-  b.innerHTML='<div style="width:min(92vw,410px);background:#fff;border:1px solid #d8e4e0;border-radius:20px;padding:25px;text-align:center;box-shadow:0 24px 70px rgba(0,0,0,.22);color:#173b32;">'+
-  '<div style="width:46px;height:46px;margin:0 auto 11px;border-radius:14px;display:flex;align-items:center;justify-content:center;background:#e8f3ef;color:#075b49;"><i class="fa-solid fa-user-plus"></i></div>'+
-  '<h3 style="margin:0 0 9px;font-size:18px;">Criação de usuário</h3>'+
-  '<p style="margin:0 auto 18px;max-width:340px;color:#62716c;font-size:13px;line-height:1.55;">Não é possível criar um usuário diretamente por este painel.<br><br>Para solicitar a criação de um novo usuário, procure o <strong>Setor Comercial da DISMEPE</strong>.</p>'+
-  '<button type="button" style="min-height:42px;padding:0 24px;border:0;border-radius:10px;background:#075b49;color:#fff;font-weight:800;cursor:pointer;">Entendi</button></div>';
-  document.body.appendChild(b);
-  b.querySelector('button').onclick=()=>b.remove();
-  b.addEventListener('click',e=>{if(e.target===b)b.remove();});
-}
-</script>
+
 
 
 <script id="v37-login-ui-hooks">
