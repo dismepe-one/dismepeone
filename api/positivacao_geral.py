@@ -46,7 +46,7 @@ PDF_NAME = "Comparativo Venda_Cliente por Vendedor.pdf"
 SHEET_NAME = "Positivacoes"
 MODULE = "POSITIVACAO_GERAL_V1"
 CONFIG_MODULE = "POSITIVACAO_META_V1"
-_BUILD = "POS-GERAL-DEV7-VALIDOS"
+_BUILD = "POS-GERAL-DEV8-1-FILTROS-UPDATE"
 _TTL = 600.0
 _CACHE: dict[str, Any] | None = None
 _CACHE_AT = 0.0
@@ -566,7 +566,7 @@ def _sync_blocking(sellers: dict[str, str], televendas: dict[str, str], previous
     current = datetime.now(TZ)
     if (modified.year, modified.month) != (current.year, current.month):
         raise RuntimeError("Planilha de positivações ainda não foi atualizada na competência atual.")
-    if previous and previous.get("fontes") == fingerprint and not refresh:
+    if previous and previous.get("fontes") == fingerprint:
         return previous
     # Caso apenas a planilha seja atualizada, a carteira já validada pode ser
     # reaproveitada somente se o snapshot persistido contiver a base original.
@@ -604,6 +604,25 @@ async def _snapshot_fast() -> dict[str, Any] | None:
         _CACHE = persisted
         _CACHE_AT = time.monotonic()
     return _CACHE
+
+
+def _same_sources(previous: dict[str, Any] | None, pdf: dict[str, Any], sheet: dict[str, Any]) -> bool:
+    if not previous or previous.get("competencia") != datetime.now(TZ).strftime("%m/%Y"):
+        return False
+    old = previous.get("fontes") or {}
+    def modified(value: Any) -> str:
+        return str(value or "").replace(".000Z", "Z")
+    return bool(old.get("pdfModified") and old.get("sheetModified")
+                and old.get("pdfId") == pdf.get("id")
+                and old.get("sheetId") == sheet.get("id")
+                and modified(old.get("pdfModified")) == modified(pdf.get("modifiedTime"))
+                and modified(old.get("sheetModified")) == modified(sheet.get("modifiedTime")))
+
+
+def _sources_changed_blocking(previous: dict[str, Any] | None) -> bool:
+    service = _build_drive_service()
+    pdf, sheet = _drive_sources(service)
+    return not _same_sources(previous, pdf, sheet)
 
 
 async def _refresh_job(profile: dict[str, Any], force: bool) -> None:
@@ -771,29 +790,89 @@ async def positivacao_panel(force: bool = Query(False), session: str | None = Co
 @router.post("/positivacoes/api/atualizar")
 async def positivacao_refresh(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
     profile = _signed_admin(session)
+    global _SYNC_ERROR
+    if _SYNC_TASK is not None and not _SYNC_TASK.done():
+        return _safe_json_response({"sucesso": True, "emAndamento": True,
+                                    "statusAtualizacao": _sync_status()})
+    previous = await _snapshot_fast()
+    if previous is not None:
+        try:
+            changed = await asyncio.wait_for(asyncio.to_thread(_sources_changed_blocking, previous), timeout=15.0)
+        except Exception as exc:
+            raise HTTPException(503, "Nao foi possivel verificar se as bases foram alteradas. A fotografia atual permanece preservada.") from exc
+        if not changed:
+            _SYNC_ERROR = ""  # erro antigo nao reaparece ao consultar base ja validada
+            return _safe_json_response({"sucesso": True, "jaAtualizada": True,
+                                        "mensagem": "A base atual ja e a mais atualizada.",
+                                        "statusAtualizacao": _sync_status()})
     _start_sync(profile, force=True)
-    return _safe_json_response({"sucesso": True, "statusAtualizacao": _sync_status()})
+    return _safe_json_response({"sucesso": True, "emAndamento": True,
+                                "statusAtualizacao": _sync_status()})
 
 
 def _selected(data: dict[str, Any], status: str, setor: str, search: str) -> list[dict[str, Any]]:
     if status not in {"todos", "positivados", "nao-positivados", "bloqueados"}:
         raise HTTPException(400, "Filtro inválido.")
-    norm_setor = _norm(setor)
+    is_tv = setor.startswith("TV:")
+    person = _norm(setor[3:] if is_tv else setor)
     norm_search = _norm(search)
     result = []
     for c in data["clientes"]:
+        if person:
+            wallet = c["televendas"] if is_tv else c["setores"]
+            if all(_norm(x) != person for x in wallet):
+                continue
+            credited = c.get("positivacoesTelevendas" if is_tv else "positivacoesVendedor", [])
+            owned = any(_norm(x) == person for x in credited)
+            # Nunca editar a fotografia persistida ao projetar um filtro.
+            c = {**c, "status": "Positivado" if owned else "Não positivado",
+                 "origens": (["Televendas"] if is_tv else ["Vendedor"]) if owned else []}
         if status == "positivados" and c["status"] != "Positivado":
             continue
         if status == "nao-positivados" and c["status"] != "Não positivado":
             continue
         if status == "bloqueados" and not c["bloqueado"]:
             continue
-        if norm_setor and all(_norm(x) != norm_setor for x in c["setores"]):
-            continue
         if norm_search and norm_search not in _norm(" ".join([c["codigo"], c["cliente"], c["cnpj"]])):
             continue
         result.append(c)
     return result
+
+
+@router.get("/positivacoes/api/resumo-filtro")
+async def positivacao_filtered_summary(
+    setor: str = "", session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    profile = _signed_admin(session)
+    data = await _get_data(profile)
+    if not setor:
+        return _safe_json_response({"indicadores": data["indicadores"],
+                                    "origens": data["origens"], "setores": data["setores"],
+                                    "carteirasTelevendas": data.get("carteirasTelevendas", [])})
+    is_tv = setor.startswith("TV:")
+    person = _norm(setor[3:] if is_tv else setor)
+    key = "televendas" if is_tv else "setor"
+    group = data.get("carteirasTelevendas", []) if is_tv else data["setores"]
+    matched = next((x for x in group if _norm(x[key]) == person), None)
+    if matched is None:
+        raise HTTPException(400, "Profissional indisponivel na fotografia atual.")
+    customers = _selected(data, "todos", setor, "")
+    total = len(customers)
+    positive = sum(x["status"] == "Positivado" for x in customers)
+    blocked = sum(bool(x["bloqueado"]) for x in customers)
+    channel = "Televendas" if is_tv else "Vendedor"
+    origins = {"Vendedor": 0, "Televendas": 0,
+               "Diretoria/Supervisão": 0, "Vendedor + Televendas": 0}
+    origins[channel] = positive
+    focused = {**matched, "total": total, "positivados": positive,
+               "naoPositivados": total-positive, "bloqueados": blocked,
+               "percentual": round(100*positive/total, 2) if total else 0}
+    return _safe_json_response({"indicadores": {
+        "carteira": total, "positivados": positive,
+        "naoPositivados": total-positive,
+        "percentual": round(100*positive/total, 2) if total else 0,
+        "bloqueados": blocked}, "origens": origins, "setores": [focused],
+        "profissional": matched[key], "canal": channel})
 
 
 @router.get("/positivacoes/api/clientes")
@@ -852,6 +931,13 @@ async def positivacao_export(
         ws.append(headers)
         for row in rows:
             ws.append(_export_fields(row))
+            if row["bloqueado"]:
+                for cell in ws[ws.max_row]:
+                    cell.fill = PatternFill("solid", fgColor="FCE8E6")
+                flagged = ws.cell(ws.max_row, 8)
+                flagged.value = "BLOQUEADO"
+                flagged.fill = PatternFill("solid", fgColor="B42318")
+                flagged.font = Font(color="FFFFFF", bold=True)
         ws.freeze_panes = "A2"
         ws.auto_filter.ref = ws.dimensions
         for cell in ws[1]:
@@ -878,8 +964,16 @@ async def positivacao_export(
         story=[Paragraph("DISMEPE ONE | Positivação Geral", styles["Heading2"]),
                Paragraph(f"Filtro: {escape(status)} | Setor: {escape(setor or 'Todos')} | Registros: {len(rows)} | Fonte: {escape(data.get('atualizadoEm',''))}", styles["Normal"]), Spacer(1,10)]
         table_data=[[Paragraph(escape(h),styles["CellTinyPos"]) for h in headers]]
+        blocked_pdf_rows = []
         for row in rows:
-            table_data.append([Paragraph(escape(str(x)), styles["CellTinyPos"]) for x in _export_fields(row)])
+            fields = _export_fields(row)
+            if row["bloqueado"]:
+                blocked_pdf_rows.append(len(table_data))
+                fields[-1] = "BLOQUEADO"
+            cells = [Paragraph(escape(str(x)), styles["CellTinyPos"]) for x in fields]
+            if row["bloqueado"]:
+                cells[-1] = Paragraph('<font color="#B42318"><b>BLOQUEADO</b></font>', styles["CellTinyPos"])
+            table_data.append(cells)
         table=LongTable(table_data, colWidths=[44,72,170,123,106,112,74,55], repeatRows=1, hAlign="LEFT")
         table.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#075548")),
                                    ("TEXTCOLOR",(0,0),(-1,0),colors.white),
@@ -888,6 +982,9 @@ async def positivacao_export(
                                    ("BOTTOMPADDING",(0,0),(-1,-1),5),
                                    ("TOPPADDING",(0,0),(-1,-1),5),
                                    ("LINEBELOW",(0,0),(-1,0),.5,colors.HexColor("#075548"))]))
+        if blocked_pdf_rows:
+            table.setStyle(TableStyle([("BACKGROUND", (0, i), (-1, i), colors.HexColor("#FCE8E6"))
+                                       for i in blocked_pdf_rows]))
         story.append(table); doc.build(story)
         media="application/pdf"; ext="pdf"
     else:
