@@ -46,7 +46,7 @@ PDF_NAME = "Comparativo Venda_Cliente por Vendedor.pdf"
 SHEET_NAME = "Positivacoes"
 MODULE = "POSITIVACAO_GERAL_V1"
 CONFIG_MODULE = "POSITIVACAO_META_V1"
-_BUILD = "POS-GERAL-DEV8-1-FILTROS-UPDATE"
+_BUILD = "POS-GERAL-DEV8-2-EXPORT-FILTRO"
 _TTL = 600.0
 _CACHE: dict[str, Any] | None = None
 _CACHE_AT = 0.0
@@ -919,7 +919,17 @@ async def positivacao_export(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     profile = _signed_admin(session)
+    # Nunca processar a exportacao corporativa completa. O filtro deve
+    # corresponder a uma carteira INDIVIDUAL presente na fotografia valida.
+    if not setor or not setor.strip():
+        raise HTTPException(400, "Selecione um vendedor ou televendas antes de exportar PDF ou Excel.")
     data = await _get_data(profile)
+    is_tv = setor.startswith("TV:")
+    person = _norm(setor[3:] if is_tv else setor)
+    groups = data.get("carteirasTelevendas", []) if is_tv else data.get("setores", [])
+    key = "televendas" if is_tv else "setor"
+    if not person or not any(_norm(g.get(key)) == person for g in groups):
+        raise HTTPException(400, "Selecione uma carteira individual valida antes de exportar.")
     rows = _selected(data, status, setor, busca)
     headers = ["Código", "CNPJ", "Cliente", "Carteira", "Televendas Cad.", "Origem", "Status", "Bloqueado"]
     if kind == "excel":
