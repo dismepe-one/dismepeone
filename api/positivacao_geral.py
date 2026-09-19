@@ -46,7 +46,7 @@ PDF_NAME = "Comparativo Venda_Cliente por Vendedor.pdf"
 SHEET_NAME = "Positivacoes"
 MODULE = "POSITIVACAO_GERAL_V1"
 CONFIG_MODULE = "POSITIVACAO_META_V1"
-_BUILD = "POS-GERAL-DEV10-OBSERVACOES-COMPARTILHADAS"
+_BUILD = "POS-GERAL-DEV10-3-INATIVIDADE-APROVADA"
 _TTL = 600.0
 _CACHE: dict[str, Any] | None = None
 _CACHE_AT = 0.0
@@ -784,7 +784,7 @@ async def _get_data(profile: dict[str, Any]) -> dict[str, Any]:
         _start_sync(profile)
     if data is None:
         raise HTTPException(503, "A fotografia das Positivações ainda não foi publicada no Supabase.")
-    return data
+    return await _inat_enrich(data)
 
 async def _meta() -> int:
     global _META_CACHE, _META_CACHE_AT
@@ -869,6 +869,7 @@ async def positivacao_panel(force: bool = Query(False), session: str | None = Co
     if data is None:
         return _safe_json_response({"carregando": state["emAndamento"], "semFotografia": True,
                                     "statusAtualizacao": state, "sucesso": True})
+    data = await _inat_enrich(data)
     visible = _visible_data(data, context)
     summary = {k: v for k, v in visible.items() if k not in {"clientes"}}
     try:
@@ -908,7 +909,7 @@ async def positivacao_refresh(session: str | None = Cookie(default=None, alias=s
 
 def _selected(data: dict[str, Any], status: str, setor: str, search: str,
               nao_bloqueados: bool = False) -> list[dict[str, Any]]:
-    if status not in {"todos", "positivados", "nao-positivados", "bloqueados"}:
+    if status not in {"todos", "positivados", "nao-positivados", "bloqueados", "inativos"}:
         raise HTTPException(400, "Filtro inválido.")
     is_tv = setor.startswith("TV:")
     person = _norm(setor[3:] if is_tv else setor)
@@ -922,6 +923,10 @@ def _selected(data: dict[str, Any], status: str, setor: str, search: str,
             # A carteira e positivada pela venda de qualquer canal nesse cliente.
             # O credito individual permanece separado em positivacoesVendedor/
             # positivacoesTelevendas, sem sobrescrever o status global.
+        if status == "inativos" and not c.get("inativo"):
+            continue
+        if status not in {"todos", "inativos"} and c.get("inativo"):
+            continue
         if status == "positivados" and c["status"] != "Positivado":
             continue
         if status == "nao-positivados" and c["status"] != "Não positivado":
@@ -949,6 +954,8 @@ def _origins_for_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
     keys = ("Vendedor", "Televendas", "Diretoria/Supervisão", "Vendedor + Televendas")
     result = {key: 0 for key in keys}
     for row in rows:
+        if row.get("inativo"):
+            continue
         origin = set(row.get("origens") or [])
         for name in keys[:3]:
             if name in origin:
@@ -972,9 +979,10 @@ def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, An
     for original in mine:
         source = source_by_code.get(original["codigo"], {})
         origens = list(source.get("origens") or [])
-        positive = bool(origens)
+        is_inactive = bool(source.get("inativo"))
+        positive = bool(origens) and not is_inactive
         direct_key = "positivacoesVendedor" if owner_seller else "positivacoesTelevendas"
-        direct = any(_norm(name) == _norm(person) for name in source.get(direct_key, []))
+        direct = (not is_inactive) and any(_norm(name) == _norm(person) for name in source.get(direct_key, []))
         tv_cadastrados = list(source.get("televendas") or [])
         tv_que_venderam = list(source.get("televendasQuePositivaram") or
                                source.get("positivacoesTelevendas") or [])
@@ -996,22 +1004,28 @@ def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, An
             "origensDaVenda": origens,
             "origensDetalhadas": detalhes,
             "creditoIndividual": direct,
-            "status": "Positivado" if positive else "Não positivado",
+            "status": "Inativo" if is_inactive else "Positivado" if positive else "Não positivado",
+            "inativo": is_inactive,
+            "situacaoInatividade": source.get("situacaoInatividade", ""),
+            "inatividadeMotivo": source.get("inatividadeMotivo", ""),
+            "inatividadeAprovadaEm": source.get("inatividadeAprovadaEm"),
             "carteiraCompartilhada": bool(source.get("carteiraCompartilhada")),
             "positivacoesVendedor": [person] if owner_seller and direct else [],
             "positivacoesTelevendas": [person] if not owner_seller and direct else [],
         })
-    count = len(rows)
-    positive_count = sum(row["status"] == "Positivado" for row in rows)
-    direct_count = sum(bool(row["creditoIndividual"]) for row in rows)
-    blocked = sum(row["bloqueado"] for row in rows)
+    active_rows = [row for row in rows if not row["inativo"]]
+    count = len(active_rows)
+    positive_count = sum(row["status"] == "Positivado" for row in active_rows)
+    direct_count = sum(bool(row["creditoIndividual"]) for row in active_rows)
+    blocked = sum(row["bloqueado"] for row in active_rows)
     pct = round(100 * positive_count / count, 2) if count else 0
     totals = {"carteira": count, "positivados": positive_count,
               "naoPositivados": count-positive_count, "percentual": pct,
-              "bloqueados": blocked, "positivadosForaCarteira": 0}
+              "bloqueados": blocked, "inativos": len(rows)-count,
+              "positivadosForaCarteira": 0}
     group = {"total": count, "positivados": positive_count,
              "naoPositivados": count-positive_count, "percentual": pct,
-             "bloqueados": blocked}
+             "bloqueados": blocked, "inativos": len(rows)-count}
     if owner_seller:
         group["setor"] = person
         sectors, teles = [group], []
@@ -1025,6 +1039,7 @@ def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, An
     return {"schema": MODULE, "competencia": data.get("competencia", ""),
             "atualizadoEm": data.get("atualizadoEm", ""),
             "persistencia": data.get("persistencia", "POSTGRESQL"),
+            "inatividadesVersao": data.get("inatividadesVersao", "0"),
             "clientes": rows, "setores": sectors, "carteirasTelevendas": teles,
             "origens": origins, "indicadores": totals,
              "creditoIndividual": direct_count, "geralEmpresa": general,
@@ -1054,9 +1069,10 @@ async def positivacao_filtered_summary(
     if matched is None:
         raise HTTPException(400, "Profissional indisponivel na fotografia atual.")
     customers = _selected(data, "todos", setor, "", nao_bloqueados)
-    total = len(customers)
-    positive = sum(x["status"] == "Positivado" for x in customers)
-    blocked = sum(bool(x["bloqueado"]) for x in customers)
+    live = [x for x in customers if not x.get("inativo")]
+    total = len(live)
+    positive = sum(x["status"] == "Positivado" for x in live)
+    blocked = sum(bool(x["bloqueado"]) for x in live)
     channel = "Televendas" if is_tv else "Vendedor"
     origins = _origins_for_rows(customers)
     focused = {**matched, "total": total, "positivados": positive,
@@ -1066,7 +1082,7 @@ async def positivacao_filtered_summary(
         "carteira": total, "positivados": positive,
         "naoPositivados": total-positive,
         "percentual": round(100*positive/total, 2) if total else 0,
-        "bloqueados": blocked}, "origens": origins, "setores": [focused],
+        "bloqueados": blocked, "inativos": len(customers)-total}, "origens": origins, "setores": [focused],
         "profissional": matched[key], "canal": channel})
 
 
@@ -1344,6 +1360,224 @@ def _obs_excel_text(value: Any) -> str:
 
 
 
+# DEV10.3: inatividade aprovada, sem modificar a fotografia mensal.
+_INAT_CACHE: list[dict[str, Any]] | None = None
+_INAT_CHECK_AT = 0.0
+_INAT_REV = 0
+_INAT_OVERLAY_KEY: tuple[int, int] | None = None
+_INAT_OVERLAY: dict[str, Any] | None = None
+_INAT_LOCK = asyncio.Lock()
+
+
+async def _inat_edge(action: str, payload: dict[str, Any]) -> dict[str, Any]:
+    url = settings.supabase_url.rstrip('/') + '/functions/v1/dismepe-positivacoes-inatividades'
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0)) as client:
+            response = await client.post(
+                url, json={'acao': action, **payload},
+                headers={'apikey': settings.supabase_publishable_key,
+                         'x-dismepe-token': settings.edge_token,
+                         'Content-Type': 'application/json', 'Accept': 'application/json'},
+            )
+        result = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(503, 'Não foi possível consultar as inatividades. Os indicadores não foram recalculados.') from exc
+    if not isinstance(result, dict) or not response.is_success or result.get('sucesso') is not True:
+        status = response.status_code if response.status_code in {400, 403, 404, 409} else 503
+        raise HTTPException(status, str(result.get('erro') or 'Não foi possível concluir a operação.')
+                            if isinstance(result, dict) else 'Serviço de inatividade indisponível.')
+    return result
+
+
+def _inat_invalidate() -> None:
+    global _INAT_CACHE, _INAT_CHECK_AT, _INAT_REV, _INAT_OVERLAY, _INAT_OVERLAY_KEY
+    _INAT_CACHE = None
+    _INAT_CHECK_AT = 0.0
+    _INAT_REV += 1
+    _INAT_OVERLAY = None
+    _INAT_OVERLAY_KEY = None
+
+
+async def _inat_records() -> list[dict[str, Any]]:
+    global _INAT_CACHE, _INAT_CHECK_AT, _INAT_REV
+    if _INAT_CACHE is not None and time.monotonic() - _INAT_CHECK_AT < 35:
+        return _INAT_CACHE
+    async with _INAT_LOCK:
+        if _INAT_CACHE is not None and time.monotonic() - _INAT_CHECK_AT < 35:
+            return _INAT_CACHE
+        result: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            response = await _inat_edge('LIST', {'offset': offset, 'limite': 1000})
+            page = response.get('registros')
+            if not isinstance(page, list):
+                raise HTTPException(503, 'A lista de inatividades veio incompleta.')
+            result.extend(page)
+            next_offset = response.get('proxima')
+            if next_offset is None:
+                break
+            if not isinstance(next_offset, int) or next_offset <= offset or len(result) > 20000:
+                raise HTTPException(503, 'Não foi possível concluir a consulta de inatividades.')
+            offset = next_offset
+        _INAT_CACHE = result
+        _INAT_CHECK_AT = time.monotonic()
+        _INAT_REV += 1
+        return result
+
+
+def _inat_counts(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    live = [row for row in rows if not row.get('inativo')]
+    count = len(live)
+    pos = sum(row['status'] == 'Positivado' for row in live)
+    blocked = sum(bool(row.get('bloqueado')) for row in live)
+    return {'carteira': count, 'positivados': pos, 'naoPositivados': count-pos,
+            'percentual': round(100*pos/count, 2) if count else 0,
+            'bloqueados': blocked, 'inativos': len(rows)-count}
+
+
+async def _inat_enrich(data: dict[str, Any]) -> dict[str, Any]:
+    global _INAT_OVERLAY_KEY, _INAT_OVERLAY
+    records = await _inat_records()
+    cache_key = (id(data), _INAT_REV)
+    if _INAT_OVERLAY is not None and _INAT_OVERLAY_KEY == cache_key:
+        return _INAT_OVERLAY
+    states = {str(item['cliente_codigo']): item for item in records
+              if item.get('situacao') == 'aprovado'}
+    rows: list[dict[str, Any]] = []
+    for row in data['clientes']:
+        state = states.get(str(row['codigo']))
+        row = {**row, 'inativo': bool(state),
+               'situacaoInatividade': 'aprovado' if state else '',
+               'inatividadeAprovadaEm': state.get('decidido_em') if state else None,
+               'inatividadeMotivo': state.get('justificativa') if state else '',
+               'inatividadeObservacaoId': state.get('observacao_id') if state else None}
+        if state:
+            row['statusAntesInatividade'] = row.get('status')
+            row['status'] = 'Inativo'
+        rows.append(row)
+    version = max((str(r.get('atualizado_em') or '') for r in records), default='0')
+    result = {**data, 'clientes': rows, 'inatividadesVersao': version}
+    totals = _inat_counts(rows)
+    totals['positivadosForaCarteira'] = data.get('indicadores', {}).get('positivadosForaCarteira', 0)
+    totals['clientesVinculosMultiplos'] = sum(bool(r.get('carteiraCompartilhada'))
+                                           for r in rows if not r.get('inativo'))
+    totals['carteirasHabilitadas'] = data.get('indicadores', {}).get('carteirasHabilitadas', 0)
+    result['indicadores'] = totals
+    result['origens'] = _origins_for_rows([r for r in rows if not r['inativo']])
+    for key, person_key, wallet_key in (('setores', 'setor', 'setores'),
+                                         ('carteirasTelevendas', 'televendas', 'televendas')):
+        groups: list[dict[str, Any]] = []
+        for entry in data.get(key, []):
+            person = _norm(entry.get(person_key))
+            assigned = [r for r in rows if person in {_norm(n) for n in r.get(wallet_key, [])}]
+            metric = _inat_counts(assigned)
+            groups.append({**entry, 'total': metric['carteira'],
+                           'positivados': metric['positivados'],
+                           'naoPositivados': metric['naoPositivados'],
+                           'percentual': metric['percentual'],
+                           'bloqueados': metric['bloqueados'],
+                           'inativos': metric['inativos']})
+        result[key] = groups
+    result['inativosAprovados'] = len(states)
+    _INAT_OVERLAY = result
+    _INAT_OVERLAY_KEY = cache_key
+    return result
+
+
+class PositivacaoInatividadeSolicitacao(BaseModel):
+    cliente_codigo: str = Field(min_length=1, max_length=12)
+    observacao_id: int = Field(ge=1)
+
+
+class PositivacaoInatividadeDecisao(BaseModel):
+    cliente_codigo: str = Field(min_length=1, max_length=12)
+    versao: int = Field(ge=1)
+    decisao: str = Field(min_length=7, max_length=10)
+    justificativa: str = Field(min_length=1, max_length=1200)
+
+
+@router.get('/positivacoes/api/inatividades/cliente/{codigo}')
+async def positivacao_inatividade_cliente(
+    codigo: str, session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    context = await _viewer_context(session)
+    await _obs_permission(context, codigo, historic_admin=True)
+    records = await _inat_records()
+    record = next((r for r in records if str(r['cliente_codigo']) == codigo), None)
+    return _safe_json_response({'sucesso': True, 'registro': record})
+
+
+@router.post('/positivacoes/api/inatividades/solicitar')
+async def positivacao_inatividade_solicitar(
+    body: PositivacaoInatividadeSolicitacao,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    context = await _viewer_context(session)
+    row, _ = await _obs_permission(context, body.cliente_codigo)
+    if row is None or row.get('inativo'):
+        raise HTTPException(409, 'Cliente já inativo ou fora da carteira atual.')
+    notes = await _obs_page([body.cliente_codigo])
+    note = next((n for n in notes if n.get('id') == body.observacao_id and n.get('tipo') == 'fixa'
+                 and str(n.get('texto') or '').strip()), None)
+    if note is None:
+        raise HTTPException(400, 'Cadastre uma observação fixa para solicitar a inatividade.')
+    author = context['profile']
+    login = str(author.get('usuario') or '').strip()
+    if not login:
+        raise HTTPException(403, 'Usuário não identificado.')
+    result = await _inat_edge('REQUEST', {'cliente_codigo': body.cliente_codigo,
+        'observacao_id': body.observacao_id, 'solicitante_usuario': login,
+        'solicitante_nome': str(author.get('nome') or author.get('vendedor') or
+                               context['pessoa'] or login)[:160],
+        'solicitante_tipo': _norm(author.get('tipo')),
+        'justificativa': str(note['texto']).strip()[:1800]})
+    _inat_invalidate()
+    return _safe_json_response({'sucesso': True, 'registro': result['registro'],
+                                'mensagem': 'Solicitação enviada para aprovação da administração.'})
+
+
+@router.get('/positivacoes/api/inatividades/administracao')
+async def positivacao_inatividade_administracao(
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    context = await _viewer_context(session)
+    if not context['admin']:
+        raise HTTPException(403, 'A aprovação é exclusiva da administração.')
+    data = await _get_data(context['profile'])
+    names = {row['codigo']: row['cliente'] for row in data['clientes']}
+    result = await _inat_edge('ADMIN', {'limite': 200})
+    return _safe_json_response({'sucesso': True, 'registros': [
+        {**item, 'cliente': names.get(item['cliente_codigo'], 'Cliente do histórico')}
+        for item in result.get('registros', [])]})
+
+
+@router.post('/positivacoes/api/inatividades/decidir')
+async def positivacao_inatividade_decidir(
+    body: PositivacaoInatividadeDecisao,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    context = await _viewer_context(session)
+    if not context['admin']:
+        raise HTTPException(403, 'Somente a administração pode aprovar ou rejeitar.')
+    if body.decisao not in {'aprovado','rejeitado','reativado'}:
+        raise HTTPException(400, 'Decisão inválida.')
+    if not body.justificativa.strip():
+        raise HTTPException(400, 'Informe a justificativa da decisão.')
+    # Revalidar cliente pelo código: nenhum nome, perfil ou crédito vem do navegador.
+    code = _obs_valid_code(body.cliente_codigo)
+    await _obs_permission(context, code, historic_admin=True)
+    result = await _inat_edge('REACTIVATE' if body.decisao == 'reativado' else 'DECIDE',
+        {'cliente_codigo': code, 'versao': body.versao,
+         'administrador_usuario': str(context['profile'].get('usuario') or '').strip(),
+         'decisao': body.decisao, 'decisao_motivo': body.justificativa.strip()[:1200]})
+    _inat_invalidate()
+    # A notificação individual é gravada atomicamente no sino pela trigger SQL.
+    return _safe_json_response({'sucesso': True, 'registro': result['registro'],
+                                'mensagem': 'Decisão registrada. O solicitante receberá aviso no sino.'})
+
+
+
+
 def _export_fields(row: dict[str, Any]) -> list[str]:
     # A exportacao individual mostra a origem da venda do cliente autorizado,
     # sem alterar o indicador de credito da carteira.
@@ -1378,6 +1612,10 @@ async def positivacao_export(
     if not person or not any(_norm(g.get(key)) == person for g in groups):
         raise HTTPException(400, "Selecione uma carteira individual valida antes de exportar.")
     rows = _selected(data, status, setor, busca, nao_bloqueados)
+    # Exportacao da carteira sempre inclui um anexo de inativos, mesmo com filtro ativo.
+    inativos = _selected(data, "inativos", setor, busca, nao_bloqueados)
+    presentes = {row["codigo"] for row in rows}
+    rows.extend(row for row in inativos if row["codigo"] not in presentes)
     # Uma unica leitura em blocos dos comentarios dos clientes AUTORIZADOS.
     # A consulta e feita mesmo se houver zero observacoes, para nunca exportar
     # um arquivo incompleto silenciosamente quando o banco estiver indisponivel.
@@ -1392,11 +1630,21 @@ async def positivacao_export(
         wb = Workbook()
         ws = wb.active
         ws.title = "Positivacao Geral"
-        ws.append(headers + ["Observações"])
+        ws.append(headers + ["Observações", "Inatividade"])
         for row in rows:
             texts = "\n\n".join(_obs_export_text(n) for n in notes_by_code.get(row["codigo"], []))
-            ws.append(_export_fields(row) + [_obs_excel_text(texts[:32000])])
-            if row["bloqueado"]:
+            status_inat = ("INATIVO • aprovado em " + str(row.get("inatividadeAprovadaEm") or "")[:10] +
+                           " • " + str(row.get("inatividadeMotivo") or "")) if row.get("inativo") else ""
+            ws.append(_export_fields(row) + [_obs_excel_text(texts[:32000]),
+                                             _obs_excel_text(status_inat[:32000])])
+            if row.get("inativo"):
+                for cell in ws[ws.max_row]:
+                    cell.fill = PatternFill("solid", fgColor="FCE8E6")
+                flag = ws.cell(ws.max_row, 7)
+                flag.value = "INATIVO"
+                flag.fill = PatternFill("solid", fgColor="B42318")
+                flag.font = Font(color="FFFFFF", bold=True)
+            if row["bloqueado"] and not row.get("inativo"):
                 for cell in ws[ws.max_row]:
                     cell.fill = PatternFill("solid", fgColor="FCE8E6")
                 flagged = ws.cell(ws.max_row, 8)
@@ -1408,7 +1656,7 @@ async def positivacao_export(
         for cell in ws[1]:
             cell.fill = PatternFill("solid", fgColor="075548")
             cell.font = Font(color="FFFFFF", bold=True)
-        for col, width in {"A":12,"B":20,"C":48,"D":43,"E":30,"F":35,"G":20,"H":13,"I":65}.items():
+        for col, width in {"A":12,"B":20,"C":48,"D":43,"E":30,"F":35,"G":20,"H":13,"I":65,"J":62}.items():
             ws.column_dimensions[col].width=width
         for row in ws.iter_rows(min_row=2):
             for cell in row:
@@ -1452,13 +1700,17 @@ async def positivacao_export(
                Paragraph(f"Filtro: {escape(status)} | Setor: {escape(setor or 'Todos')} | Registros: {len(rows)} | Fonte: {escape(data.get('atualizadoEm',''))}", styles["Normal"]), Spacer(1,10)]
         table_data=[[Paragraph(escape(h),styles["CellTinyPos"]) for h in headers]]
         blocked_pdf_rows = []
+        inactive_pdf_rows = []
         for row in rows:
             fields = _export_fields(row)
-            if row["bloqueado"]:
+            if row.get("inativo"):
+                inactive_pdf_rows.append(len(table_data))
+                fields[6] = "INATIVO"
+            if row["bloqueado"] and not row.get("inativo"):
                 blocked_pdf_rows.append(len(table_data))
                 fields[-1] = "BLOQUEADO"
             cells = [Paragraph(escape(str(x)), styles["CellTinyPos"]) for x in fields]
-            if row["bloqueado"]:
+            if row["bloqueado"] and not row.get("inativo"):
                 cells[-1] = Paragraph('<font color="#B42318"><b>BLOQUEADO</b></font>', styles["CellTinyPos"])
             table_data.append(cells)
         table=LongTable(table_data, colWidths=[44,72,170,123,106,112,74,55], repeatRows=1, hAlign="LEFT")
@@ -1472,6 +1724,9 @@ async def positivacao_export(
         if blocked_pdf_rows:
             table.setStyle(TableStyle([("BACKGROUND", (0, i), (-1, i), colors.HexColor("#FCE8E6"))
                                        for i in blocked_pdf_rows]))
+        if inactive_pdf_rows:
+            table.setStyle(TableStyle([("BACKGROUND", (0, i), (-1, i), colors.HexColor("#FCE8E6"))
+                                       for i in inactive_pdf_rows]))
         story.append(table)
         if notes:
             story.extend([Spacer(1, 16), Paragraph("Observações dos clientes", styles["Heading2"])])
@@ -1485,6 +1740,14 @@ async def positivacao_export(
                     safe_text = escape(_obs_export_text(note)).replace("\n", "<br/>")
                     story.append(Paragraph(safe_text, styles["ObsTinyPos"]))
                 story.append(Spacer(1, 6))
+        if inactive_pdf_rows:
+            story.extend([Spacer(1,14), Paragraph("Clientes inativos — fora dos indicadores e pendências", styles["Heading2"])])
+            for row in rows:
+                if row.get("inativo"):
+                    desc = ("Cliente " + row["codigo"] + " — " + row["cliente"] +
+                            " | Aprovado em: " + str(row.get("inatividadeAprovadaEm") or "")[:10] +
+                            " | Motivo: " + str(row.get("inatividadeMotivo") or ""))
+                    story.append(Paragraph(escape(desc), styles["ObsTinyPos"]))
         doc.build(story)
         media="application/pdf"; ext="pdf"
     else:
