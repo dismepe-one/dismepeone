@@ -89,6 +89,20 @@
 .inactive-highlight{color:#b42318;background:#fce8e6;border:1px solid #e99d97;font-weight:850}
 .table-scroll tbody tr:has(.tag.blocked){border-left-color:#d66}
 @media(max-width:700px){#inatAdminButton{flex:1}}
+/* DEV10.4 - grafico compacto no acesso individual: legenda perto do circulo. */
+.individual-mode .two{max-width:850px;width:100%;margin-inline:auto}
+.individual-mode .two>.card:last-child .graph{max-width:620px;width:100%;justify-content:center;gap:24px;margin:12px auto 0}
+.individual-mode .two>.card:last-child .legend{flex:0 1 340px;width:340px;min-width:0}
+.individual-mode .two>.card:last-child .legend-row{gap:12px}
+.inat-request-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:12px}
+.inat-client-quick{margin:5px 0 0 5px;white-space:normal;text-align:center}
+@media(max-width:700px){
+ .individual-mode .two{max-width:100%}
+ .individual-mode .two>.card:last-child .graph{flex-direction:column;align-items:center;gap:14px}
+ .individual-mode .two>.card:last-child .legend{flex:1 1 auto;width:min(100%,400px);max-width:100%;padding-top:0}
+ .inat-request-bar>.btn{min-height:42px}
+ .inat-client-quick{margin-left:5px;min-height:35px}
+}
 </style>
 </head>
 <body>
@@ -107,11 +121,13 @@
 </main>
 <div id="notesModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="noteClientTitle"><div class="modal-inner notes-modal-inner">
  <div class="section-title"><div><h2 id="noteClientTitle">Observações do cliente</h2><p>Histórico compartilhado entre o vendedor, o televendas cadastrado e a administração.</p></div><button class="btn ghost sm" id="noteCancel" type="button">Fechar</button></div>
- <div id="inatClientStatus" class="note-item" role="status">Verificando inatividade…</div><div id="notesList" class="notes-scroller" aria-live="polite">Carregando observações…</div>
+ <div id="inatClientStatus" class="note-item" role="status">Verificando inatividade…</div>
+  <div class="inat-request-bar"><button id="inatRequestMain" type="button" class="btn ghost sm">Solicitar inatividade</button><span class="tiny">É preciso salvar uma observação fixa antes de enviar à administração.</span></div>
+  <div id="notesList" class="notes-scroller" aria-live="polite">Carregando observações…</div>
  <div id="notesHistory" class="note-history" hidden></div>
  <form id="notesForm" class="note-form"><h3 id="noteFormTitle">Registrar observação</h3>
   <div class="note-form-grid"><div><label class="note-field" for="noteType">Tipo</label><select id="noteType"><option value="temporaria">Temporária • com retorno</option><option value="fixa">Fixa • permanece nos meses seguintes</option></select></div><div id="noteDueWrapper"><label class="note-field" for="noteDue">Data de retorno</label><input id="noteDue" type="date"></div></div>
-  <label class="note-field" for="noteReason">Motivo</label><input id="noteReason" type="text" maxlength="120" list="noteReasons" required placeholder="Ex.: cliente com estoque, aguardando pedido..."><datalist id="noteReasons"><option value="Aguardando pedido do cliente"></option><option value="Cliente com estoque suficiente"></option><option value="Preço ou condição comercial"></option><option value="Comprando de outro fornecedor"></option><option value="Cliente sem movimentação"></option><option value="Problema financeiro ou de crédito"></option><option value="Retorno agendado"></option><option value="Outro motivo"></option></datalist>
+  <label class="note-field" for="noteReason">Motivo</label><input id="noteReason" type="text" maxlength="120" required autocomplete="off" placeholder="Escreva o motivo com suas próprias palavras">
   <label class="note-field" for="noteText">Observação</label><textarea id="noteText" maxlength="1800" required placeholder="Descreva o motivo, contato realizado ou próximo passo..."></textarea>
   <div id="noteStatusWrapper" hidden><label class="note-field" for="noteStatus">Acompanhamento</label><select id="noteStatus"><option value="pendente">Pendente</option><option value="concluida">Concluído</option></select></div>
   <div id="noteError" class="tiny" role="alert" style="color:#b43e40;margin-top:7px"></div>
@@ -191,7 +207,7 @@ function clientHasAnySale(c){
 }
 function currentQuery(){const p=new URLSearchParams({status:currentStatus,setor:snapshot?.acesso?.individual?snapshot.acesso.setor:$('sectorFilter').value,busca:$('search').value.trim()});if($('blockFilter').value==='1')p.set('nao_bloqueados','true');return p;}
 async function loadClients(){const myIndex=++fetchIndex;const tbody=$('clientRows');tbody.innerHTML='<tr><td colspan="6" class="empty">Carregando clientes filtrados…</td></tr>';try{const q=currentQuery();q.set('pagina',String(page));q.set('tamanho','50');const d=await getJSON('/positivacoes/api/clientes?'+q);if(myIndex!==fetchIndex)return;total=d.total;$('tableSummary').textContent=num(total)+' clientes no filtro atual';$('paginationText').textContent=total?(num((page-1)*50+1)+'–'+num(Math.min(page*50,total))+' de '+num(total)):'Nenhum cliente encontrado';$('pageNum').textContent='Página '+num(page);$('prev').disabled=page===1;$('next').disabled=page*50>=total;
-tbody.innerHTML=d.clientes.length?d.clientes.map(c=>'<tr><td><b>'+esc(c.codigo)+'</b><div class="tiny">'+esc(c.cnpj||'—')+'</div></td><td><span class="client">'+esc(c.cliente)+'</span>'+(c.inativo?'<span class="tag blocked">INATIVO</span>':'')+'<button type="button" class="note-trigger" data-note-code="'+esc(c.codigo)+'" title="Ver observações deste cliente" aria-label="Observações de '+esc(c.cliente)+'">✎ Observações <span class="note-count" hidden></span></button>'+(c.carteiraCompartilhada?'<span class="tiny">Carteira compartilhada</span>':'')+'</td><td>'+esc(c.setores.join(', ')||'Sem usuário vinculado')+'</td><td>'+esc(c.televendas.join(', ')||'—')+'</td><td>'+((c.origensDetalhadas||c.origensDaVenda||c.origens||[]).map(o=>'<span class="tag '+(o.includes('Diretoria')?'dir':o.includes('Televendas')?'tele':o.includes('Vendedor')?'seller':'yes')+'">'+esc(o==='Diretoria/Supervisão'?'Diretoria':o)+'</span>').join(' ')||'—')+'</td><td><span class="tag '+(clientHasAnySale(c)?'yes':'no')+'">'+esc(clientStatusLabel(c))+'</span>'+(c.bloqueado?' <span class="tag blocked">Bloqueado</span>':'')+'</td></tr>').join(''):'<tr><td colspan="6" class="empty">Nenhum cliente corresponde aos filtros.</td></tr>';
+tbody.innerHTML=d.clientes.length?d.clientes.map(c=>'<tr><td><b>'+esc(c.codigo)+'</b><div class="tiny">'+esc(c.cnpj||'—')+'</div></td><td><span class="client">'+esc(c.cliente)+'</span>'+(c.inativo?'<span class="tag blocked">INATIVO</span>':'')+'<button type="button" class="note-trigger" data-note-code="'+esc(c.codigo)+'" title="Ver observações deste cliente" aria-label="Observações de '+esc(c.cliente)+'">✎ Observações <span class="note-count" hidden></span></button>'+(c.inativo?'':' <button type="button" class="btn ghost sm inat-client-quick" data-inat-open="'+esc(c.codigo)+'">Solicitar inatividade</button>')+(c.carteiraCompartilhada?'<span class="tiny">Carteira compartilhada</span>':'')+'</td><td>'+esc(c.setores.join(', ')||'Sem usuário vinculado')+'</td><td>'+esc(c.televendas.join(', ')||'—')+'</td><td>'+((c.origensDetalhadas||c.origensDaVenda||c.origens||[]).map(o=>'<span class="tag '+(o.includes('Diretoria')?'dir':o.includes('Televendas')?'tele':o.includes('Vendedor')?'seller':'yes')+'">'+esc(o==='Diretoria/Supervisão'?'Diretoria':o)+'</span>').join(' ')||'—')+'</td><td><span class="tag '+(clientHasAnySale(c)?'yes':'no')+'">'+esc(clientStatusLabel(c))+'</span>'+(c.bloqueado?' <span class="tag blocked">Bloqueado</span>':'')+'</td></tr>').join(''):'<tr><td colspan="6" class="empty">Nenhum cliente corresponde aos filtros.</td></tr>';
 void refreshNotesBadges(d.clientes,myIndex);
 }catch(e){if(myIndex!==fetchIndex)return;tbody.innerHTML='<tr><td colspan="6" class="empty">Não foi possível carregar a lista de clientes.</td></tr>';showAlert(e.message,true);}}
 let refreshTimer=0,requestInProgress=false,lastSnapshotTime='';
@@ -289,6 +305,8 @@ function noteCard(note){
 async function openClientNotes(code){
  noteClientCode=String(code);
  noteRecords=[];
+ $('inatRequestMain').disabled=true;
+ $('inatRequestMain').title='Carregando observações e inatividade deste cliente';
  $('noteClientTitle').textContent='Observações do cliente '+noteClientCode;
  $('notesList').textContent='Carregando observações…';
  $('notesHistory').hidden=true;
@@ -319,9 +337,11 @@ async function refreshNotesBadges(clients,requestIndex){
  }catch(_){ /* A lista de clientes e o botao continuam disponiveis. */ }
 }
 $('clientRows').addEventListener('click',event=>{
- const trigger=event.target.closest('[data-note-code]');
- if(trigger)openClientNotes(trigger.dataset.noteCode);
-});
+  const quick=event.target.closest('[data-inat-open]');
+  if(quick){openClientNotes(quick.dataset.inatOpen);return;}
+  const trigger=event.target.closest('[data-note-code]');
+  if(trigger)openClientNotes(trigger.dataset.noteCode);
+ });
 $('noteType').addEventListener('change',()=>{$('noteDueWrapper').hidden=$('noteType').value!=='temporaria';});
 $('noteCancel').addEventListener('click',()=>{$('notesModal').hidden=true;noteClientCode='';});
 $('noteCancelEdit').addEventListener('click',()=>noteFormState(null));
@@ -394,12 +414,25 @@ async function inatRefreshClient(code){
   inatCurrent=d.registro||null;
   $('inatClientStatus').textContent=inatMessage(inatCurrent);
   $('inatClientStatus').classList.toggle('inactive-highlight',inatCurrent?.situacao==='aprovado');
-  $('notesList').querySelectorAll('[data-inat-note]').forEach(b=>{
+   const main=$('inatRequestMain');
+   main.disabled=!!inatCurrent&&['pendente','aprovado'].includes(inatCurrent.situacao);
+   main.title=main.disabled?'Cliente com solicitação em análise ou inatividade aprovada':'Solicitar após registrar uma observação fixa';
+   $('notesList').querySelectorAll('[data-inat-note]').forEach(b=>{
    b.disabled=!!inatCurrent&&['pendente','aprovado'].includes(inatCurrent.situacao);
    b.title=b.disabled?'Este cliente já possui solicitação pendente ou inatividade aprovada':'Solicitar inatividade com esta observação fixa';
   });
  }catch(e){$('inatClientStatus').textContent='Não foi possível verificar a inatividade: '+e.message;}
 }
+$('inatRequestMain').addEventListener('click',()=>{
+ const fixed=noteRecords.find(n=>n.tipo==='fixa'&&String(n.texto||'').trim());
+ if(!fixed){
+  $('noteError').textContent='Salve uma observação fixa explicando a situação do cliente antes de solicitar a inatividade.';
+  $('noteType').value='fixa';$('noteType').dispatchEvent(new Event('change'));
+  $('noteReason').focus();return;
+ }
+ const button=$('notesList').querySelector('[data-inat-note="'+Number(fixed.id)+'"]');
+ if(button&&!button.disabled)button.click();
+});
 $('notesList').addEventListener('click',async e=>{
  const button=e.target.closest('[data-inat-note]');if(!button||button.disabled)return;
  const fixed=noteRecords.find(n=>Number(n.id)===Number(button.dataset.inatNote));
