@@ -65,24 +65,58 @@
  .table-bottom>div:last-child .btn{justify-content:center;min-height:41px}
  .modal-inner{padding:17px}.footer{padding:15px 0}
 }
-.company-numbers{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.company-numbers>div{background:#f2f8f5;border-radius:12px;padding:13px;min-width:0}.company-numbers span{display:block;color:var(--muted);font-size:11px;line-height:1.3}.company-numbers strong{display:block;font-size:clamp(20px,3vw,30px);margin-top:7px}.individual-mode #companyPanel:not([hidden]){display:block!important}
-@media(max-width:700px){.company-numbers{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.company-numbers>div{padding:10px}.company-numbers strong{font-size:21px}}
+.company-numbers{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}.company-numbers>div{background:#f2f8f5;border-radius:12px;padding:13px;min-width:0}.company-numbers span{display:block;color:var(--muted);font-size:11px;line-height:1.3}.company-numbers strong{display:block;font-size:clamp(20px,3vw,30px);margin-top:7px}.individual-mode #companyPanel:not([hidden]){display:block!important}
+@media(max-width:700px){.company-numbers{grid-template-columns:minmax(0,1fr);gap:7px}.company-numbers>div{padding:10px}.company-numbers strong{font-size:21px}}
+/* DEV10 - observacoes por cliente (desktop + mobile), isoladas dos graficos. */
+.note-trigger{display:inline-flex;align-items:center;gap:5px;margin-top:6px;padding:5px 8px;border:1px solid #bad9cf;border-radius:8px;background:#edf7f3;color:#075548;font-size:11px;font-weight:800;max-width:100%;white-space:normal;text-align:left}
+.note-trigger:hover,.note-trigger:focus-visible{background:#daf4e9;border-color:#0b886c}.note-trigger.has-notes{background:#d7ebff;border-color:#9ec8f3;color:#14539a}
+.note-count{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 3px;background:#14539a;color:#fff;border-radius:20px;font-size:10px}
+.notes-modal-inner{width:min(760px,100%);max-height:92vh;overflow:auto;padding:20px}.notes-modal-inner h2{overflow-wrap:anywhere;font-size:19px;line-height:1.25}
+.notes-scroller{display:grid;gap:10px;max-height:32vh;overflow:auto;margin:13px 0;padding-right:3px}
+.note-item{padding:12px;border:1px solid #d6e7df;border-radius:11px;background:#f9fcfa;min-width:0}
+.note-item-top,.note-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.note-actions{margin-top:9px}
+.note-chip{display:inline-flex;padding:4px 8px;border-radius:99px;font-size:10px;font-weight:850;background:#e6efff;color:#25528f}
+.note-chip.fixed{background:#dff4e9;color:#08664c}.note-chip.done{background:#edf2ef;color:#5d7469}.note-chip.late{background:#fff1db;color:#a8610b}.note-chip.open{background:#eef7fb;color:#236889}
+.note-reason{margin:8px 0 4px;font-size:12px;font-weight:900;overflow-wrap:anywhere}.note-body{font-size:12px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.note-meta{font-size:10px;margin-top:8px;color:#657d73;overflow-wrap:anywhere}
+.note-form{border-top:1px solid #d7e4e0;padding-top:13px}.note-form h3{margin:0;font-size:14px}
+.note-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.note-form .note-field{display:block;font-size:12px;font-weight:800;margin:9px 0 4px}
+.note-form input,.note-form select,.note-form textarea{display:block;border:1px solid #cfe0d8;border-radius:9px;width:100%;padding:10px;min-height:39px;color:#123b34;background:#fff;font-size:13px;box-sizing:border-box}
+.note-form textarea{min-height:88px;resize:vertical;font-family:inherit}.note-history{background:#f0f7f5;border-radius:9px;padding:9px;margin-top:9px;max-height:180px;overflow:auto;font-size:11px}
+.note-history-line{padding:6px 0;border-bottom:1px solid #dbe9e3}.note-overview-item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px;border-bottom:1px solid #e2ece7;font-size:12px}.note-overview-item>div{min-width:0;overflow-wrap:anywhere}
+@media(max-width:700px){.notes-modal-inner{padding:13px;max-height:96vh}.notes-scroller{max-height:34vh}.note-form-grid{grid-template-columns:minmax(0,1fr)}.note-trigger{min-height:35px}.note-overview-item{flex-wrap:wrap}}
+
 </style>
 </head>
 <body>
 <header class="topbar"><div class="top-inner"><div class="brand"><img class="logo" src="/positivacoes/logo.png" alt="DISMEPE ONE"><div><small>POSITIVAÇÃO GERAL</small></div></div><div class="header-actions"><span class="pill" id="accessPill">Administrador</span><a class="btn outline sm" href="/">← <span class="label-desktop">Voltar ao início</span><span class="sr-only">Voltar ao início</span></a></div></div></header>
 <main class="shell">
-<section class="intro"><div><div class="kicker" id="scopeKicker">Resultados da DISMEPE</div><h1 id="pageTitle">Positivação Geral</h1><div class="subtitle">Acompanhe seus resultados • <span id="updated">Aguardando leitura das bases</span></div></div><div class="intro-actions"><span id="sourceStatus" class="pill">Carregando dados</span><button id="btnRefresh" type="button" class="btn green">↻ Publicar base para todos</button></div></section>
+<section class="intro"><div><div class="kicker" id="scopeKicker">Resultados da DISMEPE</div><h1 id="pageTitle">Positivação Geral</h1><div class="subtitle">Acompanhe seus resultados • <span id="updated">Aguardando leitura das bases</span></div></div><div class="intro-actions"><button id="notesOverviewButton" type="button" class="btn ghost sm" hidden>Observações da equipe</button><span id="sourceStatus" class="pill">Carregando dados</span><button id="btnRefresh" type="button" class="btn green">↻ Publicar base para todos</button></div></section>
 <div id="alert" class="alert" role="alert"></div><div id="loading" class="loading">Carregando Positivações…</div><button type="button" id="retryLoad" class="btn ghost" hidden>Tentar abrir novamente</button><div id="sourceDiagnostic" class="alert" role="status"></div>
 <div id="dashboard" hidden>
 <section class="kpis" aria-label="Indicadores gerais"><article class="card kpi primary"><div class="label" id="kTotalLabel">Carteira geral de clientes únicos</div><strong id="kTotal">—</strong><div class="note">Clientes cadastrados</div></article><article class="card kpi positive"><div class="label">Clientes positivados</div><strong id="kPositive">—</strong><div class="note" id="kPositiveNote">Clientes com compras no período</div></article><article class="card kpi negative"><div class="label">Clientes não positivados</div><strong id="kNegative">—</strong><div class="note">Clientes que ainda não compraram</div></article><article class="card kpi"><div class="label">Percentual de positivação</div><strong id="kPercent">—</strong><div class="note">Clientes com compras em sua carteira</div></article></section>
-<section id="companyPanel" class="card panel" hidden aria-label="Resultado geral da DISMEPE"><div class="section-title"><div><h2>Positivação geral da DISMEPE</h2><p>Resultado de todas as carteiras</p></div></div><div class="company-numbers"><div><span>Clientes da empresa</span><strong id="companyTotal">—</strong></div><div><span>Clientes positivados</span><strong id="companyPositive">—</strong></div><div><span>Positivação geral</span><strong id="companyPercent">—</strong></div><div><span>Meta geral</span><strong id="companyGoal">—</strong></div></div></section>
+<section id="companyPanel" class="card panel" hidden aria-label="Meta geral da DISMEPE"><div class="section-title"><div><h2>Meta geral da DISMEPE</h2></div></div><div class="company-numbers"><div><span>Meta atingida pela DISMEPE</span><strong id="companyGoalPercent">—</strong></div></div></section>
 <section class="two"><article class="card panel"><div class="section-title"><div><h2>Meta geral DISMEPE</h2><p>Clientes com compras no período</p></div><button id="btnMeta" class="btn ghost sm" type="button">Cadastrar meta geral DISMEPE</button></div><div class="progress-head"><div><strong id="metaFraction">—</strong><div class="tiny" id="metaHint">Meta ainda não definida</div></div><div style="text-align:right"><strong id="metaPercent">—</strong><div class="tiny">da meta atingida</div></div></div><div class="progress" role="progressbar" aria-label="Progresso da meta" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="metaBar"><span id="metaFill"></span></div><div class="meta-stats"><div>Faltam <strong id="metaMissing">—</strong> clientes</div><div class="tiny" id="metaPeriod">Período atual</div></div></article><article class="card panel"><div class="section-title"><div><h2>Carteira: positivados × pendentes</h2><p>Acompanhe a situação dos seus clientes</p></div></div><div class="graph"><div class="donut" id="donut"><div><b id="donutNum">—</b><small>positivados</small></div></div><div class="legend"><div class="legend-row"><span><i class="dot"></i>Positivados</span><b id="legendPos">—</b></div><div class="legend-row"><span><i class="dot alt"></i>Não positivados</span><b id="legendNeg">—</b></div><div class="legend-row"><span><i class="dot dir"></i>Bloqueados na carteira</span><b id="legendBlocked">—</b></div></div></div></article></section>
 <section class="metrics-strip"><article class="card mini"><label>Novos na carteira</label><strong id="mNew">—</strong><small>Desde a última atualização</small></article><article class="card mini"><label>Removidos da carteira</label><strong id="mRemoved">—</strong><small>Desde a última atualização</small></article><article class="card mini"><label>Novos bloqueios</label><strong id="mBlocked">—</strong><small>Comparação entre atualizações</small></article><article class="card mini"><label>Fora da carteira atual</label><strong id="mOutside">—</strong><small>Compras de clientes fora da carteira</small></article></section>
 <section class="charts"><article class="card panel"><div class="section-title"><div><h2>Positivação por carteira</h2><p id="sectorExplain">Acompanhe os resultados por vendedor</p></div><span class="tiny" id="sectorCount">—</span></div><div class="sector-head"><span>Carteira</span><span>Progresso</span><span style="text-align:right">%</span></div><div class="sector-rows" id="sectorRows" aria-label="Gráfico por carteira"></div><div class="explain">Um cliente pode fazer parte de mais de uma carteira.</div></article><article class="card panel"><div class="section-title"><div><h2>Origem da positivação</h2><p id="originExplain">Veja de onde vieram as vendas</p></div></div><div class="origins" id="originRows"></div><div class="explain">As vendas da Diretoria e Supervisão fazem parte do resultado geral.</div></article></section>
 <section class="card table-panel"><div class="filters"><div><h2>Carteira de clientes</h2><small id="tableSummary">Consulte os clientes da carteira</small></div><div class="filters-main"><label for="blockFilter" class="sr-only">Filtrar clientes bloqueados</label><select id="blockFilter" class="control" aria-label="Situação do bloqueio"><option value="todos">Todos os clientes</option><option value="1">Não bloqueados</option></select><label class="sr-only" for="sectorFilter">Carteira</label><select id="sectorFilter" class="control"><option value="">Todas as carteiras</option></select><label class="sr-only" for="search">Busca por cliente, código ou CNPJ</label><input class="control search" id="search" type="search" placeholder="Buscar código, cliente ou CNPJ" autocomplete="off"></div></div><div class="filter-tabs" id="tabs"><button class="tab active" data-status="todos">Todos</button><button class="tab" data-status="positivados">Positivados</button><button class="tab" data-status="nao-positivados">Não positivados</button><button class="tab" data-status="bloqueados">Bloqueados</button></div><div class="origin-legend"><span><span class="tag seller">Vendedor</span> Positivação do vendedor</span><span><span class="tag tele">Televendas</span> Positivação do televendas</span><span>Clientes com ambos exibem as duas cores.</span></div><div class="table-scroll"><table><thead><tr><th>Código / CNPJ</th><th>Cliente</th><th>Carteira</th><th>Televendas Cad.</th><th>Origem</th><th>Situação</th></tr></thead><tbody id="clientRows"><tr><td colspan="6" class="empty">Aguardando dados...</td></tr></tbody></table></div><div class="table-bottom"><div class="tiny" id="paginationText">—</div><div class="pages"><button id="prev" class="btn sm" type="button">← Anterior</button><span id="pageNum" class="tiny">1</span><button id="next" class="btn sm" type="button">Próxima →</button></div><div style="display:flex;gap:7px"><button class="btn ghost sm export" data-kind="excel" type="button" disabled title="Selecione um vendedor ou televendas para exportar">↓ Excel</button><button class="btn ghost sm export" data-kind="pdf" type="button" disabled title="Selecione um vendedor ou televendas para exportar">↓ PDF</button></div></div></section>
 <div class="footer" id="pageFooter">DISMEPE ONE • resultados da empresa</div></div>
 </main>
+<div id="notesModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="noteClientTitle"><div class="modal-inner notes-modal-inner">
+ <div class="section-title"><div><h2 id="noteClientTitle">Observações do cliente</h2><p>Histórico compartilhado entre o vendedor, o televendas cadastrado e a administração.</p></div><button class="btn ghost sm" id="noteCancel" type="button">Fechar</button></div>
+ <div id="notesList" class="notes-scroller" aria-live="polite">Carregando observações…</div>
+ <div id="notesHistory" class="note-history" hidden></div>
+ <form id="notesForm" class="note-form"><h3 id="noteFormTitle">Registrar observação</h3>
+  <div class="note-form-grid"><div><label class="note-field" for="noteType">Tipo</label><select id="noteType"><option value="temporaria">Temporária • com retorno</option><option value="fixa">Fixa • permanece nos meses seguintes</option></select></div><div id="noteDueWrapper"><label class="note-field" for="noteDue">Data de retorno</label><input id="noteDue" type="date"></div></div>
+  <label class="note-field" for="noteReason">Motivo</label><input id="noteReason" type="text" maxlength="120" list="noteReasons" required placeholder="Ex.: cliente com estoque, aguardando pedido..."><datalist id="noteReasons"><option value="Aguardando pedido do cliente"></option><option value="Cliente com estoque suficiente"></option><option value="Preço ou condição comercial"></option><option value="Comprando de outro fornecedor"></option><option value="Cliente sem movimentação"></option><option value="Problema financeiro ou de crédito"></option><option value="Retorno agendado"></option><option value="Outro motivo"></option></datalist>
+  <label class="note-field" for="noteText">Observação</label><textarea id="noteText" maxlength="1800" required placeholder="Descreva o motivo, contato realizado ou próximo passo..."></textarea>
+  <div id="noteStatusWrapper" hidden><label class="note-field" for="noteStatus">Acompanhamento</label><select id="noteStatus"><option value="pendente">Pendente</option><option value="concluida">Concluído</option></select></div>
+  <div id="noteError" class="tiny" role="alert" style="color:#b43e40;margin-top:7px"></div>
+  <div class="modal-actions"><button type="button" id="noteCancelEdit" class="btn" hidden>Cancelar edição</button><button id="noteSave" class="btn green" type="submit">Salvar observação</button></div>
+ </form>
+</div></div>
+<div id="notesOverviewModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="notesOverviewTitle"><div class="modal-inner notes-modal-inner"><div class="section-title"><div><h2 id="notesOverviewTitle">Acompanhamento da equipe</h2><p>Últimas 80 observações registradas na empresa.</p></div><button type="button" id="notesOverviewClose" class="btn ghost sm">Fechar</button></div><div id="notesOverviewList" class="notes-scroller"></div></div></div>
+
 <div class="modal" id="metaModal" hidden role="dialog" aria-modal="true" aria-labelledby="metaTitle"><div class="modal-inner"><h2 id="metaTitle">Cadastrar meta geral DISMEPE</h2><p>Defina quantos clientes únicos a empresa deve positivar no período. Somente o administrador pode alterar.</p><form id="metaForm"><label for="metaInput">Meta de clientes positivados</label><input id="metaInput" type="number" min="0" max="1000000" step="1" required><div id="metaError" class="tiny" style="color:var(--red);margin-top:8px" role="alert"></div><div class="modal-actions"><button class="btn" type="button" id="cancelMeta">Cancelar</button><button class="btn green" type="submit">Salvar meta</button></div></form></div></div>
 <script>
 (function(){'use strict';
@@ -102,7 +136,7 @@ async function getJSON(url,opts={}){
 }
 function applyAccess(d){
  const own=d.acesso&&d.acesso.individual;
- document.body.classList.toggle('individual-mode',!!own);
+ document.body.classList.toggle('individual-mode',!!own);$('notesOverviewButton').hidden=!!own;
   if(own){
    $('companyPanel').hidden=false;
    $('accessPill').textContent=d.acesso.canal;
@@ -118,21 +152,21 @@ function applyAccess(d){
  }
 }
 function populate(){const d=snapshot,k=d.indicadores;
- if(d.acesso?.individual){const g=d.geralEmpresa||{};$('companyTotal').textContent=num(g.carteira);$('companyPositive').textContent=num(g.positivados);$('companyPercent').textContent=pct(g.percentual);$('companyGoal').textContent=d.meta?num(d.meta):'Não definida';}
- $('kPositiveNote').textContent=d.acesso?.individual?'Clientes positivados pela equipe':'Clientes com compras no período';
+ if(d.acesso?.individual){$('companyGoalPercent').textContent=d.meta?pct(d.metaAtingimento):'Meta não definida';}
+ $('kPositiveNote').textContent=d.acesso?.individual?'':'Clientes com compras no período';
  $('kTotal').textContent=num(k.carteira);$('kPositive').textContent=num(k.positivados);$('kNegative').textContent=num(k.naoPositivados);$('kPercent').textContent=pct(k.percentual);
 $('updated').textContent='Atualizado em '+new Date(d.atualizadoEm).toLocaleString('pt-BR');$('sourceStatus').textContent='Período '+d.competencia;$('mNew').textContent=num(d.movimentacao.novos);$('mRemoved').textContent=num(d.movimentacao.removidos);$('mBlocked').textContent=num(d.movimentacao.bloqueadosNovos);$('mOutside').textContent=num(k.positivadosForaCarteira);
 $('donut').style.setProperty('--pct',Math.min(100,Math.max(0,k.percentual))+'%');$('donutNum').textContent=pct(k.percentual);$('legendPos').textContent=num(k.positivados);$('legendNeg').textContent=num(k.naoPositivados);$('legendBlocked').textContent=num(k.bloqueados);
 $('btnMeta').textContent=d.meta?'Alterar meta geral DISMEPE':'Cadastrar meta geral DISMEPE';$('metaFraction').textContent=num(k.positivados)+' / '+(d.meta?num(d.meta):'—');$('metaHint').textContent=d.meta?'Meta definida pela administração':'Configure uma meta para acompanhar o atingimento';$('metaPercent').textContent=d.meta?pct(d.metaAtingimento):'—';$('metaMissing').textContent=d.meta?num(d.metaFaltam):'—';$('metaPeriod').textContent='Competência '+d.competencia;$('metaFill').style.width=(d.meta?Math.min(100,d.metaAtingimento):0)+'%';$('metaBar').setAttribute('aria-valuenow',String(d.meta?Math.min(100,d.metaAtingimento):0));
 $('sectorCount').textContent=num(d.setores.length)+' carteiras';const choice=$('sectorFilter').value;$('sectorFilter').innerHTML='<option value="">Todas as carteiras</option><optgroup label="Vendedores">'+d.setores.map(s=>'<option value="'+esc(s.setor)+'">'+esc(s.setor)+'</option>').join('')+'</optgroup><optgroup label="Televendas">'+(d.carteirasTelevendas||[]).map(s=>'<option value="TV:'+esc(s.televendas)+'">'+esc(s.televendas)+'</option>').join('')+'</optgroup>';$('sectorFilter').value=d.acesso?.individual?d.acesso.setor:choice;setExportAvailability();
 $('sectorRows').innerHTML=d.setores.length?d.setores.map(s=>'<div class="sector-row"><div class="name">'+esc(s.setor)+'<small>'+num(s.positivados)+' / '+num(s.total)+' clientes</small></div><div class="track"><span style="width:'+Math.max(0,Math.min(100,s.percentual))+'%"></span></div><b>'+pct(s.percentual)+'</b></div>').join(''):'<div class="empty">Nenhuma carteira vinculada a vendedor ativo foi localizada.</div>';
-renderOrigins(d.origens);$('kTotalLabel').textContent=d.acesso?.individual?'Minha carteira • clientes únicos':'Clientes da empresa';$('kPositiveNote').textContent=d.acesso?.individual?'Vendas do vendedor, televendas ou Diretoria':'Clientes com compras no período';$('sectorExplain').textContent=d.acesso?.individual?'Minha carteira individual':'Acompanhe os resultados por vendedor';$('originExplain').textContent=d.acesso?.individual?'Vendas realizadas na sua carteira, por canal':'Veja de onde vieram as vendas';}
+renderOrigins(d.origens);$('kTotalLabel').textContent=d.acesso?.individual?'Minha carteira • clientes únicos':'Clientes da empresa';$('kPositiveNote').textContent=d.acesso?.individual?'':'Clientes com compras no período';$('sectorExplain').textContent=d.acesso?.individual?'Minha carteira individual':'Acompanhe os resultados por vendedor';$('originExplain').textContent=d.acesso?.individual?'Vendas realizadas na sua carteira, por canal':'Veja de onde vieram as vendas';}
 function renderOrigins(origins){const max=Math.max(1,...Object.values(origins));const names=['Vendedor','Televendas','Diretoria/Supervisão','Vendedor + Televendas'];$('originRows').innerHTML=names.map(name=>'<div><div class="origin-row"><span>'+esc(name)+'</span><b>'+num(origins[name]||0)+'</b></div><div class="track"><span style="width:'+Math.round(100*(origins[name]||0)/max)+'%"></span></div></div>').join('');}
 async function updateFilteredCharts(){
  const choice=snapshot?.acesso?.individual?snapshot.acesso.setor:$('sectorFilter').value,serial=++chartIndex;if(!snapshot)return;
  if(!choice){populate();return;}
  try{const params=new URLSearchParams({setor:choice});if($('blockFilter').value==='1')params.set('nao_bloqueados','true');const d=await getJSON('/positivacoes/api/resumo-filtro?'+params);if(serial!==chartIndex||choice!==$('sectorFilter').value)return;
- const k=d.indicadores;$('kTotal').textContent=num(k.carteira);$('kPositive').textContent=num(k.positivados);$('kNegative').textContent=num(k.naoPositivados);$('kPercent').textContent=pct(k.percentual);$('kTotalLabel').textContent='Carteira de '+d.canal;$('kPositiveNote').textContent='Clientes positivados por qualquer canal nesta carteira';
+ const k=d.indicadores;$('kTotal').textContent=num(k.carteira);$('kPositive').textContent=num(k.positivados);$('kNegative').textContent=num(k.naoPositivados);$('kPercent').textContent=pct(k.percentual);$('kTotalLabel').textContent='Carteira de '+d.canal;$('kPositiveNote').textContent='';
  $('donut').style.setProperty('--pct',Math.min(100,Math.max(0,k.percentual))+'%');$('donutNum').textContent=pct(k.percentual);$('legendPos').textContent=num(k.positivados);$('legendNeg').textContent=num(k.naoPositivados);$('legendBlocked').textContent=num(k.bloqueados);
  $('sectorCount').textContent='1 carteira filtrada';$('sectorRows').innerHTML=d.setores.map(s=>'<div class="sector-row"><div class="name">'+esc(d.profissional)+'<small>'+num(s.positivados)+' / '+num(s.total)+' clientes</small></div><div class="track"><span style="width:'+Math.max(0,Math.min(100,s.percentual))+'%"></span></div><b>'+pct(s.percentual)+'</b></div>').join('');
  $('sectorExplain').textContent='Resultados de '+d.profissional;$('originExplain').textContent='Vendas na carteira de '+d.profissional+', por canal';renderOrigins(d.origens);
@@ -152,7 +186,8 @@ function clientHasAnySale(c){
 }
 function currentQuery(){const p=new URLSearchParams({status:currentStatus,setor:snapshot?.acesso?.individual?snapshot.acesso.setor:$('sectorFilter').value,busca:$('search').value.trim()});if($('blockFilter').value==='1')p.set('nao_bloqueados','true');return p;}
 async function loadClients(){const myIndex=++fetchIndex;const tbody=$('clientRows');tbody.innerHTML='<tr><td colspan="6" class="empty">Carregando clientes filtrados…</td></tr>';try{const q=currentQuery();q.set('pagina',String(page));q.set('tamanho','50');const d=await getJSON('/positivacoes/api/clientes?'+q);if(myIndex!==fetchIndex)return;total=d.total;$('tableSummary').textContent=num(total)+' clientes no filtro atual';$('paginationText').textContent=total?(num((page-1)*50+1)+'–'+num(Math.min(page*50,total))+' de '+num(total)):'Nenhum cliente encontrado';$('pageNum').textContent='Página '+num(page);$('prev').disabled=page===1;$('next').disabled=page*50>=total;
-tbody.innerHTML=d.clientes.length?d.clientes.map(c=>'<tr><td><b>'+esc(c.codigo)+'</b><div class="tiny">'+esc(c.cnpj||'—')+'</div></td><td><span class="client">'+esc(c.cliente)+'</span>'+(c.carteiraCompartilhada?'<span class="tiny">Carteira compartilhada</span>':'')+'</td><td>'+esc(c.setores.join(', ')||'Sem usuário vinculado')+'</td><td>'+esc(c.televendas.join(', ')||'—')+'</td><td>'+((c.origensDetalhadas||c.origensDaVenda||c.origens||[]).map(o=>'<span class="tag '+(o.includes('Diretoria')?'dir':o.includes('Televendas')?'tele':o.includes('Vendedor')?'seller':'yes')+'">'+esc(o==='Diretoria/Supervisão'?'Diretoria':o)+'</span>').join(' ')||'—')+'</td><td><span class="tag '+(clientHasAnySale(c)?'yes':'no')+'">'+esc(clientStatusLabel(c))+'</span>'+(c.bloqueado?' <span class="tag blocked">Bloqueado</span>':'')+'</td></tr>').join(''):'<tr><td colspan="6" class="empty">Nenhum cliente corresponde aos filtros.</td></tr>';
+tbody.innerHTML=d.clientes.length?d.clientes.map(c=>'<tr><td><b>'+esc(c.codigo)+'</b><div class="tiny">'+esc(c.cnpj||'—')+'</div></td><td><span class="client">'+esc(c.cliente)+'</span><button type="button" class="note-trigger" data-note-code="'+esc(c.codigo)+'" title="Ver observações deste cliente" aria-label="Observações de '+esc(c.cliente)+'">✎ Observações <span class="note-count" hidden></span></button>'+(c.carteiraCompartilhada?'<span class="tiny">Carteira compartilhada</span>':'')+'</td><td>'+esc(c.setores.join(', ')||'Sem usuário vinculado')+'</td><td>'+esc(c.televendas.join(', ')||'—')+'</td><td>'+((c.origensDetalhadas||c.origensDaVenda||c.origens||[]).map(o=>'<span class="tag '+(o.includes('Diretoria')?'dir':o.includes('Televendas')?'tele':o.includes('Vendedor')?'seller':'yes')+'">'+esc(o==='Diretoria/Supervisão'?'Diretoria':o)+'</span>').join(' ')||'—')+'</td><td><span class="tag '+(clientHasAnySale(c)?'yes':'no')+'">'+esc(clientStatusLabel(c))+'</span>'+(c.bloqueado?' <span class="tag blocked">Bloqueado</span>':'')+'</td></tr>').join(''):'<tr><td colspan="6" class="empty">Nenhum cliente corresponde aos filtros.</td></tr>';
+void refreshNotesBadges(d.clientes,myIndex);
 }catch(e){if(myIndex!==fetchIndex)return;tbody.innerHTML='<tr><td colspan="6" class="empty">Não foi possível carregar a lista de clientes.</td></tr>';showAlert(e.message,true);}}
 let refreshTimer=0,requestInProgress=false,lastSnapshotTime='';
 function scheduleRefresh(delay=5000){clearTimeout(refreshTimer);refreshTimer=setTimeout(()=>refresh(false),delay);}
@@ -216,6 +251,125 @@ $('retryLoad').addEventListener('click',()=>{$('retryLoad').hidden=true;showAler
 $('btnRefresh').addEventListener('click',()=>refresh(true));$('tabs').addEventListener('click',e=>{const b=e.target.closest('[data-status]');if(!b)return;currentStatus=b.dataset.status;if(currentStatus==='bloqueados'&&$('blockFilter').value==='1'){$('blockFilter').value='todos';updateFilteredCharts();}document.querySelectorAll('#tabs .tab').forEach(x=>x.classList.toggle('active',x===b));page=1;loadClients();});$('sectorFilter').addEventListener('change',()=>{setExportAvailability();page=1;loadClients();updateFilteredCharts();});$('blockFilter').addEventListener('change',()=>{if($('blockFilter').value==='1'&&currentStatus==='bloqueados'){$('blockFilter').value='todos';}page=1;loadClients();updateFilteredCharts();});$('search').addEventListener('input',()=>{clearTimeout(searchTimeout);searchTimeout=setTimeout(()=>{page=1;loadClients();},250);});$('prev').addEventListener('click',()=>{if(page>1){page--;loadClients();}});$('next').addEventListener('click',()=>{if(page*50<total){page++;loadClients();}});
 document.querySelectorAll('.export').forEach(b=>b.addEventListener('click',async()=>{const kind=b.dataset.kind;const q=currentQuery();if(!q.get('setor')||q.get('setor')==='TV:')return;const url='/positivacoes/api/exportar/'+kind+'?'+q;b.dataset.exporting='1';setExportAvailability();try{const r=await fetch(url,{credentials:'include',cache:'no-store'});if(!r.ok){let d={};try{d=await r.json();}catch(_){}throw Error(d.detail||'Não foi possível exportar.');}const blob=await r.blob();const obj=URL.createObjectURL(blob);const a=document.createElement('a');a.href=obj;a.download='POSITIVACAO_GERAL_'+new Date().toISOString().slice(0,10)+'.'+(kind==='excel'?'xlsx':'pdf');document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(obj),2000);}catch(e){showAlert(String(e.message),true);}finally{delete b.dataset.exporting;setExportAvailability();}}));
 function closeMeta(){$('metaModal').hidden=true;$('metaError').textContent='';}$('btnMeta').addEventListener('click',()=>{$('metaInput').value=String(snapshot?.meta||0);$('metaModal').hidden=false;$('metaInput').focus();});$('cancelMeta').addEventListener('click',closeMeta);$('metaModal').addEventListener('click',e=>{if(e.target===$('metaModal'))closeMeta();});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMeta();});$('metaForm').addEventListener('submit',async e=>{e.preventDefault();const b=$('metaForm').querySelector('[type="submit"]');b.disabled=true;$('metaError').textContent='';try{const value=Number($('metaInput').value);if(!Number.isInteger(value)||value<0||value>1000000)throw Error('Informe uma meta válida entre 0 e 1.000.000.');const d=await getJSON('/positivacoes/api/meta',{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify({meta:value})});snapshot.meta=d.meta;snapshot.metaAtingimento=d.meta?Math.round(snapshot.indicadores.positivados*10000/d.meta)/100:0;snapshot.metaFaltam=Math.max(0,d.meta-snapshot.indicadores.positivados);populate();updateFilteredCharts();closeMeta();}catch(err){$('metaError').textContent=err.message;}finally{b.disabled=false;}});
+// DEV10: observacoes salvas por cliente e compartilhadas com a dupla autorizada.
+let noteClientCode='',noteRecords=[],noteEditing=null,noteBusy=false;
+const noteDate=value=>value?String(value).slice(0,10).split('-').reverse().join('/'):'—';
+function noteFormState(edit){
+ noteEditing=edit||null;
+ $('noteType').value=edit?.tipo||'temporaria';
+ $('noteReason').value=edit?.motivo||'';
+ $('noteText').value=edit?.texto||'';
+ $('noteDue').value=edit?.retorno_em||'';
+ $('noteStatus').value=edit?.situacao||'pendente';
+ $('noteStatusWrapper').hidden=!edit;
+ $('noteSave').textContent=edit?'Salvar alteração':'Salvar observação';
+ $('noteCancelEdit').hidden=!edit;
+ $('noteDueWrapper').hidden=$('noteType').value!=='temporaria';
+ $('noteError').textContent='';
+}
+function noteCard(note){
+ const overdue=note.tipo==='temporaria'&&note.situacao==='pendente'&&note.retorno_em&&note.retorno_em<new Date().toLocaleDateString('sv-SE',{timeZone:'America/Recife'});
+ const tags='<span class="note-chip '+(note.tipo==='fixa'?'fixed':'temporary')+'">'+(note.tipo==='fixa'?'Fixa':'Temporária')+'</span>'+
+  '<span class="note-chip '+(note.situacao==='concluida'?'done':overdue?'late':'open')+'">'+(note.situacao==='concluida'?'Concluída':overdue?'Retorno atrasado':'Pendente')+'</span>';
+ return '<article class="note-item">'+
+  '<div class="note-item-top">'+tags+'</div>'+
+  '<div class="note-reason">'+esc(note.motivo)+'</div>'+
+  '<div class="note-body">'+esc(note.texto)+'</div>'+
+  '<div class="note-meta">Por '+esc(note.autor_nome)+' • '+esc(noteDate(note.criada_em))+
+  (note.retorno_em?' • Retorno: '+esc(noteDate(note.retorno_em)):'')+'</div>'+
+  '<div class="note-actions">'+(note.editavel?'<button type="button" class="btn ghost sm" data-note-edit="'+Number(note.id)+'">Editar / concluir</button>':'')+
+  '<button type="button" class="btn ghost sm" data-note-history="'+Number(note.id)+'">Histórico</button></div></article>';
+}
+async function openClientNotes(code){
+ noteClientCode=String(code);
+ noteRecords=[];
+ $('noteClientTitle').textContent='Observações do cliente '+noteClientCode;
+ $('notesList').textContent='Carregando observações…';
+ $('notesHistory').hidden=true;
+ $('notesModal').hidden=false;
+ noteFormState(null);
+ try{
+  const d=await getJSON('/positivacoes/api/observacoes/'+encodeURIComponent(noteClientCode));
+  if(noteClientCode!==String(d.codigo))return;
+  noteRecords=d.observacoes||[];
+  $('noteClientTitle').textContent=d.cliente+' • '+noteClientCode;
+  $('notesList').innerHTML=noteRecords.length?noteRecords.map(noteCard).join(''):'<div class="tiny">Ainda não há observações para este cliente.</div>';
+ }catch(e){$('notesList').textContent='Não foi possível carregar as observações: '+e.message;}
+}
+async function refreshNotesBadges(clients,requestIndex){
+ const codes=clients.map(c=>String(c.codigo)).filter(Boolean);
+ if(!codes.length)return;
+ try{
+  const data=await getJSON('/positivacoes/api/observacoes/contagens?'+new URLSearchParams({codigos:codes.join(',')}));
+  if(requestIndex!==fetchIndex)return;
+  $('clientRows').querySelectorAll('[data-note-code]').forEach(button=>{
+   const count=Number((data.contagens||{})[button.dataset.noteCode]||0);
+   button.classList.toggle('has-notes',count>0);
+   button.title=count?count+' observação(ões) para este cliente':'Adicionar observação';
+   const badge=button.querySelector('.note-count');
+   if(badge){badge.textContent=count?String(count):'';badge.hidden=!count;}
+  });
+ }catch(_){ /* A lista de clientes e o botao continuam disponiveis. */ }
+}
+$('clientRows').addEventListener('click',event=>{
+ const trigger=event.target.closest('[data-note-code]');
+ if(trigger)openClientNotes(trigger.dataset.noteCode);
+});
+$('noteType').addEventListener('change',()=>{$('noteDueWrapper').hidden=$('noteType').value!=='temporaria';});
+$('noteCancel').addEventListener('click',()=>{$('notesModal').hidden=true;noteClientCode='';});
+$('noteCancelEdit').addEventListener('click',()=>noteFormState(null));
+$('notesModal').addEventListener('click',event=>{if(event.target===$('notesModal')){$('notesModal').hidden=true;noteClientCode='';}});
+$('notesList').addEventListener('click',async event=>{
+ const edit=event.target.closest('[data-note-edit]');
+ if(edit){
+  const note=noteRecords.find(n=>Number(n.id)===Number(edit.dataset.noteEdit));
+  if(note?.editavel){noteFormState(note);$('noteText').focus();}
+  return;
+ }
+ const history=event.target.closest('[data-note-history]');
+ if(history){
+  $('notesHistory').hidden=false;
+  $('notesHistory').textContent='Carregando histórico…';
+  try{
+   const d=await getJSON('/positivacoes/api/observacoes/'+encodeURIComponent(noteClientCode)+'/historico/'+encodeURIComponent(history.dataset.noteHistory));
+   $('notesHistory').innerHTML=(d.historico||[]).map(x=>'<div class="note-history-line"><b>'+esc(x.operacao==='CRIACAO'?'Criada':'Alterada')+'</b> por '+esc(x.efetuado_por)+' em '+esc(noteDate(x.criado_em))+'</div>').join('')||'Nenhuma alteração registrada.';
+  }catch(e){$('notesHistory').textContent=e.message;}
+ }
+});
+$('notesForm').addEventListener('submit',async event=>{
+ event.preventDefault();
+ if(noteBusy||!noteClientCode)return;
+ noteBusy=true;$('noteSave').disabled=true;$('noteError').textContent='';
+ const payload={cliente_codigo:noteClientCode,tipo:$('noteType').value,motivo:$('noteReason').value.trim(),
+  texto:$('noteText').value.trim(),retorno_em:$('noteType').value==='temporaria'?$('noteDue').value:null};
+ if(noteEditing){payload.id=Number(noteEditing.id);payload.versao=Number(noteEditing.versao);payload.situacao=$('noteStatus').value;}
+ try{
+  await getJSON('/positivacoes/api/observacoes',{method:noteEditing?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  await openClientNotes(noteClientCode);
+  page=page;loadClients();
+ }catch(e){$('noteError').textContent=e.message;}
+ finally{noteBusy=false;$('noteSave').disabled=false;}
+});
+$('notesOverviewButton').addEventListener('click',async()=>{
+ $('notesOverviewModal').hidden=false;
+ $('notesOverviewList').textContent='Carregando acompanhamentos…';
+ try{
+  const d=await getJSON('/positivacoes/api/observacoes/administracao');
+  $('notesOverviewList').innerHTML=(d.observacoes||[]).map(n=>'<div class="note-overview-item"><div><b>'+esc(n.cliente)+'</b> • '+esc(n.cliente_codigo)+
+   '<div class="tiny">'+esc(n.autor_nome)+' • '+esc(n.motivo)+' • '+esc(n.situacao)+(n.retorno_em?' • Retorno: '+esc(noteDate(n.retorno_em)):'')+'</div></div>'+
+   '<button type="button" class="btn ghost sm" data-overview-client="'+esc(n.cliente_codigo)+'">Abrir</button></div>').join('')||'<div class="tiny">Nenhuma observação registrada.</div>';
+ }catch(e){$('notesOverviewList').textContent=e.message;}
+});
+$('notesOverviewClose').addEventListener('click',()=>{$('notesOverviewModal').hidden=true;});
+$('notesOverviewList').addEventListener('click',event=>{
+ const b=event.target.closest('[data-overview-client]');
+ if(b){$('notesOverviewModal').hidden=true;openClientNotes(b.dataset.overviewClient);}
+});
+document.addEventListener('keydown',event=>{
+ if(event.key==='Escape'&&!$('notesModal').hidden){$('notesModal').hidden=true;noteClientCode='';}
+ if(event.key==='Escape'&&!$('notesOverviewModal').hidden)$('notesOverviewModal').hidden=true;
+});
+
 refresh(false);
 })();
 </script>

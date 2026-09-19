@@ -46,7 +46,7 @@ PDF_NAME = "Comparativo Venda_Cliente por Vendedor.pdf"
 SHEET_NAME = "Positivacoes"
 MODULE = "POSITIVACAO_GERAL_V1"
 CONFIG_MODULE = "POSITIVACAO_META_V1"
-_BUILD = "POS-GERAL-DEV9-3-EQUIPE-GERAL-FILTROS"
+_BUILD = "POS-GERAL-DEV10-OBSERVACOES-COMPARTILHADAS"
 _TTL = 600.0
 _CACHE: dict[str, Any] | None = None
 _CACHE_AT = 0.0
@@ -1104,6 +1104,246 @@ async def positivacao_meta(body: MetaRequest, session: str | None = Cookie(defau
     return _safe_json_response({"sucesso": True, "meta": body.meta})
 
 
+# DEV10 - observacoes compartilhadas por codigo de cliente, fora da fotografia mensal.
+# Somente o backend autenticado possui a credencial para a funcao de observacoes.
+class PositivacaoObservacaoNova(BaseModel):
+    cliente_codigo: str = Field(min_length=1, max_length=12)
+    tipo: str = Field(min_length=4, max_length=12)
+    motivo: str = Field(min_length=1, max_length=120)
+    texto: str = Field(min_length=1, max_length=1800)
+    retorno_em: str | None = None
+
+
+class PositivacaoObservacaoAlteracao(PositivacaoObservacaoNova):
+    id: int = Field(ge=1)
+    versao: int = Field(ge=1)
+    situacao: str = Field(min_length=7, max_length=10)
+
+
+async def _obs_edge(acao: str, payload: dict[str, Any]) -> dict[str, Any]:
+    url = settings.supabase_url.rstrip('/') + '/functions/v1/dismepe-positivacoes-observacoes'
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(22.0)) as client:
+            response = await client.post(
+                url, json={'acao': acao, **payload},
+                headers={'apikey': settings.supabase_publishable_key,
+                         'x-dismepe-token': settings.edge_token,
+                         'Content-Type': 'application/json', 'Accept': 'application/json'},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, 'Não foi possível consultar as observações. Tente novamente.') from exc
+    try:
+        result = response.json()
+    except ValueError as exc:
+        raise HTTPException(503, 'A consulta das observações não retornou dados válidos.') from exc
+    if not isinstance(result, dict) or not response.is_success or result.get('sucesso') is not True:
+        message = result.get('erro', '') if isinstance(result, dict) else ''
+        code = 409 if response.status_code == 409 else 503
+        raise HTTPException(code, str(message or 'Não foi possível salvar ou consultar as observações.'))
+    return result
+
+
+def _obs_valid_code(value: str) -> str:
+    code = str(value or '').strip()
+    if not re.fullmatch(r'[0-9]{1,12}', code):
+        raise HTTPException(400, 'Código de cliente inválido.')
+    return code
+
+
+def _obs_valid_fields(note: PositivacaoObservacaoNova) -> dict[str, Any]:
+    kind = note.tipo.strip().lower()
+    if kind not in {'fixa', 'temporaria'}:
+        raise HTTPException(400, 'Escolha observação fixa ou temporária.')
+    reason, body = note.motivo.strip(), note.texto.strip()
+    if not reason or not body or len(reason) > 120 or len(body) > 1800:
+        raise HTTPException(400, 'Preencha o motivo e a observação.')
+    due = str(note.retorno_em or '').strip()
+    if kind == 'temporaria':
+        try:
+            datetime.strptime(due, '%Y-%m-%d')
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(400, 'Informe uma data válida para o retorno.') from exc
+    return {'tipo': kind, 'motivo': reason, 'texto': body,
+            'retorno_em': due if kind == 'temporaria' else None}
+
+
+async def _obs_permission(context: dict[str, Any], codigo: str,
+                          *, historic_admin: bool = False) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    # Nunca usar o filtro, nome ou papel enviados pelo navegador para autorizar.
+    code = _obs_valid_code(codigo)
+    data = await _get_data(context['profile'])
+    row = next((x for x in data['clientes'] if x['codigo'] == code), None)
+    if context['admin']:
+        if row is None and not historic_admin:
+            raise HTTPException(404, 'Cliente não encontrado na carteira atual.')
+        return row, data
+    if row is None:
+        raise HTTPException(403, 'Cliente fora da sua carteira.')
+    own = _norm(context['pessoa'])
+    assigned = row.get('televendas', []) if context['canal'] == 'Televendas' else row.get('setores', [])
+    if own not in {_norm(name) for name in assigned}:
+        raise HTTPException(403, 'Cliente fora da sua carteira.')
+    return row, data
+
+
+async def _obs_page(codes: list[str]) -> list[dict[str, Any]]:
+    # Leitura em blocos: nunca consultar uma observação por cliente durante PDF/Excel.
+    async def group(batch: list[str]) -> list[dict[str, Any]]:
+        output: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            payload = await _obs_edge('LIST', {'codigos': batch, 'offset': offset, 'limite': 500})
+            notes = payload.get('observacoes', [])
+            if not isinstance(notes, list):
+                raise HTTPException(503, 'As observações não puderam ser carregadas.')
+            output.extend(notes)
+            next_offset = payload.get('proxima')
+            if next_offset is None:
+                break
+            if not isinstance(next_offset, int) or next_offset <= offset or len(output) > 30000:
+                raise HTTPException(503, 'A consulta das observações não pôde ser concluída.')
+            offset = next_offset
+        return output
+    unique = list(dict.fromkeys(_obs_valid_code(code) for code in codes))
+    semaphore = asyncio.Semaphore(4)
+    async def limited(batch: list[str]) -> list[dict[str, Any]]:
+        async with semaphore:
+            return await group(batch)
+    if not unique:
+        return []
+    pages = await asyncio.gather(*(limited(unique[i:i+100]) for i in range(0, len(unique), 100)))
+    return [item for page in pages for item in page]
+
+
+def _obs_can_edit(note: dict[str, Any], context: dict[str, Any]) -> bool:
+    return bool(context['admin'] or
+                _norm(note.get('autor_usuario')) == _norm(context['profile'].get('usuario')))
+
+
+@router.get('/positivacoes/api/observacoes/contagens')
+async def positivacao_observacoes_contagens(
+    codigos: str = '', session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    context = await _viewer_context(session)
+    selected = [_obs_valid_code(code) for code in codigos.split(',') if code.strip()]
+    if not selected or len(selected) > 50:
+        raise HTTPException(400, 'Selecione até 50 clientes.')
+    data = await _get_data(context['profile'])
+    if context['admin']:
+        permitted = {item['codigo'] for item in data['clientes']}
+    else:
+        selected_rows = _selected(data, 'todos', context['setor'], '')
+        permitted = {item['codigo'] for item in selected_rows}
+    if any(code not in permitted for code in selected):
+        raise HTTPException(403, 'Cliente fora da sua carteira.')
+    notes = await _obs_page(selected)
+    counts: dict[str, int] = {}
+    for item in notes:
+        code = item['cliente_codigo']
+        counts[code] = counts.get(code, 0) + 1
+    return _safe_json_response({'sucesso': True, 'contagens': counts})
+
+
+@router.get('/positivacoes/api/observacoes/administracao')
+async def positivacao_observacoes_administracao(
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    context = await _viewer_context(session)
+    if not context['admin']:
+        raise HTTPException(403, 'Acompanhamento geral reservado à administração.')
+    data = await _get_data(context['profile'])
+    names = {item['codigo']: item['cliente'] for item in data['clientes']}
+    result = await _obs_edge('RECENT', {'limite': 80})
+    rows = [{**item, 'cliente': names.get(item['cliente_codigo'], 'Fora da carteira atual')}
+            for item in result.get('observacoes', [])]
+    return _safe_json_response({'sucesso': True, 'observacoes': rows})
+
+
+@router.get('/positivacoes/api/observacoes/{codigo}/historico/{observacao_id}')
+async def positivacao_observacao_historico(
+    codigo: str, observacao_id: int,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    context = await _viewer_context(session)
+    await _obs_permission(context, codigo, historic_admin=True)
+    notes = await _obs_page([codigo])
+    if not any(note['id'] == observacao_id for note in notes):
+        raise HTTPException(404, 'Observação não encontrada neste cliente.')
+    result = await _obs_edge('HISTORY', {'id': observacao_id})
+    return _safe_json_response({'sucesso': True, 'historico': result.get('historico', [])})
+
+
+@router.get('/positivacoes/api/observacoes/{codigo}')
+async def positivacao_observacoes_cliente(
+    codigo: str, session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    context = await _viewer_context(session)
+    row, _ = await _obs_permission(context, codigo, historic_admin=True)
+    notes = await _obs_page([codigo])
+    for note in notes:
+        note['editavel'] = _obs_can_edit(note, context)
+    return _safe_json_response({'sucesso': True, 'codigo': codigo,
+                                'cliente': row['cliente'] if row else 'Cliente do histórico',
+                                'observacoes': notes})
+
+
+@router.post('/positivacoes/api/observacoes')
+async def positivacao_observacoes_criar(
+    body: PositivacaoObservacaoNova,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    context = await _viewer_context(session)
+    _, data = await _obs_permission(context, body.cliente_codigo)
+    fields = _obs_valid_fields(body)
+    author = context['profile']
+    author_login = str(author.get('usuario') or '').strip()
+    if not author_login:
+        raise HTTPException(403, 'Sessão sem usuário identificado.')
+    result = await _obs_edge('CREATE', {**fields, 'cliente_codigo': body.cliente_codigo,
+        'autor_usuario': author_login,
+        'autor_nome': str(author.get('nome') or author.get('vendedor') or context['pessoa'] or author_login)[:160],
+        'autor_tipo': _norm(author.get('tipo')),
+        'competencia_criacao': str(data.get('competencia') or '')})
+    return _safe_json_response({'sucesso': True, 'observacao': result.get('observacao')})
+
+
+@router.put('/positivacoes/api/observacoes')
+async def positivacao_observacoes_alterar(
+    body: PositivacaoObservacaoAlteracao,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    context = await _viewer_context(session)
+    await _obs_permission(context, body.cliente_codigo, historic_admin=True)
+    notes = await _obs_page([body.cliente_codigo])
+    record = next((x for x in notes if x['id'] == body.id), None)
+    if not record:
+        raise HTTPException(404, 'Observação não encontrada.')
+    if not _obs_can_edit(record, context):
+        raise HTTPException(403, 'Somente o autor ou um administrador pode alterar esta observação.')
+    fields = _obs_valid_fields(body)
+    author_login = str(context['profile'].get('usuario') or '').strip()
+    result = await _obs_edge('UPDATE', {**fields, 'cliente_codigo': body.cliente_codigo,
+        'id': body.id, 'versao': body.versao, 'situacao': body.situacao,
+        'atualizada_por': author_login})
+    return _safe_json_response({'sucesso': True, 'observacao': result.get('observacao')})
+
+
+def _obs_export_text(note: dict[str, Any]) -> str:
+    kind = 'Fixa' if note['tipo'] == 'fixa' else 'Temporária'
+    deadline = (' | Retorno: ' + str(note['retorno_em'])) if note.get('retorno_em') else ''
+    status = 'Concluída' if note.get('situacao') == 'concluida' else 'Pendente'
+    return (f"{kind} | {note['autor_nome']} | {note['criada_em'][:10]} | {status}{deadline} "
+            f"| {note['motivo']}: {note['texto']}")
+
+
+def _obs_excel_text(value: Any) -> str:
+    text = str(value or '')
+    # Texto livre nunca pode ser interpretado como formula por um programa de planilhas.
+    return "'" + text if text.lstrip().startswith(('=', '+', '-', '@', '\t', '\r')) else text
+
+
+
+
 def _export_fields(row: dict[str, Any]) -> list[str]:
     # A exportacao individual mostra a origem da venda do cliente autorizado,
     # sem alterar o indicador de credito da carteira.
@@ -1138,6 +1378,13 @@ async def positivacao_export(
     if not person or not any(_norm(g.get(key)) == person for g in groups):
         raise HTTPException(400, "Selecione uma carteira individual valida antes de exportar.")
     rows = _selected(data, status, setor, busca, nao_bloqueados)
+    # Uma unica leitura em blocos dos comentarios dos clientes AUTORIZADOS.
+    # A consulta e feita mesmo se houver zero observacoes, para nunca exportar
+    # um arquivo incompleto silenciosamente quando o banco estiver indisponivel.
+    notes = await _obs_page([row["codigo"] for row in rows])
+    notes_by_code: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for note in notes:
+        notes_by_code[note["cliente_codigo"]].append(note)
     headers = ["Código", "CNPJ", "Cliente", "Carteira", "Televendas Cad.", "Origem", "Status", "Bloqueado"]
     if kind == "excel":
         from openpyxl import Workbook
@@ -1145,9 +1392,10 @@ async def positivacao_export(
         wb = Workbook()
         ws = wb.active
         ws.title = "Positivacao Geral"
-        ws.append(headers)
+        ws.append(headers + ["Observações"])
         for row in rows:
-            ws.append(_export_fields(row))
+            texts = "\n\n".join(_obs_export_text(n) for n in notes_by_code.get(row["codigo"], []))
+            ws.append(_export_fields(row) + [_obs_excel_text(texts[:32000])])
             if row["bloqueado"]:
                 for cell in ws[ws.max_row]:
                     cell.fill = PatternFill("solid", fgColor="FCE8E6")
@@ -1160,11 +1408,31 @@ async def positivacao_export(
         for cell in ws[1]:
             cell.fill = PatternFill("solid", fgColor="075548")
             cell.font = Font(color="FFFFFF", bold=True)
-        for col, width in {"A":12,"B":20,"C":48,"D":43,"E":30,"F":35,"G":20,"H":13}.items():
+        for col, width in {"A":12,"B":20,"C":48,"D":43,"E":30,"F":35,"G":20,"H":13,"I":65}.items():
             ws.column_dimensions[col].width=width
         for row in ws.iter_rows(min_row=2):
             for cell in row:
                 cell.alignment=Alignment(vertical="top", wrap_text=True)
+        obs_ws = wb.create_sheet("Observacoes")
+        obs_ws.append(["Código", "Cliente", "Autor", "Tipo", "Motivo", "Observação",
+                       "Retorno", "Situação", "Criada em", "Última alteração"])
+        for row in rows:
+            for note in notes_by_code.get(row["codigo"], []):
+                obs_ws.append([row["codigo"], row["cliente"], _obs_excel_text(note["autor_nome"]),
+                    "Fixa" if note["tipo"] == "fixa" else "Temporária",
+                    _obs_excel_text(note["motivo"]), _obs_excel_text(note["texto"]),
+                    note.get("retorno_em") or "", "Concluída" if note["situacao"] == "concluida" else "Pendente",
+                    note.get("criada_em", ""), note.get("atualizada_em", "")])
+        obs_ws.freeze_panes = "A2"
+        obs_ws.auto_filter.ref = obs_ws.dimensions
+        for cell in obs_ws[1]:
+            cell.fill = PatternFill("solid", fgColor="075548")
+            cell.font = Font(color="FFFFFF", bold=True)
+        for col, width in {"A":12,"B":43,"C":27,"D":15,"E":31,"F":70,"G":17,"H":17,"I":25,"J":25}.items():
+            obs_ws.column_dimensions[col].width = width
+        for cells in obs_ws.iter_rows(min_row=2):
+            for cell in cells:
+                cell.alignment = Alignment(vertical="top", wrap_text=True)
         out = io.BytesIO(); wb.save(out)
         media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ext = "xlsx"
@@ -1178,6 +1446,8 @@ async def positivacao_export(
         doc=SimpleDocTemplate(out, pagesize=landscape(A4), rightMargin=22, leftMargin=22, topMargin=28, bottomMargin=25)
         styles=getSampleStyleSheet()
         styles.add(ParagraphStyle(name="CellTinyPos", parent=styles["Normal"], fontSize=6, leading=8))
+        styles.add(ParagraphStyle(name="ObsTinyPos", parent=styles["Normal"], fontSize=7,
+                                  leading=10, spaceAfter=5, wordWrap="CJK"))
         story=[Paragraph("DISMEPE ONE | Positivação Geral", styles["Heading2"]),
                Paragraph(f"Filtro: {escape(status)} | Setor: {escape(setor or 'Todos')} | Registros: {len(rows)} | Fonte: {escape(data.get('atualizadoEm',''))}", styles["Normal"]), Spacer(1,10)]
         table_data=[[Paragraph(escape(h),styles["CellTinyPos"]) for h in headers]]
@@ -1202,7 +1472,20 @@ async def positivacao_export(
         if blocked_pdf_rows:
             table.setStyle(TableStyle([("BACKGROUND", (0, i), (-1, i), colors.HexColor("#FCE8E6"))
                                        for i in blocked_pdf_rows]))
-        story.append(table); doc.build(story)
+        story.append(table)
+        if notes:
+            story.extend([Spacer(1, 16), Paragraph("Observações dos clientes", styles["Heading2"])])
+            for row in rows:
+                registered = notes_by_code.get(row["codigo"], [])
+                if not registered:
+                    continue
+                label = escape(str(row["codigo"]) + " - " + str(row["cliente"]))
+                story.append(Paragraph("<b>" + label + "</b>", styles["Normal"]))
+                for note in registered:
+                    safe_text = escape(_obs_export_text(note)).replace("\n", "<br/>")
+                    story.append(Paragraph(safe_text, styles["ObsTinyPos"]))
+                story.append(Spacer(1, 6))
+        doc.build(story)
         media="application/pdf"; ext="pdf"
     else:
         raise HTTPException(404, "Formato de exportação indisponível.")
