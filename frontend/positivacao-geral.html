@@ -20,7 +20,7 @@
 <header class="topbar"><div class="top-inner"><div class="brand"><img class="logo" src="/positivacoes/logo.png" alt="DISMEPE ONE"><div><small>POSITIVAÇÃO GERAL</small></div></div><div class="header-actions"><span class="pill">Administrador</span><a class="btn outline sm" href="/">← <span class="label-desktop">Voltar ao início</span><span class="sr-only">Voltar ao início</span></a></div></div></header>
 <main class="shell">
 <section class="intro"><div><div class="kicker">Inteligência comercial • visão corporativa</div><h1>Positivação Geral</h1><div class="subtitle">Indicadores consolidados por cliente único e carteira autorizada • <span id="updated">Aguardando leitura das bases</span></div></div><div class="intro-actions"><span id="sourceStatus" class="pill">Fontes do Google Drive</span><button id="btnRefresh" type="button" class="btn green">↻ Atualizar bases</button></div></section>
-<div id="alert" class="alert" role="alert"></div><div id="loading" class="loading">Carregando carteira geral, usuários cadastrados e positivações do período…</div><div id="sourceDiagnostic" class="alert" role="status"></div>
+<div id="alert" class="alert" role="alert"></div><div id="loading" class="loading">Consultando a última fotografia da Positivação Geral…</div><div id="sourceDiagnostic" class="alert" role="status"></div>
 <div id="dashboard" hidden>
 <section class="kpis" aria-label="Indicadores gerais"><article class="card kpi primary"><div class="label">Carteira geral de clientes únicos</div><strong id="kTotal">—</strong><div class="note">Base do PDF • sem duplicar clientes</div></article><article class="card kpi positive"><div class="label">Clientes positivados</div><strong id="kPositive">—</strong><div class="note">Vendedor + Televendas + Diretoria/Supervisão</div></article><article class="card kpi negative"><div class="label">Clientes não positivados</div><strong id="kNegative">—</strong><div class="note">Clientes da carteira ainda sem positivação</div></article><article class="card kpi"><div class="label">Percentual de positivação</div><strong id="kPercent">—</strong><div class="note">Clientes únicos positivados ÷ carteira</div></article></section>
 <section class="two"><article class="card panel"><div class="section-title"><div><h2>Meta geral DISMEPE</h2><p>Quantidade de clientes únicos positivados no período</p></div><button id="btnMeta" class="btn ghost sm" type="button">Cadastrar meta geral DISMEPE</button></div><div class="progress-head"><div><strong id="metaFraction">—</strong><div class="tiny" id="metaHint">Meta ainda não definida</div></div><div style="text-align:right"><strong id="metaPercent">—</strong><div class="tiny">da meta atingida</div></div></div><div class="progress" role="progressbar" aria-label="Progresso da meta" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="metaBar"><span id="metaFill"></span></div><div class="meta-stats"><div>Faltam <strong id="metaMissing">—</strong> clientes</div><div class="tiny" id="metaPeriod">Período atual</div></div></article><article class="card panel"><div class="section-title"><div><h2>Carteira: positivados × pendentes</h2><p>Contagem única, independentemente do canal de venda</p></div></div><div class="graph"><div class="donut" id="donut"><div><b id="donutNum">—</b><small>positivados</small></div></div><div class="legend"><div class="legend-row"><span><i class="dot"></i>Positivados</span><b id="legendPos">—</b></div><div class="legend-row"><span><i class="dot alt"></i>Não positivados</span><b id="legendNeg">—</b></div><div class="legend-row"><span><i class="dot dir"></i>Bloqueados na carteira</span><b id="legendBlocked">—</b></div></div></div></article></section>
@@ -36,7 +36,16 @@ const $=id=>document.getElementById(id),num=v=>new Intl.NumberFormat('pt-BR').fo
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let snapshot=null,currentStatus='todos',page=1,total=0,searchTimeout=0,fetchIndex=0;
 const showAlert=(value,error=false)=>{const el=$('alert');el.textContent=value||'';el.className='alert'+(value?' show':'')+(error?' error':'');};
-async function getJSON(url,opts){const r=await fetch(url,{credentials:'include',cache:'no-store',headers:{Accept:'application/json'},...opts});let data={};try{data=await r.json();}catch(_){}if(!r.ok||data.sucesso===false){let m=data.detail||data.erro||data.error||('HTTP '+r.status);throw Error(typeof m==='string'?m:JSON.stringify(m));}return data;}
+async function getJSON(url,opts={}){
+ const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),18000);
+ try{
+  const r=await fetch(url,{credentials:'include',cache:'no-store',...opts,headers:{Accept:'application/json',...(opts.headers||{})},signal:controller.signal});
+  let data={};try{data=await r.json();}catch(_){}
+  if(!r.ok||data.sucesso===false){let m=data.detail||data.erro||data.error||('HTTP '+r.status);throw Error(typeof m==='string'?m:JSON.stringify(m));}
+  return data;
+ }catch(e){if(e.name==='AbortError')throw Error('O servidor não respondeu. A tela permanece disponível; tente atualizar novamente.');throw e;}
+ finally{clearTimeout(timeout);}
+}
 function populate(){const d=snapshot,k=d.indicadores; $('kTotal').textContent=num(k.carteira);$('kPositive').textContent=num(k.positivados);$('kNegative').textContent=num(k.naoPositivados);$('kPercent').textContent=pct(k.percentual);
 $('updated').textContent='Atualizado em '+new Date(d.atualizadoEm).toLocaleString('pt-BR');$('sourceStatus').textContent='Período '+d.competencia;$('mNew').textContent=num(d.movimentacao.novos);$('mRemoved').textContent=num(d.movimentacao.removidos);$('mBlocked').textContent=num(d.movimentacao.bloqueadosNovos);$('mOutside').textContent=num(k.positivadosForaCarteira);
 $('donut').style.setProperty('--pct',Math.min(100,Math.max(0,k.percentual))+'%');$('donutNum').textContent=pct(k.percentual);$('legendPos').textContent=num(k.positivados);$('legendNeg').textContent=num(k.naoPositivados);$('legendBlocked').textContent=num(k.bloqueados);
@@ -48,7 +57,53 @@ function currentQuery(){const p=new URLSearchParams({status:currentStatus,setor:
 async function loadClients(){const myIndex=++fetchIndex;const tbody=$('clientRows');tbody.innerHTML='<tr><td colspan="6" class="empty">Carregando clientes filtrados…</td></tr>';try{const q=currentQuery();q.set('pagina',String(page));q.set('tamanho','50');const d=await getJSON('/positivacoes/api/clientes?'+q);if(myIndex!==fetchIndex)return;total=d.total;$('tableSummary').textContent=num(total)+' clientes no filtro atual';$('paginationText').textContent=total?(num((page-1)*50+1)+'–'+num(Math.min(page*50,total))+' de '+num(total)):'Nenhum cliente encontrado';$('pageNum').textContent='Página '+num(page);$('prev').disabled=page===1;$('next').disabled=page*50>=total;
 tbody.innerHTML=d.clientes.length?d.clientes.map(c=>'<tr><td><b>'+esc(c.codigo)+'</b><div class="tiny">'+esc(c.cnpj||'—')+'</div></td><td><span class="client">'+esc(c.cliente)+'</span>'+(c.carteiraCompartilhada?'<span class="tiny">Carteira compartilhada</span>':'')+'</td><td>'+esc(c.setores.join(', ')||'Sem usuário vinculado')+'</td><td>'+esc(c.televendas.join(', ')||'—')+'</td><td>'+((c.origens||[]).map(o=>'<span class="tag '+(o.includes('Diretoria')?'dir':'yes')+'">'+esc(o)+'</span>').join(' ')||'—')+'</td><td><span class="tag '+(c.status==='Positivado'?'yes':'no')+'">'+esc(c.status)+'</span>'+(c.bloqueado?' <span class="tag blocked">Bloqueado</span>':'')+'</td></tr>').join(''):'<tr><td colspan="6" class="empty">Nenhum cliente corresponde aos filtros.</td></tr>';
 }catch(e){if(myIndex!==fetchIndex)return;tbody.innerHTML='<tr><td colspan="6" class="empty">Não foi possível carregar a lista de clientes.</td></tr>';showAlert(e.message,true);}}
-async function refresh(force=false){$('btnRefresh').disabled=true;$('btnRefresh').textContent='↻ Atualizando…';$('loading').hidden=!!snapshot;try{snapshot=await getJSON('/positivacoes/api/painel'+(force?'?force=true':''));$('dashboard').hidden=false;$('loading').hidden=true;populate();showAlert(snapshot.alerta|| (snapshot.persistencia==='MEMORIA_APENAS'?'Os indicadores estão disponíveis, mas esta fotografia ainda não foi gravada no PostgreSQL.':''),false);page=1;await loadClients();}catch(e){$('loading').hidden=true;showAlert(e.message,true);const d=$('sourceDiagnostic');d.className='alert';d.textContent='Conferindo acesso às fontes do Google Drive…';d.classList.add('show');try{const diag=await getJSON('/positivacoes/api/diagnostico');d.textContent='Fontes: PDF '+(diag.pdf?'localizado':'não localizado')+' | planilha '+(diag.planilha?'localizada':'não localizada')+'. '+diag.orientacao;}catch(_){d.textContent='Não foi possível confirmar o acesso às fontes neste momento.';}}finally{$('btnRefresh').disabled=false;$('btnRefresh').textContent='↻ Atualizar bases';}}
+let refreshTimer=0,requestInProgress=false,lastSnapshotTime='';
+function scheduleRefresh(delay=5000){clearTimeout(refreshTimer);refreshTimer=setTimeout(()=>refresh(false),delay);}
+async function refresh(force=false){
+  if(requestInProgress)return;
+  requestInProgress=true;
+  $('btnRefresh').disabled=true;
+  $('btnRefresh').textContent=force?'↻ Solicitando atualização…':'↻ Atualizar bases';
+  try{
+    if(force)await getJSON('/positivacoes/api/atualizar',{method:'POST'});
+    const result=await getJSON('/positivacoes/api/painel');
+    const sync=result.statusAtualizacao||{};
+    if(result.semFotografia){
+      $('dashboard').hidden=true;
+      $('loading').hidden=false;
+      $('loading').textContent=sync.emAndamento?'Preparando a primeira base no servidor. O painel será exibido após a validação e gravação no Supabase.':
+        (sync.erro?'A primeira importação não foi concluída: '+sync.erro:'A base ainda não está disponível no Supabase. Clique em Atualizar bases para iniciar a importação.');
+      showAlert(sync.erro||sync.erroConsultaBanco||'',!!(sync.erro||sync.erroConsultaBanco));
+      if(sync.emAndamento)scheduleRefresh();
+      return;
+    }
+    snapshot=result;
+    $('dashboard').hidden=false;
+    $('loading').hidden=true;
+    const changed=result.atualizadoEm!==lastSnapshotTime;
+    if(changed){
+      lastSnapshotTime=result.atualizadoEm;
+      populate();
+      page=1;
+      await loadClients();
+    }
+    let notice=result.alerta||'';
+    if(sync.emAndamento)notice='Atualizando as bases em paralelo. Exibindo a última fotografia válida do Supabase.';
+    else if(sync.erro)notice='A última atualização não foi concluída: '+sync.erro+' Exibindo a última fotografia válida.';
+    else if(result.persistencia==='MEMORIA_APENAS')notice='Base válida disponível, mas o Supabase ainda não confirmou a gravação.';
+    showAlert(notice,!!sync.erro);
+    if(sync.emAndamento)scheduleRefresh();
+    else scheduleRefresh(120000);
+  }catch(e){
+    $('loading').hidden=!!snapshot;
+    if(!snapshot){$('loading').textContent='Não foi possível consultar a fotografia salva. Clique em Atualizar bases para tentar novamente.';}
+    showAlert(e.message,true);
+  }finally{
+    requestInProgress=false;
+    $('btnRefresh').disabled=false;
+    $('btnRefresh').textContent='↻ Atualizar bases';
+  }
+}
 $('btnRefresh').addEventListener('click',()=>refresh(true));$('tabs').addEventListener('click',e=>{const b=e.target.closest('[data-status]');if(!b)return;currentStatus=b.dataset.status;document.querySelectorAll('#tabs .tab').forEach(x=>x.classList.toggle('active',x===b));page=1;loadClients();});$('sectorFilter').addEventListener('change',()=>{page=1;loadClients();});$('search').addEventListener('input',()=>{clearTimeout(searchTimeout);searchTimeout=setTimeout(()=>{page=1;loadClients();},250);});$('prev').addEventListener('click',()=>{if(page>1){page--;loadClients();}});$('next').addEventListener('click',()=>{if(page*50<total){page++;loadClients();}});
 document.querySelectorAll('.export').forEach(b=>b.addEventListener('click',async()=>{const kind=b.dataset.kind;const q=currentQuery();const url='/positivacoes/api/exportar/'+kind+'?'+q; b.disabled=true;try{const r=await fetch(url,{credentials:'include',cache:'no-store'});if(!r.ok){let d={};try{d=await r.json();}catch(_){}throw Error(d.detail||'Não foi possível exportar.');}const blob=await r.blob();const obj=URL.createObjectURL(blob);const a=document.createElement('a');a.href=obj;a.download='POSITIVACAO_GERAL_'+new Date().toISOString().slice(0,10)+'.'+(kind==='excel'?'xlsx':'pdf');document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(obj),2000);}catch(e){showAlert(String(e.message),true);}finally{b.disabled=false;}}));
 function closeMeta(){$('metaModal').hidden=true;$('metaError').textContent='';}$('btnMeta').addEventListener('click',()=>{$('metaInput').value=String(snapshot?.meta||0);$('metaModal').hidden=false;$('metaInput').focus();});$('cancelMeta').addEventListener('click',closeMeta);$('metaModal').addEventListener('click',e=>{if(e.target===$('metaModal'))closeMeta();});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMeta();});$('metaForm').addEventListener('submit',async e=>{e.preventDefault();const b=$('metaForm').querySelector('[type="submit"]');b.disabled=true;$('metaError').textContent='';try{const value=Number($('metaInput').value);if(!Number.isInteger(value)||value<0||value>1000000)throw Error('Informe uma meta válida entre 0 e 1.000.000.');const d=await getJSON('/positivacoes/api/meta',{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify({meta:value})});snapshot.meta=d.meta;snapshot.metaAtingimento=d.meta?Math.round(snapshot.indicadores.positivados*10000/d.meta)/100:0;snapshot.metaFaltam=Math.max(0,d.meta-snapshot.indicadores.positivados);populate();closeMeta();}catch(err){$('metaError').textContent=err.message;}finally{b.disabled=false;}});

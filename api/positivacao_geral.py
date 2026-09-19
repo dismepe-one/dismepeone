@@ -46,12 +46,18 @@ PDF_NAME = "Comparativo Venda_Cliente por Vendedor.pdf"
 SHEET_NAME = "Positivacoes"
 MODULE = "POSITIVACAO_GERAL_V1"
 CONFIG_MODULE = "POSITIVACAO_META_V1"
-_BUILD = "POS-GERAL-DEV2"
-_TTL = 180.0
-_LOCK: asyncio.Lock | None = None
+_BUILD = "POS-GERAL-DEV6"
+_TTL = 600.0
 _CACHE: dict[str, Any] | None = None
 _CACHE_AT = 0.0
 _META_CACHE: int | None = None
+# Nenhuma leitura de PDF/planilha ocorre na requisicao que abre o painel.
+_SYNC_TASK: asyncio.Task | None = None
+_SYNC_ERROR = ""
+_SYNC_LAST_STARTED = 0.0
+_SYNC_LAST_FINISHED = ""
+_DB_CHECK_AT = 0.0
+_DB_ERROR = ""
 
 # A liberação operacional dependerá de uma alteração explícita posterior.
 # Não basta uma permissão no JWT para acessar este módulo em desenvolvimento.
@@ -540,51 +546,104 @@ def _sync_blocking(sellers: dict[str, str], televendas: dict[str, str], previous
     return data
 
 
-async def _get_data(profile: dict[str, Any], force: bool = False) -> dict[str, Any]:
-    global _LOCK, _CACHE, _CACHE_AT
-    if _LOCK is None:
-        _LOCK = asyncio.Lock()
-    if not force and _CACHE and time.monotonic() - _CACHE_AT < _TTL:
+async def _snapshot_fast() -> dict[str, Any] | None:
+    """Uma leitura breve do Supabase; nunca importa arquivos durante o GET."""
+    global _CACHE, _CACHE_AT, _DB_CHECK_AT, _DB_ERROR
+    if _CACHE is not None:
         return _CACHE
-    async with _LOCK:
-        if not force and _CACHE and time.monotonic() - _CACHE_AT < _TTL:
-            return _CACHE
-        prev = _CACHE or await _read_persisted()
-        try:
-            sellers, televendas = await _registered_users()
-            data = await asyncio.to_thread(_sync_blocking, sellers, televendas, prev, force)
-            data = copy.deepcopy(data)
-            data["usuariosAtivos"] = {"vendedores": len(set(sellers.values())), "televendas": len(set(televendas.values()))}
-            if data.get("fontes") != (prev or {}).get("fontes") or (prev or {}).get("persistencia") == "MEMORIA_APENAS":
-                try:
-                    await _persist(data, profile)
-                    data["persistencia"] = "POSTGRESQL"
-                except Exception:
-                    # O sistema não deve afirmar que persistiu quando o banco falhou.
-                    data["persistencia"] = "MEMORIA_APENAS"
-            else:
-                data["persistencia"] = "POSTGRESQL_OU_CACHE"
-            _CACHE = data
-            _CACHE_AT = time.monotonic()
-            return data
-        except Exception as exc:
-            if prev:
-                restored = copy.deepcopy(prev)
-                restored["alerta"] = "Não foi possível atualizar as fontes. Exibindo a última fotografia válida."
-                restored["persistencia"] = "FOTOGRAFIA_ANTERIOR"
-                _CACHE = restored
-                _CACHE_AT = time.monotonic()
-                return restored
-            raise HTTPException(503, f"Positivação ainda indisponível: {str(exc)[:180]}") from exc
+    # A primeira base pode ainda nao existir: nao consultar PostgreSQL a cada polling.
+    if _DB_CHECK_AT and time.monotonic() - _DB_CHECK_AT < 30:
+        return None
+    _DB_CHECK_AT = time.monotonic()
+    try:
+        persisted = await asyncio.wait_for(_read_persisted(), timeout=8.0)
+        _DB_ERROR = ""
+    except (asyncio.TimeoutError, Exception):
+        persisted = None
+        _DB_ERROR = "A consulta do snapshot no Supabase nao respondeu."
+    if persisted is not None:
+        _CACHE = persisted
+        _CACHE_AT = time.monotonic()
+    return _CACHE
 
+
+async def _refresh_job(profile: dict[str, Any], force: bool) -> None:
+    """Trabalho desacoplado da requisicao HTTP: baixa, consolida e grava uma fotografia validada."""
+    global _CACHE, _CACHE_AT, _SYNC_ERROR, _SYNC_LAST_FINISHED
+    previous: dict[str, Any] | None = _CACHE
+    try:
+        if previous is None:
+            previous = await _read_persisted()
+        vendedores, televendas = await _registered_users()
+        data = await asyncio.to_thread(_sync_blocking, vendedores, televendas, previous, force)
+        data = copy.deepcopy(data)
+        data["usuariosAtivos"] = {
+            "vendedores": len(set(vendedores.values())),
+            "televendas": len(set(televendas.values())),
+        }
+        # Persistir ANTES de publicar a nova fotografia como fonte principal.
+        # Um banco indisponivel nao deve fazer o painel afirmar que esta sincronizado.
+        if (previous is None or data.get("fontes") != previous.get("fontes")
+                or previous.get("persistencia") == "MEMORIA_APENAS"):
+            try:
+                await _persist(data, profile)
+                data["persistencia"] = "POSTGRESQL"
+            except Exception:
+                data["persistencia"] = "MEMORIA_APENAS"
+                data["alerta"] = "Base processada, mas nao foi possivel grava-la no Supabase."
+        else:
+            data["persistencia"] = "POSTGRESQL_OU_CACHE"
+        _CACHE = data
+        _CACHE_AT = time.monotonic()
+        _SYNC_ERROR = ""
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        # Mensagem apenas a administradores, sem exposicao de credenciais nem tracebacks.
+        _SYNC_ERROR = str(exc)[:280] or "A importacao nao foi concluida."
+        if previous is not None and _CACHE is None:
+            _CACHE = previous
+            _CACHE_AT = time.monotonic()
+    finally:
+        _SYNC_LAST_FINISHED = _now()
+
+
+def _start_sync(profile: dict[str, Any], *, force: bool = False) -> None:
+    """No maximo um trabalho por processo; verificacao automatica espaçada."""
+    global _SYNC_TASK, _SYNC_ERROR, _SYNC_LAST_STARTED
+    if _SYNC_TASK is not None and not _SYNC_TASK.done():
+        return
+    if not force and _SYNC_LAST_STARTED and time.monotonic() - _SYNC_LAST_STARTED < _TTL:
+        return
+    _SYNC_LAST_STARTED = time.monotonic()
+    _SYNC_ERROR = ""
+    _SYNC_TASK = asyncio.create_task(_refresh_job(profile, force), name="positivacoes-refresh-drive")
+
+
+def _sync_status() -> dict[str, Any]:
+    return {
+        "emAndamento": bool(_SYNC_TASK is not None and not _SYNC_TASK.done()),
+        "erro": _SYNC_ERROR,
+        "ultimaConclusao": _SYNC_LAST_FINISHED,
+        "erroConsultaBanco": _DB_ERROR,
+    }
+
+
+async def _get_data(profile: dict[str, Any]) -> dict[str, Any]:
+    data = await _snapshot_fast()
+    _start_sync(profile)
+    if data is None:
+        raise HTTPException(503, "A primeira fotografia esta sendo preparada; tente novamente quando o status concluir.")
+    return data
 
 async def _meta() -> int:
-    global _META_CACHE
-    # Leitura do PostgreSQL a cada abertura: outra instância do Render pode
-    # alterar a meta. O cache local é somente contingência em falha temporária.
+    global _META_CACHE, _META_CACHE_AT
+    if _META_CACHE is not None and time.monotonic() - _META_CACHE_AT < 600:
+        return _META_CACHE
     try:
         result, _ = await cache_get(modulo=CONFIG_MODULE, settings=settings)
         _META_CACHE = max(0, int(result.get("meta") or 0))
+        _META_CACHE_AT = time.monotonic()
     except (CacheReadError, ValueError, TypeError):
         if _META_CACHE is None:
             _META_CACHE = 0
@@ -650,12 +709,29 @@ async def positivacao_diagnostico(session: str | None = Cookie(default=None, ali
 @router.get("/positivacoes/api/painel")
 async def positivacao_panel(force: bool = Query(False), session: str | None = Cookie(default=None, alias=settings.cookie_name)):
     profile = _signed_admin(session)
-    data = await _get_data(profile, force=force)
+    data = await _snapshot_fast()
+    _start_sync(profile, force=force)
+    state = _sync_status()
+    if data is None:
+        return _safe_json_response({"carregando": state["emAndamento"], "semFotografia": True,
+                                    "statusAtualizacao": state, "sucesso": True})
     summary = {k: v for k, v in data.items() if k not in {"clientes"}}
-    summary["meta"] = await _meta()
+    try:
+        summary["meta"] = await asyncio.wait_for(_meta(), timeout=5.0)
+    except Exception:
+        summary["meta"] = _META_CACHE or 0
+        summary["metaLeituraIndisponivel"] = True
     summary["metaAtingimento"] = round(summary["indicadores"]["positivados"] * 100 / summary["meta"], 2) if summary["meta"] else 0
     summary["metaFaltam"] = max(0, summary["meta"] - summary["indicadores"]["positivados"])
+    summary["statusAtualizacao"] = state
     return _safe_json_response(summary)
+
+
+@router.post("/positivacoes/api/atualizar")
+async def positivacao_refresh(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
+    profile = _signed_admin(session)
+    _start_sync(profile, force=True)
+    return _safe_json_response({"sucesso": True, "statusAtualizacao": _sync_status()})
 
 
 def _selected(data: dict[str, Any], status: str, setor: str, search: str) -> list[dict[str, Any]]:
