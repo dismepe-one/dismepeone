@@ -33107,5 +33107,42 @@ body #v21105MoreMenu .v21105-menu-label{
 })();
 </script>
 
+
+<script id="dismepe-positivacoes-dev9-home-link">
+(function(){
+ 'use strict';
+ if(window.__positivacoesDev9HomeLink)return;
+ window.__positivacoesDev9HomeLink=true;
+ const allowed=new Set(['ADMIN','ADMINISTRADOR','VENDEDOR','TELEVENDAS']);
+ const home=document.getElementById('homeCards');
+ if(!home)return;
+ function syncLink(){
+  let role='';
+  try{role=String((typeof currentUser!=='undefined'&&currentUser&&currentUser.tipo)||'').trim().toUpperCase();}catch(_){}
+  const existing=document.getElementById('homePositivacoesDev9');
+  if(!allowed.has(role)){
+   if(existing)existing.remove();
+   return;
+  }
+  if(existing)return;
+  const link=document.createElement('a');
+  link.id='homePositivacoesDev9';
+  link.href='/positivacoes';
+  link.className='home-card';
+  link.setAttribute('aria-label',role==='ADMIN'||role==='ADMINISTRADOR'?'Abrir Positivação Geral':'Abrir minhas Positivações');
+  const icon=document.createElement('span');icon.className='home-icon';
+  const drawing=document.createElement('i');drawing.className='fa-solid fa-chart-line';icon.appendChild(drawing);
+  const body=document.createElement('span');
+  const title=document.createElement('strong');title.textContent='Positivações';
+  const desc=document.createElement('small');desc.style.display='block';
+  desc.textContent=role==='ADMIN'||role==='ADMINISTRADOR'?'Visão geral e atualização para todos':'Somente minha carteira';
+  body.append(title,desc);
+  const arrow=document.createElement('span');arrow.className='home-arrow';arrow.textContent='›';
+  link.append(icon,body,arrow);home.appendChild(link);
+ }
+ new MutationObserver(syncLink).observe(home,{childList:true});
+ syncLink();
+})();
+</script>
 </body>
 </html>

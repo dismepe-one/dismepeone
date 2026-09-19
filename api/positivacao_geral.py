@@ -46,7 +46,7 @@ PDF_NAME = "Comparativo Venda_Cliente por Vendedor.pdf"
 SHEET_NAME = "Positivacoes"
 MODULE = "POSITIVACAO_GERAL_V1"
 CONFIG_MODULE = "POSITIVACAO_META_V1"
-_BUILD = "POS-GERAL-DEV8-2-EXPORT-FILTRO"
+_BUILD = "POS-GERAL-DEV9-ACESSO-INDIVIDUAL"
 _TTL = 600.0
 _CACHE: dict[str, Any] | None = None
 _CACHE_AT = 0.0
@@ -59,9 +59,13 @@ _SYNC_LAST_FINISHED = ""
 _DB_CHECK_AT = 0.0
 _DB_ERROR = ""
 
-# A liberação operacional dependerá de uma alteração explícita posterior.
-# Não basta uma permissão no JWT para acessar este módulo em desenvolvimento.
-ONLY_ADMIN_DURING_DEVELOPMENT = True
+# DEV9: somente vendedores e televendas ativos tem visao individual.
+# Consolidado e publicacao continuam exclusivos de administradores.
+ONLY_ADMIN_DURING_DEVELOPMENT = False
+_ROSTER_AT = 0.0
+_ROSTER: list[dict[str, Any]] = []
+_SQL_RELOAD_TASK: asyncio.Task | None = None
+_SYNC_RESULT = ""
 
 
 def _now() -> str:
@@ -127,6 +131,64 @@ async def _edge(action: str, payload: dict[str, Any]) -> dict[str, Any]:
     if data.get("sucesso") is not True and data.get("success") is not True and data.get("ok") is not True:
         raise RuntimeError(str(data.get("erro") or data.get("error") or "A operação não foi confirmada pelo serviço de dados."))
     return data
+
+
+def _page_profile(session: str | None) -> dict[str, Any]:
+    """Apenas valida sessao para entregar HTML/logo sem aguardar consulta ao banco.
+
+    Nenhum dado de carteira e entregue aqui; TODAS as APIs revalidam o cadastro.
+    """
+    if not session:
+        raise HTTPException(401, "Sessão ausente.")
+    try:
+        profile = decode_session_token(
+            session, secret=settings.jwt_secret, issuer=settings.jwt_issuer
+        )
+    except jwt.ExpiredSignatureError as exc:
+        raise HTTPException(401, "Sessão expirada.") from exc
+    except jwt.PyJWTError as exc:
+        raise HTTPException(401, "Sessão inválida.") from exc
+    if _norm(profile.get("tipo")) not in {"ADMIN", "ADMINISTRADOR", "VENDEDOR", "TELEVENDAS"}:
+        raise HTTPException(403, "Perfil sem acesso ao módulo Positivações.")
+    return profile
+
+
+async def _viewer_context(session: str | None) -> dict[str, Any]:
+    """Resolve usuario, cargo e carteira no cadastro ATIVO, jamais por filtro da URL."""
+    profile = _page_profile(session)
+    role = _norm(profile.get("tipo"))
+    if role in {"ADMIN", "ADMINISTRADOR"}:
+        return {"admin": True, "profile": profile, "setor": "", "pessoa": "", "canal": ""}
+    if role not in {"VENDEDOR", "TELEVENDAS"}:
+        raise HTTPException(403, "Este perfil não possui carteira individual de Positivações.")
+    login = _norm(profile.get("usuario"))
+    if not login:
+        raise HTTPException(403, "Usuário sem identificação de carteira.")
+    global _ROSTER, _ROSTER_AT
+    if not _ROSTER or time.monotonic() - _ROSTER_AT >= 30:
+        try:
+            result = await asyncio.wait_for(_edge("USUARIOS_LIST", {}), timeout=8.0)
+            users = result.get("usuarios")
+            if not isinstance(users, list):
+                raise ValueError("Lista de usuários não disponível.")
+            _ROSTER = [u for u in users if isinstance(u, dict)]
+            _ROSTER_AT = time.monotonic()
+        except Exception as exc:
+            # Cadastro inacessivel => negar individual, sem recorrer a claims antigos.
+            raise HTTPException(503, "Não foi possível confirmar o cadastro ativo. Tente novamente.") from exc
+    matching = [u for u in _ROSTER if _norm(u.get("usuario")) == login]
+    if len(matching) != 1:
+        raise HTTPException(403, "Carteira individual não encontrada no cadastro atual.")
+    user = matching[0]
+    if (user.get("ativo") is not True or _norm(user.get("status")) != "ATIVO"
+            or _norm(user.get("tipo")) != role):
+        raise HTTPException(403, "Carteira indisponível para este usuário.")
+    person = str(user.get("nome") or user.get("vendedor") or user.get("usuario") or "").strip()
+    if not person:
+        raise HTTPException(403, "Usuário sem carteira cadastrada.")
+    sector = "TV:" + person if role == "TELEVENDAS" else person
+    return {"admin": False, "profile": profile, "setor": sector,
+            "pessoa": person, "canal": "Televendas" if role == "TELEVENDAS" else "Vendedor"}
 
 
 async def _registered_users() -> tuple[dict[str, str], dict[str, str]]:
@@ -585,10 +647,34 @@ def _sync_blocking(sellers: dict[str, str], televendas: dict[str, str], previous
     return data
 
 
+async def _reload_cached_sql() -> None:
+    global _CACHE, _CACHE_AT, _DB_ERROR
+    try:
+        persisted = await asyncio.wait_for(_read_persisted(), timeout=8.0)
+        if persisted is not None:
+            def timestamp(snapshot: dict[str, Any]) -> float:
+                try:
+                    value = str(snapshot.get("atualizadoEm") or "").replace("Z", "+00:00")
+                    return datetime.fromisoformat(value).timestamp()
+                except (ValueError, TypeError):
+                    return 0.0
+            if _CACHE is None or timestamp(persisted) > timestamp(_CACHE):
+                _CACHE = persisted
+            _DB_ERROR = ""
+    except Exception:
+        _DB_ERROR = "Falha temporária ao conferir a fotografia no Supabase."
+    finally:
+        _CACHE_AT = time.monotonic()
+
+
 async def _snapshot_fast() -> dict[str, Any] | None:
     """Uma leitura breve do Supabase; nunca importa arquivos durante o GET."""
     global _CACHE, _CACHE_AT, _DB_CHECK_AT, _DB_ERROR
+    global _SQL_RELOAD_TASK
     if _CACHE is not None:
+        if (time.monotonic() - _CACHE_AT >= 30
+                and (_SQL_RELOAD_TASK is None or _SQL_RELOAD_TASK.done())):
+            _SQL_RELOAD_TASK = asyncio.create_task(_reload_cached_sql())
         return _CACHE
     # A primeira base pode ainda nao existir: nao consultar PostgreSQL a cada polling.
     if _DB_CHECK_AT and time.monotonic() - _DB_CHECK_AT < 30:
@@ -627,7 +713,8 @@ def _sources_changed_blocking(previous: dict[str, Any] | None) -> bool:
 
 async def _refresh_job(profile: dict[str, Any], force: bool) -> None:
     """Trabalho desacoplado da requisicao HTTP: baixa, consolida e grava uma fotografia validada."""
-    global _CACHE, _CACHE_AT, _SYNC_ERROR, _SYNC_LAST_FINISHED
+    global _CACHE, _CACHE_AT, _SYNC_ERROR, _SYNC_LAST_FINISHED, _SYNC_RESULT
+    _SYNC_RESULT = "EM_ANDAMENTO"
     previous: dict[str, Any] | None = _CACHE
     try:
         if previous is None:
@@ -646,11 +733,12 @@ async def _refresh_job(profile: dict[str, Any], force: bool) -> None:
             try:
                 await _persist(data, profile)
                 data["persistencia"] = "POSTGRESQL"
-            except Exception:
-                data["persistencia"] = "MEMORIA_APENAS"
-                data["alerta"] = "Base processada, mas nao foi possivel grava-la no Supabase."
+            except Exception as exc:
+                raise RuntimeError("A nova base foi processada, mas não foi publicada no Supabase; a base anterior foi preservada.") from exc
+            _SYNC_RESULT = "PUBLICADA"
         else:
             data["persistencia"] = "POSTGRESQL_OU_CACHE"
+            _SYNC_RESULT = "SEM_ALTERACAO"
         _CACHE = data
         _CACHE_AT = time.monotonic()
         _SYNC_ERROR = ""
@@ -659,6 +747,7 @@ async def _refresh_job(profile: dict[str, Any], force: bool) -> None:
     except Exception as exc:
         # Mensagem apenas a administradores, sem exposicao de credenciais nem tracebacks.
         _SYNC_ERROR = str(exc)[:280] or "A importacao nao foi concluida."
+        _SYNC_RESULT = "ERRO"
         if previous is not None and _CACHE is None:
             _CACHE = previous
             _CACHE_AT = time.monotonic()
@@ -684,15 +773,16 @@ def _sync_status() -> dict[str, Any]:
         "erro": _SYNC_ERROR,
         "ultimaConclusao": _SYNC_LAST_FINISHED,
         "erroConsultaBanco": _DB_ERROR,
+        "resultado": _SYNC_RESULT,
     }
 
 
 async def _get_data(profile: dict[str, Any]) -> dict[str, Any]:
     data = await _snapshot_fast()
-    if data is None:
+    if data is None and _norm(profile.get("tipo")) in {"ADMIN", "ADMINISTRADOR"}:
         _start_sync(profile)
     if data is None:
-        raise HTTPException(503, "A primeira fotografia esta sendo preparada; tente novamente quando o status concluir.")
+        raise HTTPException(503, "A fotografia das Positivações ainda não foi publicada no Supabase.")
     return data
 
 async def _meta() -> int:
@@ -728,7 +818,7 @@ def _native_logo_bytes() -> bytes:
 
 @router.get("/positivacoes/logo.png", include_in_schema=False)
 async def positivacao_native_logo(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
-    _signed_admin(session)
+    _page_profile(session)
     return Response(
         content=_native_logo_bytes(), media_type="image/png",
         headers={"Cache-Control": "private, max-age=3600"},
@@ -737,7 +827,7 @@ async def positivacao_native_logo(session: str | None = Cookie(default=None, ali
 
 @router.get("/positivacoes", include_in_schema=False)
 async def positivacao_page(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
-    _signed_admin(session)
+    _page_profile(session)
     return FileResponse(PAGE, media_type="text/html", headers={"Cache-Control": "no-store, private"})
 
 
@@ -767,22 +857,31 @@ async def positivacao_diagnostico(session: str | None = Cookie(default=None, ali
 
 @router.get("/positivacoes/api/painel")
 async def positivacao_panel(force: bool = Query(False), session: str | None = Cookie(default=None, alias=settings.cookie_name)):
-    profile = _signed_admin(session)
+    context = await _viewer_context(session)
+    profile = context["profile"]
+    if force and not context["admin"]:
+        raise HTTPException(403, "A atualização das bases é exclusiva da administração.")
     data = await _snapshot_fast()
-    if force or data is None:
+    if context["admin"] and (force or data is None):
         _start_sync(profile, force=force)
-    state = _sync_status()
+    state = _sync_status() if context["admin"] else {"emAndamento": False, "erro": ""}
     if data is None:
         return _safe_json_response({"carregando": state["emAndamento"], "semFotografia": True,
                                     "statusAtualizacao": state, "sucesso": True})
-    summary = {k: v for k, v in data.items() if k not in {"clientes"}}
-    try:
-        summary["meta"] = await asyncio.wait_for(_meta(), timeout=5.0)
-    except Exception:
-        summary["meta"] = _META_CACHE or 0
-        summary["metaLeituraIndisponivel"] = True
-    summary["metaAtingimento"] = round(summary["indicadores"]["positivados"] * 100 / summary["meta"], 2) if summary["meta"] else 0
-    summary["metaFaltam"] = max(0, summary["meta"] - summary["indicadores"]["positivados"])
+    visible = _visible_data(data, context)
+    summary = {k: v for k, v in visible.items() if k not in {"clientes"}}
+    if context["admin"]:
+        try:
+            summary["meta"] = await asyncio.wait_for(_meta(), timeout=5.0)
+        except Exception:
+            summary["meta"] = _META_CACHE or 0
+            summary["metaLeituraIndisponivel"] = True
+        summary["metaAtingimento"] = round(summary["indicadores"]["positivados"] * 100 / summary["meta"], 2) if summary["meta"] else 0
+        summary["metaFaltam"] = max(0, summary["meta"] - summary["indicadores"]["positivados"])
+    else:
+        summary["meta"] = 0
+        summary["metaAtingimento"] = 0
+        summary["metaFaltam"] = 0
     summary["statusAtualizacao"] = state
     return _safe_json_response(summary)
 
@@ -839,12 +938,74 @@ def _selected(data: dict[str, Any], status: str, setor: str, search: str) -> lis
     return result
 
 
+def _enforced_sector(sector: str, context: dict[str, Any]) -> str:
+    if context["admin"]:
+        return sector
+    own = context["setor"]
+    if sector and sector != own:
+        raise HTTPException(403, "Não é permitido consultar outra carteira.")
+    return own
+
+
+def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    if context["admin"]:
+        return data
+    person = context["pessoa"]
+    channel = context["canal"]
+    owner_seller = channel == "Vendedor"
+    mine = _selected(data, "todos", context["setor"], "")
+    rows: list[dict[str, Any]] = []
+    for original in mine:
+        positive = original.get("status") == "Positivado"
+        rows.append({
+            "codigo": original["codigo"], "cliente": original["cliente"],
+            "cnpj": original.get("cnpj", ""), "bloqueado": bool(original.get("bloqueado")),
+            "vendedores": [person] if owner_seller else [],
+            "setores": [person] if owner_seller else [],
+            "televendas": [] if owner_seller else [person],
+            "origens": [channel] if positive else [],
+            "status": "Positivado" if positive else "Não positivado",
+            "carteiraCompartilhada": False,
+            "positivacoesVendedor": [person] if owner_seller and positive else [],
+            "positivacoesTelevendas": [person] if not owner_seller and positive else [],
+        })
+    count = len(rows)
+    positive_count = sum(row["status"] == "Positivado" for row in rows)
+    blocked = sum(row["bloqueado"] for row in rows)
+    pct = round(100 * positive_count / count, 2) if count else 0
+    totals = {"carteira": count, "positivados": positive_count,
+              "naoPositivados": count-positive_count, "percentual": pct,
+              "bloqueados": blocked, "positivadosForaCarteira": 0}
+    group = {"total": count, "positivados": positive_count,
+             "naoPositivados": count-positive_count, "percentual": pct,
+             "bloqueados": blocked}
+    if owner_seller:
+        group["setor"] = person
+        sectors, teles = [group], []
+    else:
+        group["televendas"] = person
+        sectors, teles = [{"setor": person, **{k:v for k,v in group.items() if k!="televendas"}}], [group]
+    origins = {"Vendedor": positive_count if owner_seller else 0,
+               "Televendas": 0 if owner_seller else positive_count,
+               "Diretoria/Supervisão": 0, "Vendedor + Televendas": 0}
+    return {"schema": MODULE, "competencia": data.get("competencia", ""),
+            "atualizadoEm": data.get("atualizadoEm", ""),
+            "persistencia": data.get("persistencia", "POSTGRESQL"),
+            "clientes": rows, "setores": sectors, "carteirasTelevendas": teles,
+            "origens": origins, "indicadores": totals,
+            "movimentacao": {"novos": 0, "removidos": 0,
+                             "bloqueadosNovos": 0, "reativados": 0},
+            "acesso": {"individual": True, "canal": channel,
+                       "profissional": person, "setor": context["setor"]}}
+
+
 @router.get("/positivacoes/api/resumo-filtro")
 async def positivacao_filtered_summary(
     setor: str = "", session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
-    profile = _signed_admin(session)
-    data = await _get_data(profile)
+    context = await _viewer_context(session)
+    setor = _enforced_sector(setor, context)
+    data = _visible_data(await _get_data(context["profile"]), context)
     if not setor:
         return _safe_json_response({"indicadores": data["indicadores"],
                                     "origens": data["origens"], "setores": data["setores"],
@@ -881,8 +1042,9 @@ async def positivacao_clients(
     tamanho: int = Query(50, ge=1, le=100),
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
-    profile = _signed_admin(session)
-    data = await _get_data(profile)
+    context = await _viewer_context(session)
+    setor = _enforced_sector(setor, context)
+    data = _visible_data(await _get_data(context["profile"]), context)
     rows = _selected(data, status, setor, busca)
     start = (pagina-1)*tamanho
     return _safe_json_response({"total": len(rows), "pagina": pagina, "tamanho": tamanho,
@@ -918,12 +1080,12 @@ async def positivacao_export(
     kind: str, status: str = "todos", setor: str = "", busca: str = "",
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
-    profile = _signed_admin(session)
-    # Nunca processar a exportacao corporativa completa. O filtro deve
-    # corresponder a uma carteira INDIVIDUAL presente na fotografia valida.
+    context = await _viewer_context(session)
+    setor = _enforced_sector(setor, context)
+    # Nunca processar a exportacao corporativa completa.
     if not setor or not setor.strip():
         raise HTTPException(400, "Selecione um vendedor ou televendas antes de exportar PDF ou Excel.")
-    data = await _get_data(profile)
+    data = _visible_data(await _get_data(context["profile"]), context)
     is_tv = setor.startswith("TV:")
     person = _norm(setor[3:] if is_tv else setor)
     groups = data.get("carteirasTelevendas", []) if is_tv else data.get("setores", [])

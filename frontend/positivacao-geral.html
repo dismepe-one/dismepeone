@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light">
-<title>Positivação Geral | DISMEPE ONE</title>
+<title>Positivações | DISMEPE ONE</title>
 <style>
 :root{--green:#005548;--deep:#003f36;--mid:#0b6b5b;--mint:#eaf6f1;--bg:#f4f7f6;--border:#d7e4e0;--ink:#123b34;--muted:#60746f;--orange:#ff5a00;--red:#b43e40}
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font-family:"Segoe UI",Tahoma,Geneva,Verdana,sans-serif;font-size:14px}button,input,select{font:inherit}button{cursor:pointer}button:disabled{opacity:.48;cursor:default}a{text-decoration:none;color:inherit}
@@ -15,20 +15,68 @@
 .modal{position:fixed;inset:0;background:#002d25b9;z-index:100;display:grid;place-items:center;padding:16px}.modal[hidden]{display:none}.modal-inner{background:white;width:min(430px,100%);padding:25px;border-radius:18px;box-shadow:0 20px 60px #001c173d}.modal-inner h2{margin:0 0 7px}.modal-inner p{font-size:12px;color:var(--muted);line-height:1.5}.modal-inner label{display:block;font-weight:800;margin:20px 0 7px;font-size:12px}.modal-inner input{height:45px;border-radius:9px;border:1px solid #cfe0d8;padding:0 12px;width:100%;font-size:18px;font-weight:750}.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @media(max-width:1080px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.two,.charts{grid-template-columns:1fr}.metrics-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:620px){.shell{padding:14px}.top-inner{padding:12px 14px;min-height:67px}.logo{width:130px;height:44px;min-width:130px}.brand{font-size:12px}.brand small{font-size:9px}.header-actions .label-desktop{display:none}.intro{display:block}.intro-actions{justify-content:flex-start;margin-top:15px}.kpis{gap:9px}.kpi{padding:15px 13px;min-height:113px}.kpi strong{font-size:29px}.panel{padding:15px}.metrics-strip{gap:8px}.mini{padding:12px}.mini strong{font-size:20px}.graph{flex-wrap:wrap;justify-content:center}.legend{min-width:100%;padding-top:10px}.filters{padding:15px}.filters-main{width:100%}.control,.control.search{flex:1;min-width:140px}.filter-tabs{padding:0 15px 14px}.sector-head,.sector-row{grid-template-columns: minmax(95px,1fr) minmax(90px,1.5fr) 48px;gap:8px}}
 .tag.seller{background:#ddf4e8;color:#075e3c;border:1px solid #a8dfc5}.tag.tele{background:#e2edff;color:#174a9b;border:1px solid #b4ccfc}.origin-legend{display:flex;gap:10px;flex-wrap:wrap;margin:5px 20px 13px;font-size:11px;color:var(--muted)}.origin-legend .tag{margin-right:3px}.btn.busy{cursor:progress;opacity:.75}
+
+/* DEV9: versao mobile realmente responsiva, sem tabela de 1050px. */
+[hidden],button[hidden]{display:none!important}
+.individual-mode #btnRefresh,.individual-mode #btnMeta,.individual-mode .metrics-strip,.individual-mode .two>.card:first-child,.individual-mode #sectorFilter,.individual-mode .charts .explain{display:none!important}
+.individual-mode .two{grid-template-columns:1fr}
+.individual-mode .filters-main{justify-content:stretch}
+.individual-mode .filters-main .search{width:100%;max-width:none}
+@media(max-width:700px){
+ html,body{width:100%;max-width:100%;overflow-x:hidden}
+ .shell{width:100%;max-width:100%;padding:10px 10px 24px}
+ .top-inner{min-height:56px;padding:8px 10px;gap:7px;flex-wrap:wrap}
+ .logo{width:116px;min-width:116px;height:40px}
+ .header-actions{gap:5px}.header-actions .pill{font-size:10px}
+ .intro{display:block;margin-bottom:12px}.intro h1{font-size:22px;line-height:1.2}
+ .intro-actions{width:100%;display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+ .intro-actions .btn{min-height:42px;flex:1;justify-content:center}
+ .kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-bottom:10px}
+ .kpi{min-width:0;min-height:100px;padding:11px}.kpi strong{font-size:clamp(22px,7vw,30px)}
+ .kpi .label,.kpi .note{overflow-wrap:anywhere;font-size:10px}
+ .two,.charts{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;margin-bottom:10px}
+ .panel{min-width:0;padding:12px}.section-title{flex-wrap:wrap;gap:7px;margin-bottom:10px}
+ .section-title h2{font-size:15px}.section-title p{font-size:11px}
+ .graph{display:flex;flex-direction:column;align-items:center;gap:12px}.legend{width:100%;min-width:0}
+ .sector-head,.sector-row{grid-template-columns:minmax(84px,1.2fr) minmax(65px,1fr) 53px;gap:6px}
+ .sector-rows{max-height:260px}.sector-row{padding:9px 2px}.sector-row .name{overflow-wrap:anywhere}
+ .filters{display:block;padding:12px 12px 8px}.filters-main{width:100%;display:grid;grid-template-columns:minmax(0,1fr);margin-top:9px}
+ .control,.control.search{width:100%;min-width:0;min-height:42px}
+ .filter-tabs{padding:3px 10px 11px;gap:5px}.tab{padding:8px 9px;font-size:10px}
+ .origin-legend{margin:4px 12px 11px;font-size:10px}
+ .table-scroll{width:100%;overflow:visible;border-top:0}
+ .table-scroll table,.table-scroll tbody{display:block;min-width:0!important;width:100%;max-width:100%}
+ .table-scroll thead{display:none}
+ .table-scroll tbody tr{display:block;margin:9px 9px 12px;padding:11px 11px 5px;border:1px solid var(--border);border-radius:13px;background:white;box-shadow:0 3px 9px #003f360b}
+ .table-scroll tbody td{display:block;min-width:0;width:100%;padding:6px 0;border:0;font-size:12px;overflow-wrap:anywhere}
+ .table-scroll tbody td:before{display:block;margin-bottom:3px;color:var(--muted);font-weight:800;font-size:9px;letter-spacing:.05em;text-transform:uppercase}
+ .table-scroll tbody td:nth-child(1):before{content:'Código / CNPJ'}
+ .table-scroll tbody td:nth-child(2):before{content:'Cliente'}
+ .table-scroll tbody td:nth-child(3):before{content:'Carteira'}
+ .table-scroll tbody td:nth-child(4):before{content:'Televendas cadastrado'}
+ .table-scroll tbody td:nth-child(5):before{content:'Origem da positivação'}
+ .table-scroll tbody td:nth-child(6):before{content:'Situação'}
+ .table-scroll tbody td.empty:before{content:none}.table-scroll tbody td.empty{padding:12px 0}
+ .table-bottom{gap:10px;padding:11px;display:grid;grid-template-columns:1fr}
+ .table-bottom .pages{justify-content:space-between;gap:5px}.table-bottom .pages .btn{padding:9px;font-size:11px}
+ .table-bottom>div:last-child{display:grid!important;grid-template-columns:1fr 1fr;gap:7px!important}
+ .table-bottom>div:last-child .btn{justify-content:center;min-height:41px}
+ .modal-inner{padding:17px}.footer{padding:15px 0}
+}
 </style>
 </head>
 <body>
-<header class="topbar"><div class="top-inner"><div class="brand"><img class="logo" src="/positivacoes/logo.png" alt="DISMEPE ONE"><div><small>POSITIVAÇÃO GERAL</small></div></div><div class="header-actions"><span class="pill">Administrador</span><a class="btn outline sm" href="/">← <span class="label-desktop">Voltar ao início</span><span class="sr-only">Voltar ao início</span></a></div></div></header>
+<header class="topbar"><div class="top-inner"><div class="brand"><img class="logo" src="/positivacoes/logo.png" alt="DISMEPE ONE"><div><small>POSITIVAÇÃO GERAL</small></div></div><div class="header-actions"><span class="pill" id="accessPill">Administrador</span><a class="btn outline sm" href="/">← <span class="label-desktop">Voltar ao início</span><span class="sr-only">Voltar ao início</span></a></div></div></header>
 <main class="shell">
-<section class="intro"><div><div class="kicker">Inteligência comercial • visão corporativa</div><h1>Positivação Geral</h1><div class="subtitle">Indicadores consolidados por cliente único e carteira autorizada • <span id="updated">Aguardando leitura das bases</span></div></div><div class="intro-actions"><span id="sourceStatus" class="pill">Fontes do Google Drive</span><button id="btnRefresh" type="button" class="btn green">↻ Atualizar bases</button></div></section>
-<div id="alert" class="alert" role="alert"></div><div id="loading" class="loading">Consultando a última fotografia da Positivação Geral…</div><div id="sourceDiagnostic" class="alert" role="status"></div>
+<section class="intro"><div><div class="kicker" id="scopeKicker">Inteligência comercial • visão corporativa</div><h1 id="pageTitle">Positivação Geral</h1><div class="subtitle">Indicadores consolidados por cliente único e carteira autorizada • <span id="updated">Aguardando leitura das bases</span></div></div><div class="intro-actions"><span id="sourceStatus" class="pill">Fontes do Google Drive</span><button id="btnRefresh" type="button" class="btn green">↻ Publicar base para todos</button></div></section>
+<div id="alert" class="alert" role="alert"></div><div id="loading" class="loading">Consultando a última fotografia das Positivações…</div><button type="button" id="retryLoad" class="btn ghost" hidden>Tentar abrir novamente</button><div id="sourceDiagnostic" class="alert" role="status"></div>
 <div id="dashboard" hidden>
 <section class="kpis" aria-label="Indicadores gerais"><article class="card kpi primary"><div class="label" id="kTotalLabel">Carteira geral de clientes únicos</div><strong id="kTotal">—</strong><div class="note">Base do PDF • sem duplicar clientes</div></article><article class="card kpi positive"><div class="label">Clientes positivados</div><strong id="kPositive">—</strong><div class="note" id="kPositiveNote">Vendedor + Televendas + Diretoria/Supervisão</div></article><article class="card kpi negative"><div class="label">Clientes não positivados</div><strong id="kNegative">—</strong><div class="note">Clientes da carteira ainda sem positivação</div></article><article class="card kpi"><div class="label">Percentual de positivação</div><strong id="kPercent">—</strong><div class="note">Clientes únicos positivados ÷ carteira</div></article></section>
 <section class="two"><article class="card panel"><div class="section-title"><div><h2>Meta geral DISMEPE</h2><p>Quantidade de clientes únicos positivados no período</p></div><button id="btnMeta" class="btn ghost sm" type="button">Cadastrar meta geral DISMEPE</button></div><div class="progress-head"><div><strong id="metaFraction">—</strong><div class="tiny" id="metaHint">Meta ainda não definida</div></div><div style="text-align:right"><strong id="metaPercent">—</strong><div class="tiny">da meta atingida</div></div></div><div class="progress" role="progressbar" aria-label="Progresso da meta" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="metaBar"><span id="metaFill"></span></div><div class="meta-stats"><div>Faltam <strong id="metaMissing">—</strong> clientes</div><div class="tiny" id="metaPeriod">Período atual</div></div></article><article class="card panel"><div class="section-title"><div><h2>Carteira: positivados × pendentes</h2><p>Contagem única, independentemente do canal de venda</p></div></div><div class="graph"><div class="donut" id="donut"><div><b id="donutNum">—</b><small>positivados</small></div></div><div class="legend"><div class="legend-row"><span><i class="dot"></i>Positivados</span><b id="legendPos">—</b></div><div class="legend-row"><span><i class="dot alt"></i>Não positivados</span><b id="legendNeg">—</b></div><div class="legend-row"><span><i class="dot dir"></i>Bloqueados na carteira</span><b id="legendBlocked">—</b></div></div></div></article></section>
 <section class="metrics-strip"><article class="card mini"><label>Novos na carteira</label><strong id="mNew">—</strong><small>Em relação à última fotografia válida</small></article><article class="card mini"><label>Removidos da carteira</label><strong id="mRemoved">—</strong><small>Preservados no histórico de comparação</small></article><article class="card mini"><label>Novos bloqueios</label><strong id="mBlocked">—</strong><small>Comparação entre atualizações</small></article><article class="card mini"><label>Fora da carteira atual</label><strong id="mOutside">—</strong><small>Positivados no Excel sem código no PDF</small></article></section>
 <section class="charts"><article class="card panel"><div class="section-title"><div><h2>Positivação por carteira</h2><p id="sectorExplain">Somente vendedores com cadastro ativo no DISMEPE ONE</p></div><span class="tiny" id="sectorCount">—</span></div><div class="sector-head"><span>Carteira</span><span>Progresso</span><span style="text-align:right">%</span></div><div class="sector-rows" id="sectorRows" aria-label="Gráfico por carteira"></div><div class="explain">Clientes compartilhados podem aparecer em mais de uma carteira; no indicador corporativo cada código entra apenas uma vez.</div></article><article class="card panel"><div class="section-title"><div><h2>Origem da positivação</h2><p id="originExplain">Quantidades por canal de venda, sem somar origens para obter o total geral</p></div></div><div class="origins" id="originRows"></div><div class="explain"><strong>Diretoria/Supervisão:</strong> contabilizada no consolidado. A relação de clientes fica restrita à administração. Eletrônico é classificado como Vendedor.</div></article></section>
 <section class="card table-panel"><div class="filters"><div><h2>Carteira de clientes</h2><small id="tableSummary">Consulte clientes únicos conforme os filtros ativos</small></div><div class="filters-main"><label class="sr-only" for="sectorFilter">Carteira</label><select id="sectorFilter" class="control"><option value="">Todas as carteiras</option></select><label class="sr-only" for="search">Busca por cliente, código ou CNPJ</label><input class="control search" id="search" type="search" placeholder="Buscar código, cliente ou CNPJ" autocomplete="off"></div></div><div class="filter-tabs" id="tabs"><button class="tab active" data-status="todos">Todos</button><button class="tab" data-status="positivados">Positivados</button><button class="tab" data-status="nao-positivados">Não positivados</button><button class="tab" data-status="bloqueados">Bloqueados</button></div><div class="origin-legend"><span><span class="tag seller">Vendedor</span> Positivação do vendedor</span><span><span class="tag tele">Televendas</span> Positivação do televendas</span><span>Clientes com ambos exibem as duas cores.</span></div><div class="table-scroll"><table><thead><tr><th>Código / CNPJ</th><th>Cliente</th><th>Carteira</th><th>Televendas Cad.</th><th>Origem</th><th>Situação</th></tr></thead><tbody id="clientRows"><tr><td colspan="6" class="empty">Aguardando dados...</td></tr></tbody></table></div><div class="table-bottom"><div class="tiny" id="paginationText">—</div><div class="pages"><button id="prev" class="btn sm" type="button">← Anterior</button><span id="pageNum" class="tiny">1</span><button id="next" class="btn sm" type="button">Próxima →</button></div><div style="display:flex;gap:7px"><button class="btn ghost sm export" data-kind="excel" type="button" disabled title="Selecione um vendedor ou televendas para exportar">↓ Excel</button><button class="btn ghost sm export" data-kind="pdf" type="button" disabled title="Selecione um vendedor ou televendas para exportar">↓ PDF</button></div></div></section>
-<div class="footer">DISMEPE ONE • módulo gerencial em desenvolvimento • acesso administrativo • dados extraídos das fontes oficiais do Google Drive</div></div>
+<div class="footer" id="pageFooter">DISMEPE ONE • visão administrativa • base oficial gravada no Supabase</div></div>
 </main>
 <div class="modal" id="metaModal" hidden role="dialog" aria-modal="true" aria-labelledby="metaTitle"><div class="modal-inner"><h2 id="metaTitle">Cadastrar meta geral DISMEPE</h2><p>Defina quantos clientes únicos a empresa deve positivar no período. Somente o administrador pode alterar.</p><form id="metaForm"><label for="metaInput">Meta de clientes positivados</label><input id="metaInput" type="number" min="0" max="1000000" step="1" required><div id="metaError" class="tiny" style="color:var(--red);margin-top:8px" role="alert"></div><div class="modal-actions"><button class="btn" type="button" id="cancelMeta">Cancelar</button><button class="btn green" type="submit">Salvar meta</button></div></form></div></div>
 <script>
@@ -47,16 +95,31 @@ async function getJSON(url,opts={}){
  }catch(e){if(e.name==='AbortError')throw Error('O servidor não respondeu. A tela permanece disponível; tente atualizar novamente.');throw e;}
  finally{clearTimeout(timeout);}
 }
+function applyAccess(d){
+ const own=d.acesso&&d.acesso.individual;
+ document.body.classList.toggle('individual-mode',!!own);
+ if(own){
+  $('accessPill').textContent=d.acesso.canal;
+  $('pageTitle').textContent='Minhas Positivações';
+  $('scopeKicker').textContent='Minha carteira • '+d.acesso.profissional;
+  $('pageFooter').textContent='DISMEPE ONE • somente sua carteira autorizada';
+ }else{
+  $('accessPill').textContent='Administrador';
+  $('pageTitle').textContent='Positivação Geral';
+  $('scopeKicker').textContent='Inteligência comercial • visão corporativa';
+  $('pageFooter').textContent='DISMEPE ONE • visão administrativa • base oficial gravada no Supabase';
+ }
+}
 function populate(){const d=snapshot,k=d.indicadores; $('kTotal').textContent=num(k.carteira);$('kPositive').textContent=num(k.positivados);$('kNegative').textContent=num(k.naoPositivados);$('kPercent').textContent=pct(k.percentual);
 $('updated').textContent='Atualizado em '+new Date(d.atualizadoEm).toLocaleString('pt-BR');$('sourceStatus').textContent='Período '+d.competencia;$('mNew').textContent=num(d.movimentacao.novos);$('mRemoved').textContent=num(d.movimentacao.removidos);$('mBlocked').textContent=num(d.movimentacao.bloqueadosNovos);$('mOutside').textContent=num(k.positivadosForaCarteira);
 $('donut').style.setProperty('--pct',Math.min(100,Math.max(0,k.percentual))+'%');$('donutNum').textContent=pct(k.percentual);$('legendPos').textContent=num(k.positivados);$('legendNeg').textContent=num(k.naoPositivados);$('legendBlocked').textContent=num(k.bloqueados);
 $('btnMeta').textContent=d.meta?'Alterar meta geral DISMEPE':'Cadastrar meta geral DISMEPE';$('metaFraction').textContent=num(k.positivados)+' / '+(d.meta?num(d.meta):'—');$('metaHint').textContent=d.meta?'Meta definida pela administração':'Configure uma meta para acompanhar o atingimento';$('metaPercent').textContent=d.meta?pct(d.metaAtingimento):'—';$('metaMissing').textContent=d.meta?num(d.metaFaltam):'—';$('metaPeriod').textContent='Competência '+d.competencia;$('metaFill').style.width=(d.meta?Math.min(100,d.metaAtingimento):0)+'%';$('metaBar').setAttribute('aria-valuenow',String(d.meta?Math.min(100,d.metaAtingimento):0));
-$('sectorCount').textContent=num(d.setores.length)+' carteiras';const choice=$('sectorFilter').value;$('sectorFilter').innerHTML='<option value="">Todas as carteiras</option><optgroup label="Vendedores">'+d.setores.map(s=>'<option value="'+esc(s.setor)+'">'+esc(s.setor)+'</option>').join('')+'</optgroup><optgroup label="Televendas">'+(d.carteirasTelevendas||[]).map(s=>'<option value="TV:'+esc(s.televendas)+'">'+esc(s.televendas)+'</option>').join('')+'</optgroup>';$('sectorFilter').value=choice;setExportAvailability();
+$('sectorCount').textContent=num(d.setores.length)+' carteiras';const choice=$('sectorFilter').value;$('sectorFilter').innerHTML='<option value="">Todas as carteiras</option><optgroup label="Vendedores">'+d.setores.map(s=>'<option value="'+esc(s.setor)+'">'+esc(s.setor)+'</option>').join('')+'</optgroup><optgroup label="Televendas">'+(d.carteirasTelevendas||[]).map(s=>'<option value="TV:'+esc(s.televendas)+'">'+esc(s.televendas)+'</option>').join('')+'</optgroup>';$('sectorFilter').value=d.acesso?.individual?d.acesso.setor:choice;setExportAvailability();
 $('sectorRows').innerHTML=d.setores.length?d.setores.map(s=>'<div class="sector-row"><div class="name">'+esc(s.setor)+'<small>'+num(s.positivados)+' / '+num(s.total)+' clientes</small></div><div class="track"><span style="width:'+Math.max(0,Math.min(100,s.percentual))+'%"></span></div><b>'+pct(s.percentual)+'</b></div>').join(''):'<div class="empty">Nenhuma carteira vinculada a vendedor ativo foi localizada.</div>';
-renderOrigins(d.origens);$('kTotalLabel').textContent='Carteira geral de clientes únicos';$('kPositiveNote').textContent='Vendedor + Televendas + Diretoria/Supervisão';$('sectorExplain').textContent='Somente vendedores com cadastro ativo no DISMEPE ONE';$('originExplain').textContent='Quantidades por canal de venda, sem somar origens para obter o total geral';}
+renderOrigins(d.origens);$('kTotalLabel').textContent=d.acesso?.individual?'Minha carteira • clientes únicos':'Carteira geral de clientes únicos';$('kPositiveNote').textContent=d.acesso?.individual?'Somente minhas positivações':'Vendedor + Televendas + Diretoria/Supervisão';$('sectorExplain').textContent=d.acesso?.individual?'Minha carteira individual':'Somente vendedores com cadastro ativo no DISMEPE ONE';$('originExplain').textContent=d.acesso?.individual?'Apenas positivações creditadas a você':'Quantidades por canal de venda, sem somar origens para obter o total geral';}
 function renderOrigins(origins){const max=Math.max(1,...Object.values(origins));const names=['Vendedor','Televendas','Diretoria/Supervisão','Vendedor + Televendas'];$('originRows').innerHTML=names.map(name=>'<div><div class="origin-row"><span>'+esc(name)+'</span><b>'+num(origins[name]||0)+'</b></div><div class="track"><span style="width:'+Math.round(100*(origins[name]||0)/max)+'%"></span></div></div>').join('');}
 async function updateFilteredCharts(){
- const choice=$('sectorFilter').value,serial=++chartIndex;if(!snapshot)return;
+ const choice=snapshot?.acesso?.individual?snapshot.acesso.setor:$('sectorFilter').value,serial=++chartIndex;if(!snapshot)return;
  if(!choice){populate();return;}
  try{const d=await getJSON('/positivacoes/api/resumo-filtro?'+new URLSearchParams({setor:choice}));if(serial!==chartIndex||choice!==$('sectorFilter').value)return;
  const k=d.indicadores;$('kTotal').textContent=num(k.carteira);$('kPositive').textContent=num(k.positivados);$('kNegative').textContent=num(k.naoPositivados);$('kPercent').textContent=pct(k.percentual);$('kTotalLabel').textContent='Carteira de '+d.canal+' • clientes únicos';$('kPositiveNote').textContent='Somente clientes positivados por '+d.profissional;
@@ -66,14 +129,14 @@ async function updateFilteredCharts(){
  }catch(e){if(serial===chartIndex)showAlert(e.message,true);}
 }
 function setExportAvailability(){
- const choice=$('sectorFilter').value.trim();
+ const choice=(snapshot?.acesso?.individual?snapshot.acesso.setor:$('sectorFilter').value).trim();
  const selected=choice!=='' && choice!=='TV:';
  document.querySelectorAll('.export').forEach(b=>{
   b.disabled=!selected || b.dataset.exporting==='1';
   b.title=selected?'Exportar somente os clientes da carteira selecionada':'Selecione um vendedor ou televendas para exportar';
  });
 }
-function currentQuery(){const p=new URLSearchParams({status:currentStatus,setor:$('sectorFilter').value,busca:$('search').value.trim()});return p;}
+function currentQuery(){const p=new URLSearchParams({status:currentStatus,setor:snapshot?.acesso?.individual?snapshot.acesso.setor:$('sectorFilter').value,busca:$('search').value.trim()});return p;}
 async function loadClients(){const myIndex=++fetchIndex;const tbody=$('clientRows');tbody.innerHTML='<tr><td colspan="6" class="empty">Carregando clientes filtrados…</td></tr>';try{const q=currentQuery();q.set('pagina',String(page));q.set('tamanho','50');const d=await getJSON('/positivacoes/api/clientes?'+q);if(myIndex!==fetchIndex)return;total=d.total;$('tableSummary').textContent=num(total)+' clientes no filtro atual';$('paginationText').textContent=total?(num((page-1)*50+1)+'–'+num(Math.min(page*50,total))+' de '+num(total)):'Nenhum cliente encontrado';$('pageNum').textContent='Página '+num(page);$('prev').disabled=page===1;$('next').disabled=page*50>=total;
 tbody.innerHTML=d.clientes.length?d.clientes.map(c=>'<tr><td><b>'+esc(c.codigo)+'</b><div class="tiny">'+esc(c.cnpj||'—')+'</div></td><td><span class="client">'+esc(c.cliente)+'</span>'+(c.carteiraCompartilhada?'<span class="tiny">Carteira compartilhada</span>':'')+'</td><td>'+esc(c.setores.join(', ')||'Sem usuário vinculado')+'</td><td>'+esc(c.televendas.join(', ')||'—')+'</td><td>'+((c.origens||[]).map(o=>'<span class="tag '+(o.includes('Diretoria')?'dir':o==='Televendas'?'tele':o==='Vendedor'?'seller':'yes')+'">'+esc(o)+'</span>').join(' ')||'—')+'</td><td><span class="tag '+(c.status==='Positivado'?'yes':'no')+'">'+esc(c.status)+'</span>'+(c.bloqueado?' <span class="tag blocked">Bloqueado</span>':'')+'</td></tr>').join(''):'<tr><td colspan="6" class="empty">Nenhum cliente corresponde aos filtros.</td></tr>';
 }catch(e){if(myIndex!==fetchIndex)return;tbody.innerHTML='<tr><td colspan="6" class="empty">Não foi possível carregar a lista de clientes.</td></tr>';showAlert(e.message,true);}}
@@ -98,6 +161,8 @@ async function refresh(force=false){
       return;
     }
     snapshot=result;
+    applyAccess(result);
+    $('retryLoad').hidden=true;
     $('dashboard').hidden=false;
     $('loading').hidden=true;
     const changed=result.atualizadoEm!==lastSnapshotTime;
@@ -111,7 +176,8 @@ async function refresh(force=false){
     let notice=result.alerta||'';
     if(sync.emAndamento)notice='Verificando nova base. A fotografia atual permanece disponível.';
     else if(manualPending&&sync.erro)notice='A atualização falhou: '+sync.erro+' A base válida do Supabase foi preservada.';
-    else if(manualPending)notice='Base verificada. Exibindo a fotografia atualizada do Supabase.';
+    else if(manualPending&&sync.resultado==='PUBLICADA')notice='Nova base publicada no Supabase para todos os usuários.';
+    else if(manualPending)notice='A fotografia atual já está disponível no Supabase.';
     else if(sync.erro)notice='';
     else if(result.persistencia==='MEMORIA_APENAS')notice='Base válida disponível, mas o Supabase ainda não confirmou a gravação.';
     const manualFailed=manualPending&&!sync.emAndamento&&!!sync.erro;
@@ -123,15 +189,16 @@ async function refresh(force=false){
   }catch(e){
     manualPending=false;
     $('loading').hidden=!!snapshot;
-    if(!snapshot){$('loading').textContent='Não foi possível consultar a fotografia salva. Clique em Atualizar bases para tentar novamente.';}
+    if(!snapshot){$('loading').textContent='Não foi possível abrir as Positivações. Confira sua conexão e tente novamente.';$('retryLoad').hidden=false;}
     showAlert(e.message,true);
   }finally{
     requestInProgress=false;
     $('btnRefresh').disabled=manualPending;
     $('btnRefresh').classList.toggle('busy',manualPending);
-    $('btnRefresh').textContent=manualPending?'Atualizando bases…':'↻ Atualizar bases';
+    $('btnRefresh').textContent=manualPending?'Publicando para todos…':'↻ Publicar base para todos';
   }
 }
+$('retryLoad').addEventListener('click',()=>{$('retryLoad').hidden=true;showAlert('');refresh(false);});
 $('btnRefresh').addEventListener('click',()=>refresh(true));$('tabs').addEventListener('click',e=>{const b=e.target.closest('[data-status]');if(!b)return;currentStatus=b.dataset.status;document.querySelectorAll('#tabs .tab').forEach(x=>x.classList.toggle('active',x===b));page=1;loadClients();});$('sectorFilter').addEventListener('change',()=>{setExportAvailability();page=1;loadClients();updateFilteredCharts();});$('search').addEventListener('input',()=>{clearTimeout(searchTimeout);searchTimeout=setTimeout(()=>{page=1;loadClients();},250);});$('prev').addEventListener('click',()=>{if(page>1){page--;loadClients();}});$('next').addEventListener('click',()=>{if(page*50<total){page++;loadClients();}});
 document.querySelectorAll('.export').forEach(b=>b.addEventListener('click',async()=>{const kind=b.dataset.kind;const q=currentQuery();if(!q.get('setor')||q.get('setor')==='TV:')return;const url='/positivacoes/api/exportar/'+kind+'?'+q;b.dataset.exporting='1';setExportAvailability();try{const r=await fetch(url,{credentials:'include',cache:'no-store'});if(!r.ok){let d={};try{d=await r.json();}catch(_){}throw Error(d.detail||'Não foi possível exportar.');}const blob=await r.blob();const obj=URL.createObjectURL(blob);const a=document.createElement('a');a.href=obj;a.download='POSITIVACAO_GERAL_'+new Date().toISOString().slice(0,10)+'.'+(kind==='excel'?'xlsx':'pdf');document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(obj),2000);}catch(e){showAlert(String(e.message),true);}finally{delete b.dataset.exporting;setExportAvailability();}}));
 function closeMeta(){$('metaModal').hidden=true;$('metaError').textContent='';}$('btnMeta').addEventListener('click',()=>{$('metaInput').value=String(snapshot?.meta||0);$('metaModal').hidden=false;$('metaInput').focus();});$('cancelMeta').addEventListener('click',closeMeta);$('metaModal').addEventListener('click',e=>{if(e.target===$('metaModal'))closeMeta();});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMeta();});$('metaForm').addEventListener('submit',async e=>{e.preventDefault();const b=$('metaForm').querySelector('[type="submit"]');b.disabled=true;$('metaError').textContent='';try{const value=Number($('metaInput').value);if(!Number.isInteger(value)||value<0||value>1000000)throw Error('Informe uma meta válida entre 0 e 1.000.000.');const d=await getJSON('/positivacoes/api/meta',{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify({meta:value})});snapshot.meta=d.meta;snapshot.metaAtingimento=d.meta?Math.round(snapshot.indicadores.positivados*10000/d.meta)/100:0;snapshot.metaFaltam=Math.max(0,d.meta-snapshot.indicadores.positivados);populate();updateFilteredCharts();closeMeta();}catch(err){$('metaError').textContent=err.message;}finally{b.disabled=false;}});
