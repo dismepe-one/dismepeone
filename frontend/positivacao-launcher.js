@@ -12,7 +12,7 @@
    const button=document.createElement('button');
    button.type='button';button.id='homePositivacaoGeral';
    button.className='home-card text-left';
-   button.innerHTML='<span class="home-icon"><i class="fa-solid fa-chart-pie"></i></span><span class="min-w-0"><span class="block font-black text-[14px] text-slate-800">POSITIVAÇÃO GERAL</span><span class="block text-[11px] leading-4 text-slate-500 mt-0.5">Carteira única, meta geral e análise por setor</span></span><i class="home-arrow fa-solid fa-chevron-right"></i>';
+   button.innerHTML='<span class="home-icon"><i class="fa-solid fa-chart-pie"></i></span><span class="min-w-0"><span class="block font-black text-[14px] text-slate-800">Positivações</span><span class="block text-[11px] leading-4 text-slate-500 mt-0.5">Carteira única, meta geral e análise por setor</span></span><i class="home-arrow fa-solid fa-chevron-right"></i>';
    button.addEventListener('click',()=>{window.location.href='/positivacoes';});
    host.appendChild(button);
  }

@@ -164,16 +164,75 @@ def _drive_file_list(service: Any, folder: str) -> list[dict[str, Any]]:
             return files
 
 
-def _drive_sources(service: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+# IDs de recuperação dos dois arquivos fornecidos pela gestão. A busca por
+# nome na pasta continua prioritária para detectar substituições futuras.
+_INITIAL_PDF_ID = "1LawsN3vXbRLtzXslPyHnQUvh9PtP6sCT"
+_INITIAL_SHEET_ID = "1X2VODNXP-Y1a8HzuaEf7wjIzMZCynYNTSEqjs5svU5Y"
+_SHEET_MIME = {
+    "application/vnd.google-apps.spreadsheet",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+
+def _probe_drive_sources(service: Any) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any]]:
     folder = os.getenv("DISMEPE_POSITIVACAO_FOLDER_ID", FOLDER_ID).strip() or FOLDER_ID
-    items = _drive_file_list(service, folder)
-    pdfname = _norm(PDF_NAME)
-    sheetname = _norm(SHEET_NAME)
-    pdf = next((f for f in items if _norm(f.get("name")) == pdfname and f.get("mimeType") == "application/pdf"), None)
-    sheet = next((f for f in items if _norm(f.get("name")) in {sheetname, sheetname + " XLSX"} and f.get("mimeType") in {"application/vnd.google-apps.spreadsheet", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), None)
+    pdfname, sheetname = _norm(PDF_NAME), _norm(SHEET_NAME)
+    details: dict[str, Any] = {"buscaPasta": "OK", "pdf": "NÃO LOCALIZADO", "planilha": "NÃO LOCALIZADA"}
+    try:
+        items = _drive_file_list(service, folder)
+    except Exception as exc:
+        status = getattr(getattr(exc, "resp", None), "status", None)
+        details["buscaPasta"] = f"HTTP {status}" if status in (401, 403, 404, 429) else "INDISPONÍVEL"
+        items = []
+
+    pdf = next((x for x in items if _norm(x.get("name")) == pdfname
+                and x.get("mimeType") == "application/pdf"), None)
+    sheet = next((x for x in items if _norm(x.get("name")) in {sheetname, sheetname + " XLSX"}
+                  and x.get("mimeType") in _SHEET_MIME), None)
+    if pdf: details["pdf"] = "PASTA"
+    if sheet: details["planilha"] = "PASTA"
+
+    # Pastas acessíveis por link podem não ser enumeráveis pela API de uma
+    # conta de serviço. Nesse caso, tente o acesso direto aos arquivos já
+    # fornecidos pela gestão; confirme tipo, nome e pasta antes de usar.
+    for kind, fallback_id, expected_names, allowed_mimes in (
+        ("pdf", os.getenv("DISMEPE_POSITIVACAO_PDF_ID", _INITIAL_PDF_ID).strip(),
+         {pdfname}, {"application/pdf"}),
+        ("planilha", os.getenv("DISMEPE_POSITIVACAO_SHEET_ID", _INITIAL_SHEET_ID).strip(),
+         {sheetname, sheetname + " XLSX"}, _SHEET_MIME),
+    ):
+        if (kind == "pdf" and pdf) or (kind == "planilha" and sheet) or not fallback_id:
+            continue
+        try:
+            item = service.files().get(
+                fileId=fallback_id, fields="id,name,mimeType,modifiedTime,size,parents",
+                supportsAllDrives=True,
+            ).execute(num_retries=3)
+            if (_norm(item.get("name")) not in expected_names
+                    or item.get("mimeType") not in allowed_mimes
+                    or (item.get("parents") and folder not in item["parents"])):
+                details[kind] = "ARQUIVO DE REFERÊNCIA INCOMPATÍVEL"
+                continue
+            if kind == "pdf": pdf = item
+            else: sheet = item
+            details[kind] = "ARQUIVO DIRETO"
+        except Exception as exc:
+            status = getattr(getattr(exc, "resp", None), "status", None)
+            details[kind] = (f"HTTP {status}" if status in (401, 403, 404, 429)
+                             else "ACESSO DIRETO INDISPONÍVEL")
+    return pdf, sheet, details
+
+
+def _drive_sources(service: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    pdf, sheet, check = _probe_drive_sources(service)
     if not pdf or not sheet:
-        missing = ("PDF da carteira" if not pdf else "planilha Positivacoes")
-        raise RuntimeError(f"{missing} não encontrado na pasta do Google Drive configurada.")
+        missing = ", ".join(x for x, present in (("PDF da carteira", pdf),
+                                                  ("planilha Positivacoes", sheet)) if not present)
+        raise RuntimeError(
+            f"Fonte indisponível: {missing}. Confira o compartilhamento da pasta e "
+            "dos arquivos com a conta de serviço do Render. "
+            f"Busca na pasta: {check['buscaPasta']}; PDF: {check['pdf']}; planilha: {check['planilha']}."
+        )
     return pdf, sheet
 
 
@@ -496,7 +555,7 @@ async def _get_data(profile: dict[str, Any], force: bool = False) -> dict[str, A
             data = await asyncio.to_thread(_sync_blocking, sellers, televendas, prev, force)
             data = copy.deepcopy(data)
             data["usuariosAtivos"] = {"vendedores": len(set(sellers.values())), "televendas": len(set(televendas.values()))}
-            if data.get("fontes") != (prev or {}).get("fontes"):
+            if data.get("fontes") != (prev or {}).get("fontes") or (prev or {}).get("persistencia") == "MEMORIA_APENAS":
                 try:
                     await _persist(data, profile)
                     data["persistencia"] = "POSTGRESQL"
@@ -571,22 +630,14 @@ def _source_diagnostic_blocking() -> dict[str, Any]:
     except Exception:
         return {"status": "CREDENCIAL_DRIVE_INDISPONIVEL", "pdf": False, "planilha": False,
                 "orientacao": "A credencial de leitura do Google Drive precisa estar configurada no Render."}
-    folder = os.getenv("DISMEPE_POSITIVACAO_FOLDER_ID", FOLDER_ID).strip() or FOLDER_ID
-    try:
-        files = _drive_file_list(service, folder)
-    except Exception as exc:
-        code = getattr(getattr(exc, "resp", None), "status", None)
-        return {"status": "ACESSO_DRIVE_INDISPONIVEL", "pdf": False, "planilha": False,
-                "codigoHttp": code if code in (401, 403, 404, 429) else None,
-                "orientacao": "Verifique se a pasta de Positivações foi compartilhada com a conta de serviço configurada no Render."}
-    pdf = any(_norm(x.get("name")) == _norm(PDF_NAME) and x.get("mimeType") == "application/pdf" for x in files)
-    planilha = any(_norm(x.get("name")) in {_norm(SHEET_NAME), _norm(SHEET_NAME + ".xlsx")}
-                   and x.get("mimeType") in {"application/vnd.google-apps.spreadsheet", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
-                   for x in files)
-    return {"status": "FONTES_LOCALIZADAS" if pdf and planilha else "ARQUIVO_NAO_LOCALIZADO",
-            "pdf": pdf, "planilha": planilha,
-            "orientacao": "As duas fontes estão acessíveis; caso os indicadores não carreguem, confira a mensagem da importação."
-            if pdf and planilha else "Verifique os nomes dos arquivos e a permissão da conta de serviço na pasta do Drive."}
+    pdf, planilha, detalhes = _probe_drive_sources(service)
+    encontradas = bool(pdf and planilha)
+    return {"status": "FONTES_LOCALIZADAS" if encontradas else "FONTES_INDISPONIVEIS",
+            "pdf": bool(pdf), "planilha": bool(planilha),
+            "buscaPasta": detalhes["buscaPasta"],
+            "metodoPdf": detalhes["pdf"], "metodoPlanilha": detalhes["planilha"],
+            "orientacao": "Arquivos localizados. Se os indicadores ainda não carregarem, verifique o erro de importação mostrado acima."
+            if encontradas else "A leitura precisa de acesso da conta de serviço do Render à pasta e aos dois arquivos. Confira o compartilhamento no Google Drive."}
 
 
 @router.get("/positivacoes/api/diagnostico", include_in_schema=False)
