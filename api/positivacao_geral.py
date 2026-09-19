@@ -1536,6 +1536,23 @@ async def positivacao_inatividade_solicitar(
                                 'mensagem': 'Solicitação enviada para aprovação da administração.'})
 
 
+@router.get('/positivacoes/api/inatividades/pendentes-contagem')
+async def positivacao_inatividade_pendentes_contagem(
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    context = await _viewer_context(session)
+    if not context['admin']:
+        raise HTTPException(403, 'A consulta de solicitações é exclusiva da administração.')
+    # Consulta somente pendentes; limite protegido pela função existente.
+    # Ao atingir o limite, mostrar 200+ em vez de alegar contagem exata.
+    response = await _inat_edge('ADMIN', {'situacao': 'pendente', 'limite': 200})
+    records = response.get('registros')
+    if not isinstance(records, list):
+        raise HTTPException(503, 'A contagem de solicitações está indisponível.')
+    return _safe_json_response({'sucesso': True, 'pendentes': len(records),
+                                'limitado': len(records) >= 200})
+
+
 @router.get('/positivacoes/api/inatividades/administracao')
 async def positivacao_inatividade_administracao(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
