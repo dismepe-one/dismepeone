@@ -195,14 +195,14 @@ async def load_stock_sync_schedule_config(force: bool = False) -> list[str]:
     global _SCHEDULE_OVERRIDE, _SCHEDULE_CONFIG_LOADED, _SCHEDULE_CONFIG_LOCK
 
     if _SCHEDULE_CONFIG_LOADED and not force:
-        return list(_SCHEDULE_OVERRIDE or _default_schedule_values())
+        return list(_SCHEDULE_OVERRIDE if _SCHEDULE_OVERRIDE is not None else _default_schedule_values())
 
     if _SCHEDULE_CONFIG_LOCK is None:
         _SCHEDULE_CONFIG_LOCK = asyncio.Lock()
 
     async with _SCHEDULE_CONFIG_LOCK:
         if _SCHEDULE_CONFIG_LOADED and not force:
-            return list(_SCHEDULE_OVERRIDE or _default_schedule_values())
+            return list(_SCHEDULE_OVERRIDE if _SCHEDULE_OVERRIDE is not None else _default_schedule_values())
 
         from .config import get_settings
         import httpx
@@ -233,21 +233,19 @@ async def load_stock_sync_schedule_config(force: bool = False) -> list[str]:
                 else:
                     values = []
                 parsed = _normalize_schedule_values(values)
-                if parsed:
-                    _SCHEDULE_OVERRIDE = parsed
+                if isinstance(values, list):
+                    _SCHEDULE_OVERRIDE = parsed  # [] significa rotina automática desativada
                 _SCHEDULE_CONFIG_LOADED = True
         except Exception:
-            return list(_SCHEDULE_OVERRIDE or _default_schedule_values())
+            return list(_SCHEDULE_OVERRIDE if _SCHEDULE_OVERRIDE is not None else _default_schedule_values())
 
-    return list(_SCHEDULE_OVERRIDE or _default_schedule_values())
+    return list(_SCHEDULE_OVERRIDE if _SCHEDULE_OVERRIDE is not None else _default_schedule_values())
 
 
 async def set_stock_sync_schedules(values: list[str]) -> list[str]:
     global _SCHEDULE_OVERRIDE, _SCHEDULE_CONFIG_LOADED
     parsed = _normalize_schedule_values(values)
-    if not parsed:
-        raise ValueError("Cadastre pelo menos um horário válido.")
-    _SCHEDULE_OVERRIDE = parsed
+    _SCHEDULE_OVERRIDE = parsed  # [] desativa a execução automática.
     _SCHEDULE_CONFIG_LOADED = True
     _wake_event().set()
     return list(parsed)
@@ -261,7 +259,7 @@ def drive_sync_config() -> dict[str, Any]:
     except Exception:
         timezone_name = "America/Recife"
 
-    schedules = list(_SCHEDULE_OVERRIDE or _default_schedule_values())
+    schedules = list(_SCHEDULE_OVERRIDE if _SCHEDULE_OVERRIDE is not None else _default_schedule_values())
     first = schedules[0] if schedules else "10:00"
     hour, minute = [int(x) for x in first.split(":")]
 
@@ -280,6 +278,7 @@ def drive_sync_config() -> dict[str, Any]:
         "timezone": timezone_name,
         "schedule": ", ".join(schedules),
         "schedules": schedules,
+        "automaticEnabled": bool(schedules),
     }
 
 
@@ -292,7 +291,7 @@ def _schedule_timezone(cfg: dict[str, Any] | None = None) -> ZoneInfo:
 
 
 def _schedule_datetimes_for_day(now_local: datetime, cfg: dict[str, Any]) -> list[tuple[str, datetime]]:
-    schedules = _normalize_schedule_values(cfg.get("schedules")) or _default_schedule_values()
+    schedules = _normalize_schedule_values(cfg.get("schedules"))
     output: list[tuple[str, datetime]] = []
     for value in schedules:
         hour, minute = [int(x) for x in value.split(":")]
@@ -309,13 +308,15 @@ def _completed_schedule_keys(state: dict[str, Any]) -> set[str]:
     return {str(x) for x in values if str(x).strip()}
 
 
-def _next_scheduled_local(cfg: dict[str, Any], state: dict[str, Any] | None = None) -> datetime:
+def _next_scheduled_local(cfg: dict[str, Any], state: dict[str, Any] | None = None) -> datetime | None:
     tz = _schedule_timezone(cfg)
     now = datetime.now(tz)
     state = state or {}
     completed = _completed_schedule_keys(state)
 
     today_rows = _schedule_datetimes_for_day(now, cfg)
+    if not today_rows:
+        return None  # Sem horários: nenhuma execução automática futura.
     due = [
         (value, dt)
         for value, dt in today_rows
@@ -363,7 +364,7 @@ def _worker_is_running() -> bool:
 def stock_sync_public_status() -> dict[str, Any]:
     cfg = drive_sync_config()
     state = _read_json(STATE_FILE, {}) or {}
-    next_local = _next_scheduled_local(cfg, state) if cfg["configured"] else None
+    next_local = _next_scheduled_local(cfg, state) if cfg["configured"] and cfg["automaticEnabled"] else None
     return {
         **cfg,
         "running": bool(_TASK and not _TASK.done()),
@@ -1242,6 +1243,16 @@ async def _sync_loop() -> None:
         cfg = drive_sync_config()
         if not cfg["configured"]:
             return
+
+        if not cfg['automaticEnabled']:
+            _state_update(nextScheduledAt=None)
+            event = _wake_event()
+            event.clear()
+            try:
+                await event.wait()  # Aguardar um novo horário salvo, sem verificar o PDF.
+            except asyncio.CancelledError:
+                raise
+            continue
 
         tz = _schedule_timezone(cfg)
         now = datetime.now(tz)

@@ -1133,3 +1133,8 @@ async def prod597_update_center(
     if mensal_requested and not result.get("mensalSync"):
         result["mensalSync"] = "POSTGRESQL_ATUALIZADO_EM"
     return result
+
+
+# Positivação Geral: módulo separado, exclusivo para administradores.
+from .positivacao_geral import router as positivacao_geral_router
+app.include_router(positivacao_geral_router)

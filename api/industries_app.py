@@ -90,6 +90,7 @@ def _portal_response(*, authenticated: bool = False) -> HTMLResponse:
         f'<script src="/industries-admin.js?v={BUILD}"></script>',
         f'<script src="/monthly-business-days-prod59822.js?v={BUILD}"></script>',
         f'<script src="/herbamed-auto-metrics-prod59822.js?v={BUILD}"></script>',
+        f'<script src="/positivacao-launcher.js?v={BUILD}"></script>',
     ]
     missing = [tag for tag in tags if tag not in html]
     if missing:

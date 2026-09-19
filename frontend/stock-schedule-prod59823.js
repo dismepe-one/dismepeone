@@ -39,11 +39,14 @@
         ${time}
         <button type="button" data-remove-time="${time}" title="Remover ${time}" style="border:0;background:transparent;color:#94a3b8;cursor:pointer;padding:0 1px;"><i class="fa-solid fa-xmark"></i></button>
       </span>`).join('')
-      :'<span style="font-size:10px;color:#94a3b8;">Adicione pelo menos um horário.</span>';
+      :'<span style="font-size:10px;color:#94a3b8;">Sem horários. Ao salvar, a atualização automática ficará desativada.</span>';
     list.querySelectorAll('[data-remove-time]').forEach(btn=>{
-      btn.onclick=()=>{
+      btn.onclick=event=>{
+        event.preventDefault();
+        event.stopPropagation();
         schedules=schedules.filter(x=>x!==btn.getAttribute('data-remove-time'));
         render();
+        message('Horário removido da lista. Clique em Salvar horários para confirmar.');
       };
     });
   }
@@ -69,22 +72,17 @@
       if(!schedules.length&&r.schedule){
         schedules=String(r.schedule).split(/[,;|]/).map(normalize).filter(Boolean);
       }
-      if(!schedules.length)schedules=['10:00'];
       schedules=[...new Set(schedules)].sort();
       render();
       const display=document.getElementById('isSchedule');
-      if(display)display.textContent=schedules.join(' • ')+' todos os dias';
-      message('Você pode cadastrar um ou vários horários automáticos.','neutral');
+      if(display)display.textContent=schedules.length?schedules.join(' • ')+' todos os dias':'Desativada';
+      message(schedules.length?'Você pode cadastrar ou remover os horários automáticos.':'Atualização automática desativada. A atualização manual continua disponível.','neutral');
     }catch(e){
       message(e.message||'Não foi possível carregar os horários.','error');
     }
   }
 
   async function save(){
-    if(!schedules.length){
-      message('Cadastre pelo menos um horário antes de salvar.','error');
-      return;
-    }
     const btn=document.getElementById('is59823ScheduleSave');
     if(btn){btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Salvando...';}
     try{
@@ -96,13 +94,14 @@
       schedules=[...new Set(schedules)].sort();
       render();
       const display=document.getElementById('isSchedule');
-      if(display)display.textContent=schedules.join(' • ')+' todos os dias';
+      if(display)display.textContent=schedules.length?schedules.join(' • ')+' todos os dias':'Desativada';
       const next=document.getElementById('isNext');
+      if(next&&!r.nextScheduledAt)next.textContent='—';
       if(next&&r.nextScheduledAt){
         const d=new Date(r.nextScheduledAt);
         if(!Number.isNaN(d.getTime()))next.textContent=d.toLocaleString('pt-BR',{timeZone:'America/Recife'});
       }
-      message('Horários automáticos salvos. O agendador já passou a usar a nova configuração.','ok');
+      message(schedules.length?'Horários automáticos salvos. O agendador já passou a usar a nova configuração.':'Horários removidos. A atualização automática foi desativada; a atualização manual permanece disponível.','ok');
     }catch(e){
       message(e.message||'Não foi possível salvar os horários.','error');
     }finally{

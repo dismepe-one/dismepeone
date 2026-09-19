@@ -42,8 +42,6 @@ def _normalize_times(values: list[Any]) -> list[str]:
         if normalized not in output:
             output.append(normalized)
     output.sort()
-    if not output:
-        raise HTTPException(status_code=400, detail="Cadastre pelo menos um horário.")
     if len(output) > 12:
         raise HTTPException(status_code=400, detail="É permitido cadastrar no máximo 12 horários por dia.")
     return output

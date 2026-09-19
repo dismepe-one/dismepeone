@@ -278,13 +278,14 @@
       const r=await api('/admin/industries/stock-sync/status',{cache:'no-store'});
       const set=(id,value)=>{const el=document.getElementById(id);if(el)el.textContent=value;};
       set('isTargetFile',r.targetFileName||'Sugestão de compras com EAN.pdf');
-      set('isSchedule',`${r.schedule||'10:00'} todos os dias`);
+      set('isSchedule',r.automaticEnabled===false?'Desativada':`${r.schedule||'10:00'} todos os dias`);
       set('isLastSuccess',fmtDate(r.lastSuccessAt));
       set('isRows',r.lastRows==null?'—':String(r.lastRows));
       set('isNext',fmtDate(r.nextScheduledAt));
       set('isDriveStatus',r.configured?'Configurado':'Aguardando credencial');
       if(!r.configured){msg.textContent='A pasta do Google Drive está definida, mas a credencial de leitura ainda precisa estar disponível no ambiente do servidor.';msg.className='is-message is-err';}
       else if(r.lastError){msg.textContent='Último erro: '+r.lastError;msg.className='is-message is-err';}
+      else if(r.automaticEnabled===false){msg.textContent='Atualização automática desativada. A atualização manual do mapa permanece disponível.';msg.className='is-message is-neutral';}
       else{msg.textContent='Rotina ativa. O sistema lê somente o arquivo oficial e preserva a última base válida se houver falha.';msg.className='is-message is-ok';}
     }catch(e){msg.textContent=e.message||'Não foi possível consultar o status.';msg.className='is-message is-err';}
   }
