@@ -46,7 +46,7 @@ PDF_NAME = "Comparativo Venda_Cliente por Vendedor.pdf"
 SHEET_NAME = "Positivacoes"
 MODULE = "POSITIVACAO_GERAL_V1"
 CONFIG_MODULE = "POSITIVACAO_META_V1"
-_BUILD = "POS-GERAL-DEV6"
+_BUILD = "POS-GERAL-DEV7-VALIDOS"
 _TTL = 600.0
 _CACHE: dict[str, Any] | None = None
 _CACHE_AT = 0.0
@@ -136,7 +136,7 @@ async def _registered_users() -> tuple[dict[str, str], dict[str, str]]:
     for item in result.get("usuarios") or []:
         if not isinstance(item, dict):
             continue
-        if item.get("ativo") is False or _norm(item.get("status")) in {"INATIVO", "EXCLUIDO"}:
+        if item.get("ativo") is False or item.get("ativo") == 0 or _norm(item.get("ativo")) in {"FALSE", "0", "NAO", "N"} or _norm(item.get("status")) in {"INATIVO", "EXCLUIDO", "DESATIVADO", "BLOQUEADO", "SUSPENSO"}:
             continue
         role = _norm(item.get("tipo"))
         target = vendedores if role == "VENDEDOR" else televendas if role == "TELEVENDAS" else None
@@ -273,19 +273,18 @@ _HEADER = re.compile(r"Vendedor:\s*(\d+)\s*/\s*([^\r\n]+)", re.I)
 def _split_customer_owner(prefix: str, owner_id: str, tel_names: dict[str, str]) -> tuple[str, str, bool]:
     # A coluna VND é numérica: localizar a ocorrência mais à direita cuja cauda
     # contenha Cidade UF. Nomes comerciais com o mesmo número não substituem VND.
-    parts = list(re.finditer(rf"(?<!\S){re.escape(owner_id)}(?!\S)", prefix))
+    # No PDF do Átrio a coluna VND pode estar colada à coluna Televenda:
+    # "... CAVALCANTI58 RECIFE". O código VND é o último número ANTES da cidade.
+    # Não basta exigir espaços de ambos os lados: isso perde clientes válidos.
+    parts = list(re.finditer(rf"(?<!\d){re.escape(owner_id)}(?=\s+[^\d]+$)", prefix))
     if not parts:
         return "", "", False
     before = prefix[:parts[-1].start()].strip()
     if not before:
         return "", "", False
     before = re.sub(r"\s*-{5,}\s*$", "", before).strip()
-    layout_columns = [part.strip() for part in re.split(r"\s{2,}", before) if part.strip()]
-    if len(layout_columns) == 2 and layout_columns[-1] != before:
-        candidate = layout_columns[0]
-        column_tv = layout_columns[-1]
-        if candidate and candidate != column_tv:
-            return candidate, tel_names.get(_norm(column_tv), ""), True
+    # A correspondência por nome completo vem ANTES de dividir por espaços
+    # duplos: algumas teclistas possuem espaços duplos no próprio nome.
     for normalized, display in sorted(tel_names.items(), key=lambda x: len(x[0]), reverse=True):
         # Mantém os limites de palavra para que JOSE não case com JOSEANE.
         if _norm(before).endswith(" " + normalized):
@@ -295,6 +294,13 @@ def _split_customer_owner(prefix: str, owner_id: str, tel_names: dict[str, str])
                 name = " ".join(tokens[:-len(display_tokens)]).strip()
                 if name:
                     return name, display, True
+    layout_columns = [part.strip() for part in re.split(r"\s{2,}", before) if part.strip()]
+    if len(layout_columns) == 2:
+        candidate, column_tv = layout_columns
+        # Nomes que não pertencem a televendas atuais não geram vínculo.
+        tv = tel_names.get(_norm(column_tv), "")
+        if candidate and tv:
+            return candidate, tv, True
     # Se não houver correspondência na base de usuários, o nome do cliente não
     # deve ser dividido por heurísticas frágeis; conserva-se a razão inteira.
     return before, "", True
@@ -307,7 +313,9 @@ def _parse_pdf(raw: bytes, tel_names: dict[str, str]) -> tuple[dict[str, dict[st
     stats = Counter()
     seller_id, seller_name = "", ""
     for page_no, page in enumerate(reader.pages, start=1):
-        text = page.extract_text(extraction_mode="layout") or page.extract_text() or ""
+        # O modo layout de certas versões do pypdf não extrai as colunas
+        # do relatório Átrio; o texto padrão preserva suas linhas de clientes.
+        text = page.extract_text() or page.extract_text(extraction_mode="layout") or ""
         for line in text.splitlines():
             header = _HEADER.search(line)
             if header:
@@ -376,7 +384,8 @@ def _parse_sales(raw: bytes) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]
             if not code:
                 continue
             total += 1
-            row = sales.setdefault(code, {"codigo": code, "origens": [], "nomesComerciais": [], "cnpj": "", "cliente": ""})
+            row = sales.setdefault(code, {"codigo": code, "origens": [], "nomesComerciais": [],
+                                          "atoresPorOrigem": {}, "cnpj": "", "cliente": ""})
             # A aba de diretoria tem prioridade sobre o texto 'Pedidos Por':
             # impede publicar inadvertidamente essas linhas como Vendedor.
             order_origin = _norm(values[5] if len(values) > 5 else "")
@@ -388,6 +397,12 @@ def _parse_sales(raw: bytes) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]
             actor = str(values[0] or "").strip()
             if actor and actor not in row["nomesComerciais"]:
                 row["nomesComerciais"].append(actor)
+            # Diretoria/Supervisão continua no consolidado, nunca como crédito
+            # individual de vendedor ou televendas.
+            if actor and tab in {"vendedores", "televendas"}:
+                by_origin = row["atoresPorOrigem"].setdefault(normalized_origin, [])
+                if actor not in by_origin:
+                    by_origin.append(actor)
             document = re.sub(r"\D", "", str(values[4] if len(values) > 4 else ""))
             if 12 <= len(document) <= 14:
                 document = document.zfill(14)
@@ -405,6 +420,7 @@ def _consolidate(clients: dict[str, dict[str, Any]], sales: dict[str, dict[str, 
     old = {x["codigo"]: x for x in (previous or {}).get("clientes", []) if isinstance(x, dict) and x.get("codigo")}
     output: list[dict[str, Any]] = []
     by_sector: dict[str, dict[str, Any]] = {}
+    by_televendas: dict[str, dict[str, Any]] = {}
     changes = Counter()
     matched_codes: set[str] = set()
     for code, original in clients.items():
@@ -430,12 +446,24 @@ def _consolidate(clients: dict[str, dict[str, Any]], sales: dict[str, dict[str, 
             if bool(old[code].get("bloqueado")) and not blocked:
                 changes["reativados"] += 1
         origins = list(entry["origens"]) if entry else []
+        credited = (entry or {}).get("atoresPorOrigem", {})
+        credited_sellers = {
+            sellers[_norm(name)] for name in credited.get("Vendedor", []) if _norm(name) in sellers
+        }
+        credited_tele = {
+            televendas[_norm(name)] for name in credited.get("Televendas", []) if _norm(name) in televendas
+        }
+        # Um cliente positivado na empresa não concede crédito individual
+        # à carteira de outro profissional, ativo ou inativo.
+        seller_positive = sorted(set(actors) & credited_sellers)
+        tele_positive = sorted(set(teleactors) & credited_tele)
         status = "Positivado" if origins else "Não positivado"
         row = {
             "codigo": code, "cliente": original["cliente"], "cnpj": (entry or {}).get("cnpj", ""),
             "vendedores": actors, "televendas": teleactors,
             "setores": actors, "bloqueado": blocked, "origens": origins,
             "status": status, "carteiraCompartilhada": len(original["vinculos"]) > 1,
+            "positivacoesVendedor": seller_positive, "positivacoesTelevendas": tele_positive,
         }
         output.append(row)
         for setor in actors:
@@ -444,10 +472,17 @@ def _consolidate(clients: dict[str, dict[str, Any]], sales: dict[str, dict[str, 
                                    "bloqueados": 0, "clientesCompartilhados": 0}
             s = by_sector[setor]
             s["total"] += 1
-            s["positivados"] += bool(origins)
-            s["naoPositivados"] += not origins
+            s["positivados"] += setor in seller_positive
+            s["naoPositivados"] += setor not in seller_positive
             s["bloqueados"] += blocked
             s["clientesCompartilhados"] += row["carteiraCompartilhada"]
+        for televendedor in teleactors:
+            t = by_televendas.setdefault(televendedor, {"televendas": televendedor,
+                "total": 0, "positivados": 0, "naoPositivados": 0, "bloqueados": 0})
+            t["total"] += 1
+            t["positivados"] += televendedor in tele_positive
+            t["naoPositivados"] += televendedor not in tele_positive
+            t["bloqueados"] += blocked
     if previous:
         changes["removidos"] = len(set(old) - set(clients))
     output.sort(key=lambda x: (x["status"] == "Positivado", x["cliente"], int(x["codigo"])))
@@ -457,6 +492,10 @@ def _consolidate(clients: dict[str, dict[str, Any]], sales: dict[str, dict[str, 
     sectors = sorted(by_sector.values(), key=lambda x: x["setor"])
     for sector in sectors:
         sector["percentual"] = round(100 * sector["positivados"] / sector["total"], 2) if sector["total"] else 0
+    tele_sectors = sorted(by_televendas.values(), key=lambda x: x["televendas"])
+    for tele_sector in tele_sectors:
+        tele_sector["percentual"] = (round(100 * tele_sector["positivados"] / tele_sector["total"], 2)
+                                      if tele_sector["total"] else 0)
     origins = {"Vendedor": 0, "Televendas": 0, "Diretoria/Supervisão": 0, "Vendedor + Televendas": 0}
     for row in output:
         o = set(row["origens"])
@@ -470,7 +509,7 @@ def _consolidate(clients: dict[str, dict[str, Any]], sales: dict[str, dict[str, 
             origins["Vendedor + Televendas"] += 1
     return {
         "schema": MODULE, "competencia": datetime.now(TZ).strftime("%m/%Y"),
-        "clientes": output, "setores": sectors, "origens": origins,
+        "clientes": output, "setores": sectors, "carteirasTelevendas": tele_sectors, "origens": origins,
         "indicadores": {"carteira": total, "positivados": pos, "naoPositivados": total-pos,
                         "percentual": round(100 * pos / total, 2) if total else 0,
                         "bloqueados": blocked_total, "carteirasHabilitadas": len(sectors),
@@ -522,7 +561,7 @@ def _sync_blocking(sellers: dict[str, str], televendas: dict[str, str], previous
     users_hash = hashlib.sha256(json.dumps({"v":sellers,"t":televendas}, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
     fingerprint = {"pdfId": pdf["id"], "pdfModified": pdf.get("modifiedTime", ""),
                    "sheetId": sheet["id"], "sheetModified": sheet.get("modifiedTime", ""),
-                   "usuariosHash": users_hash}
+                   "usuariosHash": users_hash, "regraCarteiras": "usuarios-ativos-v2"}
     modified = datetime.fromisoformat(str(sheet.get("modifiedTime") or "").replace("Z", "+00:00")).astimezone(TZ)
     current = datetime.now(TZ)
     if (modified.year, modified.month) != (current.year, current.month):
@@ -631,7 +670,8 @@ def _sync_status() -> dict[str, Any]:
 
 async def _get_data(profile: dict[str, Any]) -> dict[str, Any]:
     data = await _snapshot_fast()
-    _start_sync(profile)
+    if data is None:
+        _start_sync(profile)
     if data is None:
         raise HTTPException(503, "A primeira fotografia esta sendo preparada; tente novamente quando o status concluir.")
     return data
@@ -710,7 +750,8 @@ async def positivacao_diagnostico(session: str | None = Cookie(default=None, ali
 async def positivacao_panel(force: bool = Query(False), session: str | None = Cookie(default=None, alias=settings.cookie_name)):
     profile = _signed_admin(session)
     data = await _snapshot_fast()
-    _start_sync(profile, force=force)
+    if force or data is None:
+        _start_sync(profile, force=force)
     state = _sync_status()
     if data is None:
         return _safe_json_response({"carregando": state["emAndamento"], "semFotografia": True,
