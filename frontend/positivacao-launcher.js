@@ -26,7 +26,7 @@
  function start(){
    check();
    const host=document.getElementById('homeCards');
-   if(host){new MutationObserver(()=>{if(admin && !document.getElementById('homePositivacaoGeral'))paint();}).observe(host,{childList:true});}
+   if(host){new MutationObserver(()=>{if(document.getElementById('homePositivacaoGeral'))return;if(admin)paint();else check();}).observe(host,{childList:true});}
    const old=window.renderHomeCards;
    if(typeof old==='function'&&!old.__positivacaoWrapped){
       const wrapped=function(){const v=old.apply(this,arguments);check();return v;};

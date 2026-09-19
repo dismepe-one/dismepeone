@@ -37,7 +37,7 @@
     list.innerHTML=schedules.length?schedules.map(time=>`
       <span style="display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border-radius:9px;background:#f1f5f9;border:1px solid #e2e8f0;font-size:10px;font-weight:900;color:#334155;">
         ${time}
-        <button type="button" data-remove-time="${time}" title="Remover ${time}" style="border:0;background:transparent;color:#94a3b8;cursor:pointer;padding:0 1px;"><i class="fa-solid fa-xmark"></i></button>
+        <button type="button" data-remove-time="${time}" title="Remover ${time}" style="border:0;background:transparent;color:#94a3b8;cursor:pointer;padding:0 1px;"><i class="fa-solid fa-trash-can"></i></button>
       </span>`).join('')
       :'<span style="font-size:10px;color:#94a3b8;">Sem horários. Ao salvar, a atualização automática ficará desativada.</span>';
     list.querySelectorAll('[data-remove-time]').forEach(btn=>{

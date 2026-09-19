@@ -90,7 +90,7 @@ def _portal_response(*, authenticated: bool = False) -> HTMLResponse:
         f'<script src="/industries-admin.js?v={BUILD}"></script>',
         f'<script src="/monthly-business-days-prod59822.js?v={BUILD}"></script>',
         f'<script src="/herbamed-auto-metrics-prod59822.js?v={BUILD}"></script>',
-        f'<script src="/positivacao-launcher.js?v={BUILD}"></script>',
+        '<script src="/positivacao-launcher.js?v=POS-GERAL-DEV4-CARD"></script>',
     ]
     missing = [tag for tag in tags if tag not in html]
     if missing:
@@ -190,6 +190,15 @@ async def industries_router_script():
 async def industries_admin_script():
     return FileResponse(
         ADMIN_SCRIPT,
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
+
+
+@app.get("/positivacao-launcher.js", include_in_schema=False)
+async def positivacao_home_launcher_script():
+    return FileResponse(
+        ROOT / "frontend" / "positivacao-launcher.js",
         media_type="application/javascript",
         headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
     )

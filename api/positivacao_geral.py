@@ -564,6 +564,38 @@ async def positivacao_page(session: str | None = Cookie(default=None, alias=sett
     return FileResponse(PAGE, media_type="text/html", headers={"Cache-Control": "no-store, private"})
 
 
+def _source_diagnostic_blocking() -> dict[str, Any]:
+    # Checa apenas metadados, sem dados pessoais.
+    try:
+        service = _build_drive_service()
+    except Exception:
+        return {"status": "CREDENCIAL_DRIVE_INDISPONIVEL", "pdf": False, "planilha": False,
+                "orientacao": "A credencial de leitura do Google Drive precisa estar configurada no Render."}
+    folder = os.getenv("DISMEPE_POSITIVACAO_FOLDER_ID", FOLDER_ID).strip() or FOLDER_ID
+    try:
+        files = _drive_file_list(service, folder)
+    except Exception as exc:
+        code = getattr(getattr(exc, "resp", None), "status", None)
+        return {"status": "ACESSO_DRIVE_INDISPONIVEL", "pdf": False, "planilha": False,
+                "codigoHttp": code if code in (401, 403, 404, 429) else None,
+                "orientacao": "Verifique se a pasta de Positivações foi compartilhada com a conta de serviço configurada no Render."}
+    pdf = any(_norm(x.get("name")) == _norm(PDF_NAME) and x.get("mimeType") == "application/pdf" for x in files)
+    planilha = any(_norm(x.get("name")) in {_norm(SHEET_NAME), _norm(SHEET_NAME + ".xlsx")}
+                   and x.get("mimeType") in {"application/vnd.google-apps.spreadsheet", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+                   for x in files)
+    return {"status": "FONTES_LOCALIZADAS" if pdf and planilha else "ARQUIVO_NAO_LOCALIZADO",
+            "pdf": pdf, "planilha": planilha,
+            "orientacao": "As duas fontes estão acessíveis; caso os indicadores não carreguem, confira a mensagem da importação."
+            if pdf and planilha else "Verifique os nomes dos arquivos e a permissão da conta de serviço na pasta do Drive."}
+
+
+@router.get("/positivacoes/api/diagnostico", include_in_schema=False)
+async def positivacao_diagnostico(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
+    _signed_admin(session)
+    result = await asyncio.to_thread(_source_diagnostic_blocking)
+    return _safe_json_response(result)
+
+
 @router.get("/positivacoes/api/painel")
 async def positivacao_panel(force: bool = Query(False), session: str | None = Cookie(default=None, alias=settings.cookie_name)):
     profile = _signed_admin(session)
