@@ -113,6 +113,27 @@
 .sector-sort:focus-visible{outline:2px solid #0a8064;outline-offset:2px}
 .shared-wallet-label{display:block;clear:both;margin-top:12px;padding-top:8px;border-top:1px dashed #cbded7;font-size:11px;line-height:1.4;color:#60746f;overflow-wrap:anywhere}
 @media(max-width:700px){.updated-highlight{font-size:11px;max-width:100%}.sector-sort{font-size:10px;gap:2px;padding:3px 0}.inat-pending-count{min-width:23px}.shared-wallet-label{margin-top:14px}}
+/* DEV10.6: tamanhos iguais por par; em mobile, ambos ocupam metade da linha. */
+.intro-actions #notesOverviewButton,.intro-actions #inatAdminButton{
+  flex:0 1 280px;inline-size:280px;block-size:54px;min-height:54px;max-width:100%;
+  padding:8px 12px;white-space:normal;text-align:center;line-height:1.2;border-radius:13px;
+}
+.table-scroll .note-trigger,.table-scroll .inat-client-quick{
+  display:inline-flex;inline-size:178px;block-size:42px;min-height:42px;max-width:100%;
+  margin:6px 6px 0 0;padding:7px 8px;box-sizing:border-box;
+  align-items:center;justify-content:center;vertical-align:top;
+  border-radius:10px;white-space:normal;text-align:center;font-size:11px;line-height:1.2;font-weight:800;
+}
+.individual-mode #scopeKicker{text-transform:none;letter-spacing:normal}
+@media(max-width:700px){
+  .intro-actions #notesOverviewButton,.intro-actions #inatAdminButton{
+    flex:1 1 calc(50% - 8px);inline-size:calc(50% - 8px);min-width:0;block-size:62px;min-height:62px;
+  }
+  .table-scroll .note-trigger,.table-scroll .inat-client-quick{
+    inline-size:calc(50% - 6px);min-width:0;block-size:52px;min-height:52px;
+    margin:6px 3px 0 0;padding:6px;font-size:11px;
+  }
+}
 </style>
 </head>
 <body>
@@ -152,6 +173,19 @@
 (function(){'use strict';
 const $=id=>document.getElementById(id),num=v=>new Intl.NumberFormat('pt-BR').format(Number(v)||0),pct=v=>new Intl.NumberFormat('pt-BR',{maximumFractionDigits:2}).format(Number(v)||0)+'%';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// Formatar SOMENTE nomes exibidos: nunca modificar chaves, IDs ou valores de filtros.
+const pequenasNomes=new Set(['de','da','do','dos','das','e']);
+function nomeExibicao(valor){
+ return String(valor??'').toLocaleLowerCase('pt-BR').replace(/\p{L}+/gu,parte=>
+  pequenasNomes.has(parte)?parte:parte.charAt(0).toLocaleUpperCase('pt-BR')+parte.slice(1));
+}
+const nomeHtml=valor=>esc(nomeExibicao(valor));
+function origemExibicao(valor){
+ const texto=String(valor??'');
+ const match=/^(Vendedor|Televendas):\s*(.+)$/u.exec(texto);
+ return match?match[1]+': '+match[2].split(/,\s*/).map(nomeExibicao).join(', '):texto;
+}
+
 let snapshot=null,currentStatus='todos',page=1,total=0,searchTimeout=0,fetchIndex=0,chartIndex=0,manualPending=false;
 const showAlert=(value,error=false)=>{const el=$('alert');el.textContent=value||'';el.className='alert'+(value?' show':'')+(error?' error':'');};
 async function getJSON(url,opts={}){
@@ -180,7 +214,7 @@ function applyAccess(d){
    $('companyPanel').hidden=false;
    $('accessPill').textContent=d.acesso.canal;
   $('pageTitle').textContent='Minhas Positivações';
-  $('scopeKicker').textContent='Minha carteira • '+d.acesso.profissional;
+  $('scopeKicker').textContent='Minha carteira • '+nomeExibicao(d.acesso.profissional);
   $('pageFooter').textContent='DISMEPE ONE • somente sua carteira autorizada';
   }else{
    $('companyPanel').hidden=true;
@@ -204,7 +238,7 @@ function sortSectorRows(){
   }
   return (sectorSortDescending?-names:names);
  });
- $('sectorRows').innerHTML=ordered.length?ordered.map(s=>'<div class="sector-row"><div class="name">'+esc(s.setor)+'<small>'+num(s.total)+' / '+num(s.positivados)+' clientes</small></div><div class="track"><span style="width:'+Math.max(0,Math.min(100,s.percentual))+'%"></span></div><b>'+pct(s.percentual)+'</b></div>').join(''):'<div class="empty">Nenhuma carteira vinculada a vendedor ativo foi localizada.</div>';
+ $('sectorRows').innerHTML=ordered.length?ordered.map(s=>'<div class="sector-row"><div class="name">'+nomeHtml(s.setor)+'<small>'+num(s.total)+' / '+num(s.positivados)+' clientes</small></div><div class="track"><span style="width:'+Math.max(0,Math.min(100,s.percentual))+'%"></span></div><b>'+pct(s.percentual)+'</b></div>').join(''):'<div class="empty">Nenhuma carteira vinculada a vendedor ativo foi localizada.</div>';
  $('sectorNameArrow').textContent=sectorSortField==='name'?(sectorSortDescending?'↓':'↑'):'↕';
  $('sectorPercentArrow').textContent=sectorSortField==='percent'?(sectorSortDescending?'↓':'↑'):'↕';
  $('sortSectorName').setAttribute('aria-pressed',String(sectorSortField==='name'));
@@ -224,7 +258,7 @@ function populate(){const d=snapshot,k=d.indicadores;
 $('updated').textContent='Atualizado em '+new Date(d.atualizadoEm).toLocaleString('pt-BR');$('sourceStatus').textContent='Período '+d.competencia;$('mNew').textContent=num(d.movimentacao.novos);$('mRemoved').textContent=num(d.movimentacao.removidos);$('mBlocked').textContent=num(d.movimentacao.bloqueadosNovos);$('mOutside').textContent=num(k.positivadosForaCarteira);
 $('donut').style.setProperty('--pct',Math.min(100,Math.max(0,k.percentual))+'%');$('donutNum').textContent=pct(k.percentual);$('legendPos').textContent=num(k.positivados);$('legendNeg').textContent=num(k.naoPositivados);$('legendBlocked').textContent=num(k.bloqueados);
 $('btnMeta').textContent=d.meta?'Alterar meta geral DISMEPE':'Cadastrar meta geral DISMEPE';$('metaFraction').textContent=(d.meta?num(d.meta):'—')+' / '+num(k.positivados);$('metaHint').textContent=d.meta?'Meta definida pela administração':'Configure uma meta para acompanhar o atingimento';$('metaPercent').textContent=d.meta?pct(d.metaAtingimento):'—';$('metaMissing').textContent=d.meta?num(d.metaFaltam):'—';$('metaPeriod').textContent='Competência '+d.competencia;$('metaFill').style.width=(d.meta?Math.min(100,d.metaAtingimento):0)+'%';$('metaBar').setAttribute('aria-valuenow',String(d.meta?Math.min(100,d.metaAtingimento):0));
-$('sectorCount').textContent=num(d.setores.length)+' carteiras';const choice=$('sectorFilter').value;$('sectorFilter').innerHTML='<option value="">Todas as carteiras</option><optgroup label="Vendedores">'+d.setores.map(s=>'<option value="'+esc(s.setor)+'">'+esc(s.setor)+'</option>').join('')+'</optgroup><optgroup label="Televendas">'+(d.carteirasTelevendas||[]).map(s=>'<option value="TV:'+esc(s.televendas)+'">'+esc(s.televendas)+'</option>').join('')+'</optgroup>';$('sectorFilter').value=d.acesso?.individual?d.acesso.setor:choice;setExportAvailability();
+$('sectorCount').textContent=num(d.setores.length)+' carteiras';const choice=$('sectorFilter').value;$('sectorFilter').innerHTML='<option value="">Todas as carteiras</option><optgroup label="Vendedores">'+d.setores.map(s=>'<option value="'+esc(s.setor)+'">'+nomeHtml(s.setor)+'</option>').join('')+'</optgroup><optgroup label="Televendas">'+(d.carteirasTelevendas||[]).map(s=>'<option value="TV:'+esc(s.televendas)+'">'+nomeHtml(s.televendas)+'</option>').join('')+'</optgroup>';$('sectorFilter').value=d.acesso?.individual?d.acesso.setor:choice;setExportAvailability();
 renderSectorRows(d.setores);
 renderOrigins(d.origens);$('kTotalLabel').textContent=d.acesso?.individual?'Minha carteira • clientes únicos':'Clientes da empresa';$('kPositiveNote').textContent=d.acesso?.individual?'':'Clientes com compras no período';$('sectorExplain').textContent=d.acesso?.individual?'Minha carteira individual':'Acompanhe os resultados por vendedor';$('originExplain').textContent=d.acesso?.individual?'Vendas realizadas na sua carteira, por canal':'Veja de onde vieram as vendas';}
 function renderOrigins(origins){const max=Math.max(1,...Object.values(origins));const names=['Vendedor','Televendas','Diretoria/Supervisão','Vendedor + Televendas'];$('originRows').innerHTML=names.map(name=>'<div><div class="origin-row"><span>'+esc(name)+'</span><b>'+num(origins[name]||0)+'</b></div><div class="track"><span style="width:'+Math.round(100*(origins[name]||0)/max)+'%"></span></div></div>').join('');}
@@ -235,7 +269,7 @@ async function updateFilteredCharts(){
  const k=d.indicadores;$('kTotal').textContent=num(k.carteira);$('kPositive').textContent=num(k.positivados);$('kNegative').textContent=num(k.naoPositivados);$('kPercent').textContent=pct(k.percentual);$('kTotalLabel').textContent='Carteira de '+d.canal;$('kPositiveNote').textContent='';
  $('donut').style.setProperty('--pct',Math.min(100,Math.max(0,k.percentual))+'%');$('donutNum').textContent=pct(k.percentual);$('legendPos').textContent=num(k.positivados);$('legendNeg').textContent=num(k.naoPositivados);$('legendBlocked').textContent=num(k.bloqueados);
  $('sectorCount').textContent='1 carteira filtrada';renderSectorRows(d.setores,d.profissional);
- $('sectorExplain').textContent='Resultados de '+d.profissional;$('originExplain').textContent='Vendas na carteira de '+d.profissional+', por canal';renderOrigins(d.origens);
+ $('sectorExplain').textContent='Resultados de '+nomeExibicao(d.profissional);$('originExplain').textContent='Vendas na carteira de '+nomeExibicao(d.profissional)+', por canal';renderOrigins(d.origens);
  }catch(e){if(serial===chartIndex)showAlert(e.message,true);}
 }
 function setExportAvailability(){
@@ -253,7 +287,7 @@ function clientHasAnySale(c){
 }
 function currentQuery(){const p=new URLSearchParams({status:currentStatus,setor:snapshot?.acesso?.individual?snapshot.acesso.setor:$('sectorFilter').value,busca:$('search').value.trim()});if($('blockFilter').value==='1')p.set('nao_bloqueados','true');return p;}
 async function loadClients(){const myIndex=++fetchIndex;const tbody=$('clientRows');tbody.innerHTML='<tr><td colspan="6" class="empty">Carregando clientes filtrados…</td></tr>';try{const q=currentQuery();q.set('pagina',String(page));q.set('tamanho','50');const d=await getJSON('/positivacoes/api/clientes?'+q);if(myIndex!==fetchIndex)return;total=d.total;$('tableSummary').textContent=num(total)+' clientes no filtro atual';$('paginationText').textContent=total?(num((page-1)*50+1)+'–'+num(Math.min(page*50,total))+' de '+num(total)):'Nenhum cliente encontrado';$('pageNum').textContent='Página '+num(page);$('prev').disabled=page===1;$('next').disabled=page*50>=total;
-tbody.innerHTML=d.clientes.length?d.clientes.map(c=>'<tr><td><b>'+esc(c.codigo)+'</b><div class="tiny">'+esc(c.cnpj||'—')+'</div></td><td><span class="client">'+esc(c.cliente)+'</span>'+(c.inativo?'<span class="tag blocked">INATIVO</span>':'')+'<button type="button" class="note-trigger" data-note-code="'+esc(c.codigo)+'" title="Ver observações deste cliente" aria-label="Observações de '+esc(c.cliente)+'">✎ Observações <span class="note-count" hidden></span></button>'+(c.inativo?'':' <button type="button" class="btn ghost sm inat-client-quick" data-inat-open="'+esc(c.codigo)+'">Solicitar inatividade</button>')+(c.carteiraCompartilhada?'<div class="shared-wallet-label">Carteira compartilhada</div>':'')+'</td><td>'+esc(c.setores.join(', ')||'Sem usuário vinculado')+'</td><td>'+esc(c.televendas.join(', ')||'—')+'</td><td>'+((c.origensDetalhadas||c.origensDaVenda||c.origens||[]).map(o=>'<span class="tag '+(o.includes('Diretoria')?'dir':o.includes('Televendas')?'tele':o.includes('Vendedor')?'seller':'yes')+'">'+esc(o==='Diretoria/Supervisão'?'Diretoria':o)+'</span>').join(' ')||'—')+'</td><td><span class="tag '+(clientHasAnySale(c)?'yes':'no')+'">'+esc(clientStatusLabel(c))+'</span>'+(c.bloqueado?' <span class="tag blocked">Bloqueado</span>':'')+'</td></tr>').join(''):'<tr><td colspan="6" class="empty">Nenhum cliente corresponde aos filtros.</td></tr>';
+tbody.innerHTML=d.clientes.length?d.clientes.map(c=>'<tr><td><b>'+esc(c.codigo)+'</b><div class="tiny">'+esc(c.cnpj||'—')+'</div></td><td><span class="client">'+nomeHtml(c.cliente)+'</span>'+(c.inativo?'<span class="tag blocked">INATIVO</span>':'')+'<button type="button" class="note-trigger" data-note-code="'+esc(c.codigo)+'" title="Ver observações deste cliente" aria-label="Observações de '+nomeHtml(c.cliente)+'">✎ Observações <span class="note-count" hidden></span></button>'+(c.inativo?'':' <button type="button" class="btn ghost sm inat-client-quick" data-inat-open="'+esc(c.codigo)+'">Solicitar inatividade</button>')+(c.carteiraCompartilhada?'<div class="shared-wallet-label">Carteira compartilhada</div>':'')+'</td><td>'+esc((c.setores||[]).map(nomeExibicao).join(', ')||'Sem usuário vinculado')+'</td><td>'+esc((c.televendas||[]).map(nomeExibicao).join(', ')||'—')+'</td><td>'+((c.origensDetalhadas||c.origensDaVenda||c.origens||[]).map(o=>'<span class="tag '+(o.includes('Diretoria')?'dir':o.includes('Televendas')?'tele':o.includes('Vendedor')?'seller':'yes')+'">'+esc(o==='Diretoria/Supervisão'?'Diretoria':origemExibicao(o))+'</span>').join(' ')||'—')+'</td><td><span class="tag '+(clientHasAnySale(c)?'yes':'no')+'">'+esc(clientStatusLabel(c))+'</span>'+(c.bloqueado?' <span class="tag blocked">Bloqueado</span>':'')+'</td></tr>').join(''):'<tr><td colspan="6" class="empty">Nenhum cliente corresponde aos filtros.</td></tr>';
 void refreshNotesBadges(d.clientes,myIndex);
 }catch(e){if(myIndex!==fetchIndex)return;tbody.innerHTML='<tr><td colspan="6" class="empty">Não foi possível carregar a lista de clientes.</td></tr>';showAlert(e.message,true);}}
 let refreshTimer=0,requestInProgress=false,lastSnapshotTime='';
@@ -343,7 +377,7 @@ function noteCard(note){
   '<div class="note-item-top">'+tags+'</div>'+
   '<div class="note-reason">'+esc(note.motivo)+'</div>'+
   '<div class="note-body">'+esc(note.texto)+'</div>'+
-  '<div class="note-meta">Por '+esc(note.autor_nome)+' • '+esc(noteDate(note.criada_em))+
+  '<div class="note-meta">Por '+nomeHtml(note.autor_nome)+' • '+esc(noteDate(note.criada_em))+
   (note.retorno_em?' • Retorno: '+esc(noteDate(note.retorno_em)):'')+'</div>'+
   '<div class="note-actions">'+(note.editavel?'<button type="button" class="btn ghost sm" data-note-edit="'+Number(note.id)+'">Editar / concluir</button>':'')+
   '<button type="button" class="btn ghost sm" data-note-history="'+Number(note.id)+'">Histórico</button>'+
@@ -363,7 +397,7 @@ async function openClientNotes(code){
   const d=await getJSON('/positivacoes/api/observacoes/'+encodeURIComponent(noteClientCode));
   if(noteClientCode!==String(d.codigo))return;
   noteRecords=d.observacoes||[];
-  $('noteClientTitle').textContent=d.cliente+' • '+noteClientCode;
+  $('noteClientTitle').textContent=nomeExibicao(d.cliente)+' • '+noteClientCode;
   $('notesList').innerHTML=noteRecords.length?noteRecords.map(noteCard).join(''):'<div class="tiny">Ainda não há observações para este cliente.</div>';
   await inatRefreshClient(noteClientCode);
  }catch(e){$('notesList').textContent='Não foi possível carregar as observações: '+e.message;}
@@ -429,8 +463,8 @@ $('notesOverviewButton').addEventListener('click',async()=>{
  $('notesOverviewList').textContent='Carregando acompanhamentos…';
  try{
   const d=await getJSON('/positivacoes/api/observacoes/administracao');
-  $('notesOverviewList').innerHTML=(d.observacoes||[]).map(n=>'<div class="note-overview-item"><div><b>'+esc(n.cliente)+'</b> • '+esc(n.cliente_codigo)+
-   '<div class="tiny">'+esc(n.autor_nome)+' • '+esc(n.motivo)+' • '+esc(n.situacao)+(n.retorno_em?' • Retorno: '+esc(noteDate(n.retorno_em)):'')+'</div></div>'+
+  $('notesOverviewList').innerHTML=(d.observacoes||[]).map(n=>'<div class="note-overview-item"><div><b>'+nomeHtml(n.cliente)+'</b> • '+esc(n.cliente_codigo)+
+   '<div class="tiny">'+nomeHtml(n.autor_nome)+' • '+esc(n.motivo)+' • '+esc(n.situacao)+(n.retorno_em?' • Retorno: '+esc(noteDate(n.retorno_em)):'')+'</div></div>'+
    '<button type="button" class="btn ghost sm" data-overview-client="'+esc(n.cliente_codigo)+'">Abrir</button></div>').join('')||'<div class="tiny">Nenhuma observação registrada.</div>';
  }catch(e){$('notesOverviewList').textContent=e.message;}
 });
@@ -451,7 +485,7 @@ function inatMessage(x){
  const by=x.solicitante_nome||x.solicitante_usuario||'usuário';
  const date=x.decidido_em||x.solicitado_em;
  const label=x.situacao==='aprovado'?'INATIVO — aprovado':x.situacao==='pendente'?'Solicitação em análise':x.situacao==='rejeitado'?'Solicitação rejeitada':'Cliente reativado';
- return label+' • '+by+(date?' • '+noteDate(date):'')+(x.decisao_motivo?' • '+x.decisao_motivo:'');
+ return label+' • '+nomeExibicao(by)+(date?' • '+noteDate(date):'')+(x.decisao_motivo?' • '+x.decisao_motivo:'');
 }
 async function inatRefreshClient(code){
  if(!code||code!==noteClientCode)return;
@@ -499,7 +533,7 @@ async function inatOpenAdmin(){
   inatAdminItems=(d.registros||[]);
   void refreshInatPendingCount();
   const sorted=[...inatAdminItems].sort((a,b)=>Number(b.situacao==='pendente')-Number(a.situacao==='pendente')||String(b.atualizado_em).localeCompare(String(a.atualizado_em)));
-  $('inatAdminList').innerHTML=sorted.length?sorted.map(n=>'<div class="note-item"><div class="note-item-top"><b>'+esc(n.cliente||n.cliente_codigo)+'</b> <span class="note-chip '+(n.situacao==='aprovado'?'late':'open')+'">'+esc(n.situacao)+'</span></div><div class="note-body">'+esc(n.justificativa)+'</div><div class="note-meta">Solicitado por '+esc(n.solicitante_nome||n.solicitante_usuario)+' • '+esc(noteDate(n.solicitado_em))+(n.decisao_motivo?' • Decisão: '+esc(n.decisao_motivo):'')+'</div><div class="note-actions">'+(n.situacao==='pendente'?'<button type="button" class="btn green sm" data-inat-act="aprovado" data-inat-code="'+esc(n.cliente_codigo)+'">Aprovar</button><button type="button" class="btn ghost sm" data-inat-act="rejeitado" data-inat-code="'+esc(n.cliente_codigo)+'">Rejeitar</button>':n.situacao==='aprovado'?'<button type="button" class="btn ghost sm" data-inat-act="reativado" data-inat-code="'+esc(n.cliente_codigo)+'">Reativar</button>':'')+'</div></div>').join(''):'Nenhuma solicitação de inatividade registrada.';
+  $('inatAdminList').innerHTML=sorted.length?sorted.map(n=>'<div class="note-item"><div class="note-item-top"><b>'+nomeHtml(n.cliente||n.cliente_codigo)+'</b> <span class="note-chip '+(n.situacao==='aprovado'?'late':'open')+'">'+esc(n.situacao)+'</span></div><div class="note-body">'+esc(n.justificativa)+'</div><div class="note-meta">Solicitado por '+nomeHtml(n.solicitante_nome||n.solicitante_usuario)+' • '+esc(noteDate(n.solicitado_em))+(n.decisao_motivo?' • Decisão: '+esc(n.decisao_motivo):'')+'</div><div class="note-actions">'+(n.situacao==='pendente'?'<button type="button" class="btn green sm" data-inat-act="aprovado" data-inat-code="'+esc(n.cliente_codigo)+'">Aprovar</button><button type="button" class="btn ghost sm" data-inat-act="rejeitado" data-inat-code="'+esc(n.cliente_codigo)+'">Rejeitar</button>':n.situacao==='aprovado'?'<button type="button" class="btn ghost sm" data-inat-act="reativado" data-inat-code="'+esc(n.cliente_codigo)+'">Reativar</button>':'')+'</div></div>').join(''):'Nenhuma solicitação de inatividade registrada.';
  }catch(e){$('inatAdminList').textContent='Não foi possível consultar as solicitações: '+e.message;}
 }
 $('inatAdminButton').addEventListener('click',inatOpenAdmin);
