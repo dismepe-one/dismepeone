@@ -46,7 +46,7 @@ PDF_NAME = "Comparativo Venda_Cliente por Vendedor.pdf"
 SHEET_NAME = "Positivacoes"
 MODULE = "POSITIVACAO_GERAL_V1"
 CONFIG_MODULE = "POSITIVACAO_META_V1"
-_BUILD = "POS-GERAL-DEV9-2-ORIGEM-CARTEIRA"
+_BUILD = "POS-GERAL-DEV9-3-EQUIPE-GERAL-FILTROS"
 _TTL = 600.0
 _CACHE: dict[str, Any] | None = None
 _CACHE_AT = 0.0
@@ -522,6 +522,7 @@ def _consolidate(clients: dict[str, dict[str, Any]], sales: dict[str, dict[str, 
         status = "Positivado" if origins else "Não positivado"
         row = {
             "codigo": code, "cliente": original["cliente"], "cnpj": (entry or {}).get("cnpj", ""),
+            "televendasQuePositivaram": list(dict.fromkeys(credited.get("Televendas", []))),
             "vendedores": actors, "televendas": teleactors,
             "setores": actors, "bloqueado": blocked, "origens": origins,
             "status": status, "carteiraCompartilhada": len(original["vinculos"]) > 1,
@@ -870,18 +871,14 @@ async def positivacao_panel(force: bool = Query(False), session: str | None = Co
                                     "statusAtualizacao": state, "sucesso": True})
     visible = _visible_data(data, context)
     summary = {k: v for k, v in visible.items() if k not in {"clientes"}}
-    if context["admin"]:
-        try:
-            summary["meta"] = await asyncio.wait_for(_meta(), timeout=5.0)
-        except Exception:
-            summary["meta"] = _META_CACHE or 0
-            summary["metaLeituraIndisponivel"] = True
-        summary["metaAtingimento"] = round(summary["indicadores"]["positivados"] * 100 / summary["meta"], 2) if summary["meta"] else 0
-        summary["metaFaltam"] = max(0, summary["meta"] - summary["indicadores"]["positivados"])
-    else:
-        summary["meta"] = 0
-        summary["metaAtingimento"] = 0
-        summary["metaFaltam"] = 0
+    try:
+        summary["meta"] = await asyncio.wait_for(_meta(), timeout=5.0)
+    except Exception:
+        summary["meta"] = _META_CACHE or 0
+        summary["metaLeituraIndisponivel"] = True
+    company = data["indicadores"] if not context["admin"] else summary["indicadores"]
+    summary["metaAtingimento"] = round(company["positivados"] * 100 / summary["meta"], 2) if summary["meta"] else 0
+    summary["metaFaltam"] = max(0, summary["meta"] - company["positivados"])
     summary["statusAtualizacao"] = state
     return _safe_json_response(summary)
 
@@ -909,7 +906,8 @@ async def positivacao_refresh(session: str | None = Cookie(default=None, alias=s
                                 "statusAtualizacao": _sync_status()})
 
 
-def _selected(data: dict[str, Any], status: str, setor: str, search: str) -> list[dict[str, Any]]:
+def _selected(data: dict[str, Any], status: str, setor: str, search: str,
+              nao_bloqueados: bool = False) -> list[dict[str, Any]]:
     if status not in {"todos", "positivados", "nao-positivados", "bloqueados"}:
         raise HTTPException(400, "Filtro inválido.")
     is_tv = setor.startswith("TV:")
@@ -921,16 +919,16 @@ def _selected(data: dict[str, Any], status: str, setor: str, search: str) -> lis
             wallet = c["televendas"] if is_tv else c["setores"]
             if all(_norm(x) != person for x in wallet):
                 continue
-            credited = c.get("positivacoesTelevendas" if is_tv else "positivacoesVendedor", [])
-            owned = any(_norm(x) == person for x in credited)
-            # Nunca editar a fotografia persistida ao projetar um filtro.
-            c = {**c, "status": "Positivado" if owned else "Não positivado",
-                 "origens": (["Televendas"] if is_tv else ["Vendedor"]) if owned else []}
+            # A carteira e positivada pela venda de qualquer canal nesse cliente.
+            # O credito individual permanece separado em positivacoesVendedor/
+            # positivacoesTelevendas, sem sobrescrever o status global.
         if status == "positivados" and c["status"] != "Positivado":
             continue
         if status == "nao-positivados" and c["status"] != "Não positivado":
             continue
         if status == "bloqueados" and not c["bloqueado"]:
+            continue
+        if nao_bloqueados and c["bloqueado"]:
             continue
         if norm_search and norm_search not in _norm(" ".join([c["codigo"], c["cliente"], c["cnpj"]])):
             continue
@@ -947,6 +945,19 @@ def _enforced_sector(sector: str, context: dict[str, Any]) -> str:
     return own
 
 
+def _origins_for_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
+    keys = ("Vendedor", "Televendas", "Diretoria/Supervisão", "Vendedor + Televendas")
+    result = {key: 0 for key in keys}
+    for row in rows:
+        origin = set(row.get("origens") or [])
+        for name in keys[:3]:
+            if name in origin:
+                result[name] += 1
+        if "Vendedor" in origin and "Televendas" in origin:
+            result["Vendedor + Televendas"] += 1
+    return result
+
+
 def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     if context["admin"]:
         return data
@@ -954,31 +965,45 @@ def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, An
     channel = context["canal"]
     owner_seller = channel == "Vendedor"
     mine = _selected(data, "todos", context["setor"], "")
-    # Apenas codigos que pertencem a carteira autenticada chegam ao resultado.
-    # A origem dos demais clientes nunca e devolvida ao usuario individual.
-    source_by_code = {row["codigo"]: row for row in data["clientes"]} if owner_seller else {}
+    # A carteira foi delimitada por _selected ANTES de associar nomes/origens.
+    # Nenhum cliente de outra carteira sera enviado ao usuario.
+    source_by_code = {row["codigo"]: row for row in data["clientes"]}
     rows: list[dict[str, Any]] = []
     for original in mine:
-        positive = original.get("status") == "Positivado"
         source = source_by_code.get(original["codigo"], {})
-        other_channels = ([name for name in ("Televendas", "Diretoria/Supervisão")
-                           if name in source.get("origens", [])] if owner_seller else [])
-        visible_channels = ([channel] if positive else []) + other_channels
+        origens = list(source.get("origens") or [])
+        positive = bool(origens)
+        direct_key = "positivacoesVendedor" if owner_seller else "positivacoesTelevendas"
+        direct = any(_norm(name) == _norm(person) for name in source.get(direct_key, []))
+        tv_cadastrados = list(source.get("televendas") or [])
+        tv_que_venderam = list(source.get("televendasQuePositivaram") or
+                               source.get("positivacoesTelevendas") or [])
+        detalhes = []
+        for origin in origens:
+            if origin == "Televendas" and tv_que_venderam:
+                detalhes.append("Televendas: " + ", ".join(dict.fromkeys(tv_que_venderam)))
+            elif origin == "Vendedor" and source.get("positivacoesVendedor"):
+                detalhes.append("Vendedor: " + ", ".join(source["positivacoesVendedor"]))
+            else:
+                detalhes.append("Diretoria" if origin == "Diretoria/Supervisão" else origin)
         rows.append({
             "codigo": original["codigo"], "cliente": original["cliente"],
             "cnpj": original.get("cnpj", ""), "bloqueado": bool(original.get("bloqueado")),
-            "vendedores": [person] if owner_seller else [],
+            "vendedores": [person] if owner_seller else list(source.get("vendedores") or []),
             "setores": [person] if owner_seller else [],
-            "televendas": [] if owner_seller else [person],
-            "origens": [channel] if positive else [],
-            "origensDaVenda": visible_channels,
+            "televendas": tv_cadastrados if owner_seller else [person],
+            "origens": origens,
+            "origensDaVenda": origens,
+            "origensDetalhadas": detalhes,
+            "creditoIndividual": direct,
             "status": "Positivado" if positive else "Não positivado",
-            "carteiraCompartilhada": False,
-            "positivacoesVendedor": [person] if owner_seller and positive else [],
-            "positivacoesTelevendas": [person] if not owner_seller and positive else [],
+            "carteiraCompartilhada": bool(source.get("carteiraCompartilhada")),
+            "positivacoesVendedor": [person] if owner_seller and direct else [],
+            "positivacoesTelevendas": [person] if not owner_seller and direct else [],
         })
     count = len(rows)
     positive_count = sum(row["status"] == "Positivado" for row in rows)
+    direct_count = sum(bool(row["creditoIndividual"]) for row in rows)
     blocked = sum(row["bloqueado"] for row in rows)
     pct = round(100 * positive_count / count, 2) if count else 0
     totals = {"carteira": count, "positivados": positive_count,
@@ -993,14 +1018,16 @@ def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, An
     else:
         group["televendas"] = person
         sectors, teles = [{"setor": person, **{k:v for k,v in group.items() if k!="televendas"}}], [group]
-    origins = {"Vendedor": positive_count if owner_seller else 0,
-               "Televendas": 0 if owner_seller else positive_count,
-               "Diretoria/Supervisão": 0, "Vendedor + Televendas": 0}
+    origins = _origins_for_rows(rows)
+    # Somente contagens gerais da empresa: sem listas de outras carteiras.
+    general = {key: data.get("indicadores", {}).get(key, 0)
+               for key in ("carteira", "positivados", "naoPositivados", "percentual")}
     return {"schema": MODULE, "competencia": data.get("competencia", ""),
             "atualizadoEm": data.get("atualizadoEm", ""),
             "persistencia": data.get("persistencia", "POSTGRESQL"),
             "clientes": rows, "setores": sectors, "carteirasTelevendas": teles,
             "origens": origins, "indicadores": totals,
+             "creditoIndividual": direct_count, "geralEmpresa": general,
             "movimentacao": {"novos": 0, "removidos": 0,
                              "bloqueadosNovos": 0, "reativados": 0},
             "acesso": {"individual": True, "canal": channel,
@@ -1009,7 +1036,8 @@ def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, An
 
 @router.get("/positivacoes/api/resumo-filtro")
 async def positivacao_filtered_summary(
-    setor: str = "", session: str | None = Cookie(default=None, alias=settings.cookie_name),
+    setor: str = "", nao_bloqueados: bool = Query(False),
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     context = await _viewer_context(session)
     setor = _enforced_sector(setor, context)
@@ -1025,14 +1053,12 @@ async def positivacao_filtered_summary(
     matched = next((x for x in group if _norm(x[key]) == person), None)
     if matched is None:
         raise HTTPException(400, "Profissional indisponivel na fotografia atual.")
-    customers = _selected(data, "todos", setor, "")
+    customers = _selected(data, "todos", setor, "", nao_bloqueados)
     total = len(customers)
     positive = sum(x["status"] == "Positivado" for x in customers)
     blocked = sum(bool(x["bloqueado"]) for x in customers)
     channel = "Televendas" if is_tv else "Vendedor"
-    origins = {"Vendedor": 0, "Televendas": 0,
-               "Diretoria/Supervisão": 0, "Vendedor + Televendas": 0}
-    origins[channel] = positive
+    origins = _origins_for_rows(customers)
     focused = {**matched, "total": total, "positivados": positive,
                "naoPositivados": total-positive, "bloqueados": blocked,
                "percentual": round(100*positive/total, 2) if total else 0}
@@ -1048,12 +1074,13 @@ async def positivacao_filtered_summary(
 async def positivacao_clients(
     status: str = "todos", setor: str = "", busca: str = "", pagina: int = Query(1, ge=1),
     tamanho: int = Query(50, ge=1, le=100),
+    nao_bloqueados: bool = Query(False),
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     context = await _viewer_context(session)
     setor = _enforced_sector(setor, context)
     data = _visible_data(await _get_data(context["profile"]), context)
-    rows = _selected(data, status, setor, busca)
+    rows = _selected(data, status, setor, busca, nao_bloqueados)
     start = (pagina-1)*tamanho
     return _safe_json_response({"total": len(rows), "pagina": pagina, "tamanho": tamanho,
                                 "clientes": rows[start:start+tamanho], "atualizadoEm": data["atualizadoEm"]})
@@ -1088,13 +1115,14 @@ def _export_fields(row: dict[str, Any]) -> list[str]:
             "Diretoria" if name == "Diretoria/Supervisão" else name for name in others
         )
     return [row["codigo"], row["cnpj"], row["cliente"], ", ".join(row["setores"]) or "Sem vínculo cadastrado",
-            ", ".join(row["televendas"]), " + ".join(origins), situation,
+            ", ".join(row["televendas"]), " + ".join(row.get("origensDetalhadas") or origins), situation,
             "Sim" if row["bloqueado"] else "Não"]
 
 
 @router.get("/positivacoes/api/exportar/{kind}")
 async def positivacao_export(
     kind: str, status: str = "todos", setor: str = "", busca: str = "",
+    nao_bloqueados: bool = Query(False),
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     context = await _viewer_context(session)
@@ -1109,7 +1137,7 @@ async def positivacao_export(
     key = "televendas" if is_tv else "setor"
     if not person or not any(_norm(g.get(key)) == person for g in groups):
         raise HTTPException(400, "Selecione uma carteira individual valida antes de exportar.")
-    rows = _selected(data, status, setor, busca)
+    rows = _selected(data, status, setor, busca, nao_bloqueados)
     headers = ["Código", "CNPJ", "Cliente", "Carteira", "Televendas Cad.", "Origem", "Status", "Bloqueado"]
     if kind == "excel":
         from openpyxl import Workbook
