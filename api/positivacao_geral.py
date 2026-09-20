@@ -546,7 +546,10 @@ def _split_customer_owner(prefix: str, owner_id: str, tel_names: dict[str, str])
     return before, "", True
 
 
-def _pdf_pages_fast(raw: bytes) -> list[str]:
+_PDF_PARSER_VERSION = "poppler-conciliacao-v9"
+
+
+def _pdf_pages_fast(raw: bytes, *, mode: str = "layout") -> list[str]:
     """Extrai texto pelo Poppler (mesmo utilitário instalado para o Mapa de Estoque).
 
     A carteira e os vínculos continuam sendo interpretados e validados pelas
@@ -559,13 +562,20 @@ def _pdf_pages_fast(raw: bytes) -> list[str]:
         tmp.write(raw)
         tmp.flush()
         try:
+            command = [executable, "-enc", "UTF-8"]
+            if mode == "layout":
+                command.append("-layout")
+            elif mode == "raw":
+                command.append("-raw")
+            elif mode != "default":
+                raise ValueError("Modo de leitura do PDF desconhecido.")
             process = subprocess.run(
-                [executable, "-layout", "-enc", "UTF-8", tmp.name, "-"],
+                [*command, tmp.name, "-"],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                timeout=75, check=False,
+                timeout=45, check=False,
             )
         except subprocess.TimeoutExpired as exc:
-            raise RuntimeError("A leitura rápida do PDF excedeu 75 segundos; a última base foi preservada.") from exc
+            raise RuntimeError("A extração de texto do PDF excedeu 45 segundos; a última base foi preservada.") from exc
     if process.returncode:
         raise RuntimeError("Falha na extração de texto do PDF; a última base foi preservada.")
     pages = process.stdout.decode("utf-8", errors="replace").split("\f")
@@ -576,8 +586,8 @@ def _pdf_pages_fast(raw: bytes) -> list[str]:
     return pages
 
 
-def _parse_pdf(raw: bytes, tel_names: dict[str, str]) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
-    pages = _pdf_pages_fast(raw)
+def _parse_pdf_pages(pages: list[str], tel_names: dict[str, str], *,
+                     strict: bool = True) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
     clients: dict[str, dict[str, Any]] = {}
     stats = Counter()
     seller_id, seller_name = "", ""
@@ -625,9 +635,50 @@ def _parse_pdf(raw: bytes, tel_names: dict[str, str]) -> tuple[dict[str, dict[st
     stats["clientesUnicos"] = len(clients)
     stats["vinculosMultiples"] = sum(len(row["vinculos"]) > 1 for row in clients.values())
     minimum = max(100, len(pages) * 20)
-    if len(clients) < minimum or stats["linhasLidas"] < minimum:
+    if strict and (len(clients) < minimum or stats["linhasLidas"] < minimum):
         raise RuntimeError("O PDF não apresentou uma carteira válida; a última base válida será preservada.")
     return clients, dict(stats)
+
+
+def _parse_pdf(raw: bytes, tel_names: dict[str, str]) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
+    """Concilia as leituras Poppler sem inventar clientes ou ampliar carteiras.
+
+    Cada registro adicional passa pelas mesmas validações de código, UF,
+    valores monetários e VND do relatório. Não altera um vínculo existente;
+    para cliente ausente, inclui apenas vínculos extraídos do próprio PDF.
+    """
+    pages = _pdf_pages_fast(raw, mode="layout")
+    clients, stats = _parse_pdf_pages(pages, tel_names)
+    recovered = 0
+    for mode in ("default", "raw"):
+        try:
+            alternative_pages = _pdf_pages_fast(raw, mode=mode)
+            extra, extra_stats = _parse_pdf_pages(alternative_pages, tel_names, strict=False)
+            # Uma modalidade que não reconhece nem cem clientes não é uma
+            # fonte suficiente para acrescentar vínculos à carteira publicada.
+            if len(extra) < 100 or extra_stats["linhasLidas"] < 100:
+                if _WORKER_PROCESS:
+                    print(f"[POS_WORKER] pdf_conciliacao modo={mode} insuficiente=True", flush=True)
+                continue
+            new_codes = 0
+            for code, row in extra.items():
+                if code not in clients:
+                    clients[code] = row
+                    new_codes += 1
+            recovered += new_codes
+            if _WORKER_PROCESS:
+                print(f"[POS_WORKER] pdf_conciliacao modo={mode} recuperados={new_codes}", flush=True)
+        except RuntimeError:
+            # A leitura principal já foi validada; erros em um modo opcional
+            # não podem substituir seus clientes por dados incompletos.
+            if _WORKER_PROCESS:
+                print(f"[POS_WORKER] pdf_conciliacao modo={mode} indisponivel=True", flush=True)
+    stats["clientesUnicos"] = len(clients)
+    stats["vinculosMultiples"] = sum(len(row["vinculos"]) > 1 for row in clients.values())
+    stats["clientesRecuperadosLeituraAlternativa"] = recovered
+    if _WORKER_PROCESS:
+        print(f"[POS_WORKER] pdf_conciliacao total_clientes={len(clients)} recuperados={recovered}", flush=True)
+    return clients, stats
 
 
 def _parse_sales(raw: bytes) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
@@ -869,10 +920,12 @@ def _sync_blocking(sellers: dict[str, str], televendas: dict[str, str], previous
     users_hash = hashlib.sha256(json.dumps({"v":sellers,"t":televendas}, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
     fingerprint = {"pdfId": pdf["id"], "pdfModified": pdf.get("modifiedTime", ""),
                    "sheetId": sheet["id"], "sheetModified": sheet.get("modifiedTime", ""),
-                   "usuariosHash": users_hash, "regraCarteiras": "usuarios-ativos-v2"}
+                    "usuariosHash": users_hash, "regraCarteiras": "usuarios-ativos-v2",
+                    "versaoLeitorPdf": _PDF_PARSER_VERSION}
     old_sources = (previous or {}).get("fontes") or {}
     if (previous and old_sources.get("usuariosHash") == users_hash
             and old_sources.get("regraCarteiras") == "usuarios-ativos-v2"
+            and old_sources.get("versaoLeitorPdf") == _PDF_PARSER_VERSION
             and _same_sources(previous, pdf, sheet)):
         return previous
     modified = datetime.fromisoformat(str(sheet.get("modifiedTime") or "").replace("Z", "+00:00")).astimezone(TZ)
@@ -886,6 +939,7 @@ def _sync_blocking(sellers: dict[str, str], televendas: dict[str, str], previous
         previous and previous.get("competencia") == current.strftime("%m/%Y")
         and old_sources.get("usuariosHash") == users_hash
         and old_sources.get("regraCarteiras") == "usuarios-ativos-v2"
+        and old_sources.get("versaoLeitorPdf") == _PDF_PARSER_VERSION
         and _same_source_file(old_sources, pdf, "pdf")
     )
     _worker_stage("VALIDACAO_REUSO_PDF", "PROCESSANDO")
@@ -913,10 +967,16 @@ def _sync_blocking(sellers: dict[str, str], televendas: dict[str, str], previous
     sales, parsing_sales = _parse_sales(planilha_bytes)
     if previous and previous.get("indicadores", {}).get("carteira", 0) > 500:
         previous_count = previous["indicadores"]["carteira"]
+        if _same_source_file(old_sources, pdf, "pdf") and len(portfolio) < previous_count:
+            raise RuntimeError("A releitura do mesmo PDF reduziu a carteira; a última versão foi preservada para conferência.")
         if len(portfolio) < previous_count * 0.6:
             raise RuntimeError("Carteira recebida tem menos de 60% do volume anterior; fotografia preservada para conferência.")
     _worker_stage("CONSOLIDACAO_INDICADORES", "PROCESSANDO")
     data = _consolidate(portfolio, sales, sellers, televendas, previous)
+    if _WORKER_PROCESS:
+        print("[POS_WORKER] conferencia_carteira "
+              f"positivados={data['indicadores']['positivados']} "
+              f"fora_carteira={data['indicadores']['positivadosForaCarteira']}", flush=True)
     data["fontes"] = fingerprint
     data["leitura"] = {"pdf": parsing, "excel": parsing_sales}
     data["atualizadoEm"] = _now()
@@ -1195,7 +1255,7 @@ async def _manual_check_and_refresh(profile: dict[str, Any]) -> None:
                 # conteúdo, IDs de clientes ou credenciais.
                 print(f"[POS_WORKER] comparacao pdf_igual={same_pdf} "
                       f"planilha_igual={same_sheet} snapshot_valido=True", flush=True)
-            if same_pdf and same_sheet:
+            if same_pdf and same_sheet and old.get("versaoLeitorPdf") == _PDF_PARSER_VERSION:
                 _SYNC_ERROR = ""
                 _worker_stage("CONCLUIDO", "SEM_ALTERACAO")
                 return
