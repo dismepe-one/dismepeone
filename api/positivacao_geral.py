@@ -219,9 +219,12 @@ def _drive_file_list(service: Any, folder: str) -> list[dict[str, Any]]:
     escaped = folder.replace("'", "\\'")
     token = None
     files: list[dict[str, Any]] = []
+    targeted = True
     while True:
         result = service.files().list(
-            q=f"'{escaped}' in parents and trashed = false",
+            q=((f"'{escaped}' in parents and trashed = false and "
+                "(name contains 'Comparativo' or name contains 'Positiv')")
+               if targeted else f"'{escaped}' in parents and trashed = false"),
             fields="nextPageToken,files(id,name,mimeType,modifiedTime,size)",
             orderBy="modifiedTime desc", pageSize=100, pageToken=token,
             supportsAllDrives=True, includeItemsFromAllDrives=True,
@@ -236,6 +239,12 @@ def _drive_file_list(service: Any, folder: str) -> list[dict[str, Any]]:
             return files
         token = result.get("nextPageToken")
         if not token:
+            if targeted:
+                # Nomes fora do prefixo esperado: preservar a busca ampla antiga
+                # somente como fallback para não perder arquivos substituídos.
+                targeted = False
+                files = []
+                continue
             return files
 
 
@@ -611,7 +620,11 @@ async def _read_persisted() -> dict[str, Any] | None:
     try:
         data, _ = await cache_get(modulo=MODULE, settings=settings)
         return _uncompact(data)
-    except (CacheReadError, ValueError, KeyError, TypeError, zlib.error):
+    except CacheReadError as exc:
+        if "ainda não está disponível no PostgreSQL" in str(exc):
+            return None
+        raise
+    except (ValueError, KeyError, TypeError, zlib.error):
         return None
 
 
@@ -759,7 +772,7 @@ def _same_source_file(old: dict[str, Any], item: dict[str, Any], prefix: str) ->
 
 
 def _same_sources(previous: dict[str, Any] | None, pdf: dict[str, Any], sheet: dict[str, Any]) -> bool:
-    if not previous or previous.get("competencia") != datetime.now(TZ).strftime("%m/%Y"):
+    if not previous:
         return False
     old = previous.get("fontes") or {}
     return _same_source_file(old, pdf, "pdf") and _same_source_file(old, sheet, "sheet")
@@ -773,12 +786,13 @@ async def _refresh_job(profile: dict[str, Any], force: bool,
                        sources: tuple[dict[str, Any], dict[str, Any]] | None = None) -> None:
     """Trabalho desacoplado da requisicao HTTP: baixa, consolida e grava uma fotografia validada."""
     global _CACHE, _CACHE_AT, _SYNC_ERROR, _SYNC_LAST_FINISHED, _SYNC_RESULT
-    _SYNC_RESULT = "PROCESSANDO"
+    _SYNC_RESULT = "VERIFICANDO"
     previous: dict[str, Any] | None = _CACHE
     try:
         if previous is None:
             previous = await _read_persisted()
         vendedores, televendas = await _registered_users()
+        _SYNC_RESULT = "PROCESSANDO"
         data = await asyncio.to_thread(_sync_blocking, vendedores, televendas, previous, force, sources)
         data = copy.deepcopy(data)
         data["usuariosAtivos"] = {
@@ -824,7 +838,8 @@ def _start_sync(profile: dict[str, Any], *, force: bool = False) -> None:
         return
     _SYNC_LAST_STARTED = time.monotonic()
     _SYNC_ERROR = ""
-    _SYNC_TASK = asyncio.create_task(_refresh_job(profile, force), name="positivacoes-refresh-drive")
+    job = _manual_check_and_refresh(profile) if force else _refresh_job(profile, force)
+    _SYNC_TASK = asyncio.create_task(job, name="positivacoes-refresh-drive")
 
 
 def _sync_status() -> dict[str, Any]:
@@ -922,7 +937,7 @@ async def positivacao_panel(force: bool = Query(False), session: str | None = Co
     if force and not context["admin"]:
         raise HTTPException(403, "A atualização das bases é exclusiva da administração.")
     data = await _snapshot_fast()
-    if context["admin"] and (force or data is None):
+    if context["admin"] and (force or (data is None and not _DB_ERROR)):
         _start_sync(profile, force=force)
     state = _sync_status() if context["admin"] else {"emAndamento": False, "erro": ""}
     if data is None:
@@ -948,6 +963,8 @@ async def _manual_check_and_refresh(profile: dict[str, Any]) -> None:
     global _SYNC_ERROR, _SYNC_RESULT, _SYNC_LAST_FINISHED
     try:
         previous = await _snapshot_fast()
+        if previous is None and _DB_ERROR:
+            raise RuntimeError("Não foi possível consultar a versão publicada; nenhuma importação foi iniciada.")
         sources = None
         # Primeiro compara APENAS os horários dos dois arquivos publicados.
         # A busca pela base completa começa somente se houver uma diferença.
