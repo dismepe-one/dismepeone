@@ -14,6 +14,8 @@ import hashlib
 import json
 import os
 import re
+import subprocess
+import sys
 import time
 import unicodedata
 import zlib
@@ -66,6 +68,99 @@ _ROSTER_AT = 0.0
 _ROSTER: list[dict[str, Any]] = []
 _SQL_RELOAD_TASK: asyncio.Task | None = None
 _SYNC_RESULT = ""
+# O trabalho pesado roda em um processo separado, como no Mapa de Estoque.
+_WORKER_PROCESS = False
+_WORKER_RUN_ID = ""
+_WORKER_STATE_FILE = ROOT / "data" / "positivacao_worker_status.json"
+_WORKER_ACTIVE = {"QUEUED", "VERIFICANDO", "PROCESSANDO", "PUBLICANDO"}
+
+
+def _worker_state_read() -> dict[str, Any]:
+    try:
+        value = json.loads(_WORKER_STATE_FILE.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _worker_state_save(result: str, *, error: str = "", finished: str = "",
+                       published: str = "", pid: int = 0, run_id: str = "") -> None:
+    # Arquivo local pequeno: o GET de status nunca lê PDFs nem consulta o banco.
+    state = {"resultado": result, "erro": error[:280], "ultimaConclusao": finished,
+             "publicadoEm": published, "workerPid": pid, "runId": run_id,
+             "iniciadoEm": _now()}
+    _WORKER_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temp = _WORKER_STATE_FILE.with_name(_WORKER_STATE_FILE.name + "." + str(os.getpid()) + ".tmp")
+    temp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    temp.replace(_WORKER_STATE_FILE)
+
+
+def _worker_progress() -> None:
+    if not _WORKER_PROCESS:
+        return
+    old = _worker_state_read()
+    _worker_state_save(_SYNC_RESULT, error=_SYNC_ERROR,
+                       finished=_SYNC_LAST_FINISHED if _SYNC_RESULT not in _WORKER_ACTIVE else "",
+                       published=str((_CACHE or {}).get("atualizadoEm") or "") if _SYNC_RESULT == "PUBLICADA" else "",
+                       pid=os.getpid(), run_id=_WORKER_RUN_ID or str(old.get("runId") or ""))
+
+
+def _worker_running(state: dict[str, Any]) -> bool:
+    if state.get("resultado") not in _WORKER_ACTIVE:
+        return False
+    pid = int(state.get("workerPid") or 0)
+    if not pid:
+        # O lançamento do processo ainda está em curso.
+        try:
+            from datetime import timedelta
+            started = datetime.fromisoformat(str(state.get("iniciadoEm") or ""))
+            return datetime.now(TZ) - started < timedelta(seconds=30)
+        except (TypeError, ValueError):
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+
+
+def _worker_status_data() -> dict[str, Any]:
+    state = _worker_state_read()
+    running = _worker_running(state)
+    interrupted = bool(state.get("resultado") in _WORKER_ACTIVE and not running)
+    return {
+        "emAndamento": running,
+        "erro": ("O processo de atualização foi interrompido; a última base permanece disponível."
+                 if interrupted else str(state.get("erro") or "")),
+        "ultimaConclusao": str(state.get("ultimaConclusao") or ""),
+        "erroConsultaBanco": _DB_ERROR,
+        "resultado": "ERRO" if interrupted else str(state.get("resultado") or ""),
+    }
+
+
+def _launch_sync_worker(profile: dict[str, Any]) -> None:
+    # Nunca iniciar dois downloads/importações simultâneos neste serviço.
+    if _worker_running(_worker_state_read()):
+        return
+    import uuid
+    run_id = str(uuid.uuid4())
+    _worker_state_save("QUEUED", run_id=run_id)
+    env = os.environ.copy()
+    env["DISMEPE_POS_WORKER_USER"] = str(profile.get("usuario") or "")
+    env["DISMEPE_POS_WORKER_RUN"] = run_id
+    try:
+        process = subprocess.Popen(
+            [sys.executable, "-m", "api.positivacao_worker"],
+            cwd=str(ROOT), env=env, stdin=subprocess.DEVNULL,
+            stdout=None, stderr=None, start_new_session=True, close_fds=True,
+        )
+    except Exception:
+        _worker_state_save("ERRO", error="Não foi possível iniciar o processo de atualização.",
+                           finished=_now(), run_id=run_id)
+        raise
+    state = _worker_state_read()
+    if state.get("runId") == run_id and state.get("resultado") == "QUEUED":
+        _worker_state_save("VERIFICANDO", pid=process.pid, run_id=run_id)
 
 
 def _now() -> str:
@@ -624,8 +719,8 @@ async def _read_persisted() -> dict[str, Any] | None:
         if "ainda não está disponível no PostgreSQL" in str(exc):
             return None
         raise
-    except (ValueError, KeyError, TypeError, zlib.error):
-        return None
+    except (ValueError, KeyError, TypeError, zlib.error) as exc:
+        raise RuntimeError("A versão publicada não pôde ser validada; atualização interrompida.") from exc
 
 
 async def _persist(data: dict[str, Any], profile: dict[str, Any]) -> None:
@@ -743,6 +838,12 @@ async def _snapshot_fast() -> dict[str, Any] | None:
     global _CACHE, _CACHE_AT, _DB_CHECK_AT, _DB_ERROR
     global _SQL_RELOAD_TASK
     if _CACHE is not None:
+        # Uma publicação concluída pelo processo externo precisa ser relida
+        # do PostgreSQL, sem esperar o TTL normal de 30 segundos.
+        worker = _worker_state_read()
+        if (worker.get("resultado") == "PUBLICADA" and worker.get("publicadoEm")
+                and _CACHE.get("atualizadoEm") != worker["publicadoEm"]):
+            await _reload_cached_sql()
         if (time.monotonic() - _CACHE_AT >= 30
                 and (_SQL_RELOAD_TASK is None or _SQL_RELOAD_TASK.done())):
             _SQL_RELOAD_TASK = asyncio.create_task(_reload_cached_sql())
@@ -787,12 +888,14 @@ async def _refresh_job(profile: dict[str, Any], force: bool,
     """Trabalho desacoplado da requisicao HTTP: baixa, consolida e grava uma fotografia validada."""
     global _CACHE, _CACHE_AT, _SYNC_ERROR, _SYNC_LAST_FINISHED, _SYNC_RESULT
     _SYNC_RESULT = "VERIFICANDO"
+    _worker_progress()
     previous: dict[str, Any] | None = _CACHE
     try:
         if previous is None:
             previous = await _read_persisted()
         vendedores, televendas = await _registered_users()
         _SYNC_RESULT = "PROCESSANDO"
+        _worker_progress()
         data = await asyncio.to_thread(_sync_blocking, vendedores, televendas, previous, force, sources)
         data = copy.deepcopy(data)
         data["usuariosAtivos"] = {
@@ -805,6 +908,7 @@ async def _refresh_job(profile: dict[str, Any], force: bool,
                 or previous.get("persistencia") == "MEMORIA_APENAS"):
             try:
                 _SYNC_RESULT = "PUBLICANDO"
+                _worker_progress()
                 await _persist(data, profile)
                 data["persistencia"] = "POSTGRESQL"
             except Exception as exc:
@@ -816,6 +920,7 @@ async def _refresh_job(profile: dict[str, Any], force: bool,
         _CACHE = data
         _CACHE_AT = time.monotonic()
         _SYNC_ERROR = ""
+        _worker_progress()
     except asyncio.CancelledError:
         raise
     except Exception as exc:
@@ -827,29 +932,26 @@ async def _refresh_job(profile: dict[str, Any], force: bool,
             _CACHE_AT = time.monotonic()
     finally:
         _SYNC_LAST_FINISHED = _now()
+        _worker_progress()
 
 
 def _start_sync(profile: dict[str, Any], *, force: bool = False) -> None:
-    """No maximo um trabalho por processo; verificacao automatica espaçada."""
-    global _SYNC_TASK, _SYNC_ERROR, _SYNC_LAST_STARTED
-    if _SYNC_TASK is not None and not _SYNC_TASK.done():
+    """Lança um worker independente; o portal não importa arquivos no event loop."""
+    global _SYNC_LAST_STARTED, _SYNC_ERROR
+    if _worker_running(_worker_state_read()):
         return
     if not force and _SYNC_LAST_STARTED and time.monotonic() - _SYNC_LAST_STARTED < _TTL:
         return
     _SYNC_LAST_STARTED = time.monotonic()
     _SYNC_ERROR = ""
-    job = _manual_check_and_refresh(profile) if force else _refresh_job(profile, force)
-    _SYNC_TASK = asyncio.create_task(job, name="positivacoes-refresh-drive")
+    try:
+        _launch_sync_worker(profile)
+    except Exception:
+        _SYNC_ERROR = "Falha ao iniciar o processo externo de atualização."
 
 
 def _sync_status() -> dict[str, Any]:
-    return {
-        "emAndamento": bool(_SYNC_TASK is not None and not _SYNC_TASK.done()),
-        "erro": _SYNC_ERROR,
-        "ultimaConclusao": _SYNC_LAST_FINISHED,
-        "erroConsultaBanco": _DB_ERROR,
-        "resultado": _SYNC_RESULT,
-    }
+    return _worker_status_data()
 
 
 async def _get_data(profile: dict[str, Any]) -> dict[str, Any]:
@@ -963,6 +1065,8 @@ async def _manual_check_and_refresh(profile: dict[str, Any]) -> None:
     global _SYNC_ERROR, _SYNC_RESULT, _SYNC_LAST_FINISHED
     try:
         previous = await _snapshot_fast()
+        # O download só começa depois que a versão atual e os dois horários
+        # estiverem disponíveis para comparação, exceto primeira instalação.
         if previous is None and _DB_ERROR:
             raise RuntimeError("Não foi possível consultar a versão publicada; nenhuma importação foi iniciada.")
         sources = None
@@ -974,6 +1078,7 @@ async def _manual_check_and_refresh(profile: dict[str, Any]) -> None:
             if _same_sources(previous, *sources):
                 _SYNC_ERROR = ""
                 _SYNC_RESULT = "SEM_ALTERACAO"
+                _worker_progress()
                 return
         await _refresh_job(profile, True, sources=sources)
     except asyncio.CancelledError:
@@ -984,6 +1089,7 @@ async def _manual_check_and_refresh(profile: dict[str, Any]) -> None:
         _SYNC_RESULT = "ERRO"
     finally:
         _SYNC_LAST_FINISHED = _now()
+        _worker_progress()
 
 
 @router.get("/positivacoes/api/atualizacao-status")
@@ -995,18 +1101,16 @@ async def positivacao_atualizacao_status(session: str | None = Cookie(default=No
 @router.post("/positivacoes/api/atualizar")
 async def positivacao_refresh(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
     profile = _signed_admin(session)
-    global _SYNC_TASK, _SYNC_ERROR, _SYNC_RESULT, _SYNC_LAST_STARTED
-    if _SYNC_TASK is not None and not _SYNC_TASK.done():
+    if _worker_running(_worker_state_read()):
         return _safe_json_response({"sucesso": True, "emAndamento": True,
                                     "statusAtualizacao": _sync_status()})
-    _SYNC_ERROR = ""
-    _SYNC_RESULT = "VERIFICANDO"
-    _SYNC_LAST_STARTED = time.monotonic()
-    # A resposta ao clique é imediata; o trabalho roda sob a tarefa já
-    # utilizada pelo módulo e a UI consulta somente o status leve.
-    _SYNC_TASK = asyncio.create_task(
-        _manual_check_and_refresh(profile), name="positivacoes-verificar-e-publicar")
-    return _safe_json_response({"sucesso": True, "emAndamento": True,
+    # Resposta HTTP breve; processo isolado consulta metadados, importa somente
+    # se houver alteração e publica no PostgreSQL ANTES de trocar a fotografia.
+    try:
+        _start_sync(profile, force=True)
+    except Exception:
+        raise HTTPException(503, "Não foi possível iniciar a atualização da Positivação Geral.")
+    return _safe_json_response({"sucesso": True, "emAndamento": _sync_status()["emAndamento"],
                                 "statusAtualizacao": _sync_status()})
 
 
