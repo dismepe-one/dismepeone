@@ -317,7 +317,14 @@ async function pollPublicationStatus(){
   const response=await getJSON('/positivacoes/api/atualizacao-status');
   const status=response.statusAtualizacao||{};
   if(status.emAndamento){
-   showAlert(status.resultado==='EM_ANDAMENTO'?'Publicando nova base; os resultados atuais continuam disponíveis.':'Conferindo se há novas atualizações; os resultados atuais continuam disponíveis.');
+   // Uma tarefa em andamento não confirma, por si só, que existe uma nova base.
+   if(status.resultado==='PUBLICANDO'){
+    showAlert('Gravando a base validada; os resultados atuais continuam disponíveis.');
+   }else if(status.resultado==='PROCESSANDO'||status.resultado==='EM_ANDAMENTO'){
+    showAlert('Processando os arquivos para confirmar as alterações; os resultados atuais continuam disponíveis.');
+   }else{
+    showAlert('Conferindo se há novas atualizações; os resultados atuais continuam disponíveis.');
+   }
    publicationTimer=setTimeout(pollPublicationStatus,2500);
    return;
   }

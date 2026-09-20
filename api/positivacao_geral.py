@@ -715,7 +715,7 @@ def _sources_changed_blocking(previous: dict[str, Any] | None) -> bool:
 async def _refresh_job(profile: dict[str, Any], force: bool) -> None:
     """Trabalho desacoplado da requisicao HTTP: baixa, consolida e grava uma fotografia validada."""
     global _CACHE, _CACHE_AT, _SYNC_ERROR, _SYNC_LAST_FINISHED, _SYNC_RESULT
-    _SYNC_RESULT = "EM_ANDAMENTO"
+    _SYNC_RESULT = "PROCESSANDO"
     previous: dict[str, Any] | None = _CACHE
     try:
         if previous is None:
@@ -732,6 +732,7 @@ async def _refresh_job(profile: dict[str, Any], force: bool) -> None:
         if (previous is None or data.get("fontes") != previous.get("fontes")
                 or previous.get("persistencia") == "MEMORIA_APENAS"):
             try:
+                _SYNC_RESULT = "PUBLICANDO"
                 await _persist(data, profile)
                 data["persistencia"] = "POSTGRESQL"
             except Exception as exc:
