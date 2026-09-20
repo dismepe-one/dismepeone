@@ -14,7 +14,9 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
+import tempfile
 import sys
 import time
 import unicodedata
@@ -544,16 +546,42 @@ def _split_customer_owner(prefix: str, owner_id: str, tel_names: dict[str, str])
     return before, "", True
 
 
+def _pdf_pages_fast(raw: bytes) -> list[str]:
+    """Extrai texto pelo Poppler (mesmo utilitário instalado para o Mapa de Estoque).
+
+    A carteira e os vínculos continuam sendo interpretados e validados pelas
+    mesmas regras da Positivação. Falhas interrompem a publicação da nova base.
+    """
+    executable = shutil.which("pdftotext")
+    if not executable:
+        raise RuntimeError("Leitor rápido de PDF indisponível; a última base foi preservada.")
+    with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
+        tmp.write(raw)
+        tmp.flush()
+        try:
+            process = subprocess.run(
+                [executable, "-layout", "-enc", "UTF-8", tmp.name, "-"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                timeout=75, check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("A leitura rápida do PDF excedeu 75 segundos; a última base foi preservada.") from exc
+    if process.returncode:
+        raise RuntimeError("Falha na extração de texto do PDF; a última base foi preservada.")
+    pages = process.stdout.decode("utf-8", errors="replace").split("\f")
+    if pages and not pages[-1].strip():
+        pages.pop()
+    if not pages or not any(page.strip() for page in pages):
+        raise RuntimeError("O PDF não contém texto extraível; a última base foi preservada.")
+    return pages
+
+
 def _parse_pdf(raw: bytes, tel_names: dict[str, str]) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
-    from pypdf import PdfReader
-    reader = PdfReader(io.BytesIO(raw))
+    pages = _pdf_pages_fast(raw)
     clients: dict[str, dict[str, Any]] = {}
     stats = Counter()
     seller_id, seller_name = "", ""
-    for page_no, page in enumerate(reader.pages, start=1):
-        # O modo layout de certas versões do pypdf não extrai as colunas
-        # do relatório Átrio; o texto padrão preserva suas linhas de clientes.
-        text = page.extract_text() or page.extract_text(extraction_mode="layout") or ""
+    for page_no, text in enumerate(pages, start=1):
         for line in text.splitlines():
             header = _HEADER.search(line)
             if header:
@@ -593,10 +621,10 @@ def _parse_pdf(raw: bytes, tel_names: dict[str, str]) -> tuple[dict[str, dict[st
                 old["vinculos"].append({"codigoVendedor": seller_id,
                                         "vendedorPdf": seller_name,
                                         "televendasCad": tel_name})
-    stats["paginas"] = len(reader.pages)
+    stats["paginas"] = len(pages)
     stats["clientesUnicos"] = len(clients)
     stats["vinculosMultiples"] = sum(len(row["vinculos"]) > 1 for row in clients.values())
-    minimum = max(100, len(reader.pages) * 20)
+    minimum = max(100, len(pages) * 20)
     if len(clients) < minimum or stats["linhasLidas"] < minimum:
         raise RuntimeError("O PDF não apresentou uma carteira válida; a última base válida será preservada.")
     return clients, dict(stats)
