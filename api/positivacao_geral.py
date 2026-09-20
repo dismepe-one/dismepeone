@@ -73,6 +73,46 @@ _WORKER_PROCESS = False
 _WORKER_RUN_ID = ""
 _WORKER_STATE_FILE = ROOT / "data" / "positivacao_worker_status.json"
 _WORKER_ACTIVE = {"QUEUED", "VERIFICANDO", "PROCESSANDO", "PUBLICANDO"}
+# Limite total do processo separado. A interface continua servindo o snapshot anterior.
+_POS_WORKER_MAX_SECONDS = 240
+_WORKER_STAGE = ""
+_WORKER_STAGE_AT = 0.0
+
+
+def _worker_stage(stage: str, result: str) -> None:
+    """Registra etapas sem imprimir arquivos, dados de clientes ou credenciais."""
+    global _SYNC_RESULT, _WORKER_STAGE, _WORKER_STAGE_AT
+    now = time.monotonic()
+    if _WORKER_PROCESS:
+        if _WORKER_STAGE:
+            elapsed = round((now - _WORKER_STAGE_AT) * 1000)
+            print(f"[POS_WORKER] etapa_fim={_WORKER_STAGE} duracao_ms={elapsed}", flush=True)
+        print(f"[POS_WORKER] etapa_inicio={stage} estado={result}", flush=True)
+    _WORKER_STAGE = stage
+    _WORKER_STAGE_AT = now
+    _SYNC_RESULT = result
+    _worker_progress()
+
+
+async def _worker_timed(stage: str, state: str, awaited: Any, timeout: float) -> Any:
+    _worker_stage(stage, state)
+    start = time.monotonic()
+    try:
+        return await asyncio.wait_for(awaited, timeout=timeout)
+    except BaseException as exc:
+        if _WORKER_PROCESS:
+            print(f"[POS_WORKER] etapa_erro={stage} tipo={type(exc).__name__} "
+                  f"duracao_ms={round((time.monotonic() - start) * 1000)}", flush=True)
+        raise
+
+
+def _worker_expired(state: dict[str, Any]) -> bool:
+    try:
+        from datetime import timedelta
+        started = datetime.fromisoformat(str(state.get("iniciadoEm") or ""))
+        return datetime.now(TZ) - started >= timedelta(seconds=_POS_WORKER_MAX_SECONDS + 15)
+    except (TypeError, ValueError):
+        return False
 
 
 def _worker_state_read() -> dict[str, Any]:
@@ -86,9 +126,20 @@ def _worker_state_read() -> dict[str, Any]:
 def _worker_state_save(result: str, *, error: str = "", finished: str = "",
                        published: str = "", pid: int = 0, run_id: str = "") -> None:
     # Arquivo local pequeno: o GET de status nunca lê PDFs nem consulta o banco.
+    # Manter o horário original: em versões anteriores ele era reiniciado em
+    # cada progresso, impedindo identificar atualizações presas por horas.
+    old = _worker_state_read()
+    same_run = bool(run_id and old.get("runId") == run_id)
+    now = _now()
     state = {"resultado": result, "erro": error[:280], "ultimaConclusao": finished,
              "publicadoEm": published, "workerPid": pid, "runId": run_id,
-             "iniciadoEm": _now()}
+             "iniciadoEm": (old.get("iniciadoEm") or now) if same_run else now,
+             "atualizadoEm": now,
+             "etapa": _WORKER_STAGE if _WORKER_PROCESS else (old.get("etapa") if same_run else "AGUARDANDO"),
+             "etapaIniciadaEm": ((old.get("etapaIniciadaEm") or now)
+                                  if same_run and old.get("etapa") == _WORKER_STAGE
+                                  else now),
+             "limiteSegundos": _POS_WORKER_MAX_SECONDS}
     _WORKER_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     temp = _WORKER_STATE_FILE.with_name(_WORKER_STATE_FILE.name + "." + str(os.getpid()) + ".tmp")
     temp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
@@ -118,9 +169,16 @@ def _worker_running(state: dict[str, Any]) -> bool:
         except (TypeError, ValueError):
             return False
     try:
+        # os.kill(pid, 0) também retorna sucesso para processos zumbis. No
+        # Docker/Linux isto deixava a interface presa em PROCESSANDO para sempre.
+        proc_stat = Path(f"/proc/{pid}/stat")
+        if proc_stat.exists():
+            parts = proc_stat.read_text(encoding="utf-8").rsplit(") ", 1)
+            if len(parts) == 2 and parts[1].split()[0] in {"Z", "X"}:
+                return False
         os.kill(pid, 0)
         return True
-    except (ProcessLookupError, PermissionError, OSError):
+    except (ProcessLookupError, PermissionError, OSError, ValueError, IndexError):
         return False
 
 
@@ -128,13 +186,20 @@ def _worker_status_data() -> dict[str, Any]:
     state = _worker_state_read()
     running = _worker_running(state)
     interrupted = bool(state.get("resultado") in _WORKER_ACTIVE and not running)
+    expired = bool(running and _worker_expired(state))
+    message = ("O processo excedeu o limite de tempo; a última base publicada foi preservada."
+               if expired else
+               "O processo de atualização foi interrompido; a última base permanece disponível."
+               if interrupted else str(state.get("erro") or ""))
     return {
-        "emAndamento": running,
-        "erro": ("O processo de atualização foi interrompido; a última base permanece disponível."
-                 if interrupted else str(state.get("erro") or "")),
+        "emAndamento": running and not expired,
+        "erro": message,
         "ultimaConclusao": str(state.get("ultimaConclusao") or ""),
         "erroConsultaBanco": _DB_ERROR,
-        "resultado": "ERRO" if interrupted else str(state.get("resultado") or ""),
+        "resultado": "ERRO" if interrupted or expired else str(state.get("resultado") or ""),
+        "etapa": str(state.get("etapa") or ""),
+        "iniciadoEm": str(state.get("iniciadoEm") or ""),
+        "limiteSegundos": _POS_WORKER_MAX_SECONDS,
     }
 
 
@@ -887,16 +952,16 @@ async def _refresh_job(profile: dict[str, Any], force: bool,
                        sources: tuple[dict[str, Any], dict[str, Any]] | None = None) -> None:
     """Trabalho desacoplado da requisicao HTTP: baixa, consolida e grava uma fotografia validada."""
     global _CACHE, _CACHE_AT, _SYNC_ERROR, _SYNC_LAST_FINISHED, _SYNC_RESULT
-    _SYNC_RESULT = "VERIFICANDO"
-    _worker_progress()
     previous: dict[str, Any] | None = _CACHE
     try:
         if previous is None:
-            previous = await _read_persisted()
-        vendedores, televendas = await _registered_users()
-        _SYNC_RESULT = "PROCESSANDO"
-        _worker_progress()
-        data = await asyncio.to_thread(_sync_blocking, vendedores, televendas, previous, force, sources)
+            previous = await _worker_timed("LEITURA_SQL", "VERIFICANDO",
+                                           _read_persisted(), 15.0)
+        vendedores, televendas = await _worker_timed(
+            "USUARIOS_ATIVOS", "VERIFICANDO", _registered_users(), 18.0)
+        data = await _worker_timed(
+            "DOWNLOAD_E_CONSOLIDACAO", "PROCESSANDO",
+            asyncio.to_thread(_sync_blocking, vendedores, televendas, previous, force, sources), 175.0)
         data = copy.deepcopy(data)
         data["usuariosAtivos"] = {
             "vendedores": len(set(vendedores.values())),
@@ -907,9 +972,7 @@ async def _refresh_job(profile: dict[str, Any], force: bool,
         if (previous is None or data.get("fontes") != previous.get("fontes")
                 or previous.get("persistencia") == "MEMORIA_APENAS"):
             try:
-                _SYNC_RESULT = "PUBLICANDO"
-                _worker_progress()
-                await _persist(data, profile)
+                await _worker_timed("GRAVACAO_SQL", "PUBLICANDO", _persist(data, profile), 45.0)
                 data["persistencia"] = "POSTGRESQL"
             except Exception as exc:
                 raise RuntimeError("A nova base foi processada, mas não foi publicada no Supabase; a base anterior foi preservada.") from exc
@@ -920,7 +983,7 @@ async def _refresh_job(profile: dict[str, Any], force: bool,
         _CACHE = data
         _CACHE_AT = time.monotonic()
         _SYNC_ERROR = ""
-        _worker_progress()
+        _worker_stage("CONCLUIDO", _SYNC_RESULT)
     except asyncio.CancelledError:
         raise
     except Exception as exc:
@@ -1064,7 +1127,8 @@ async def _manual_check_and_refresh(profile: dict[str, Any]) -> None:
     """Confere metadados fora da requisição HTTP e só importa se necessário."""
     global _SYNC_ERROR, _SYNC_RESULT, _SYNC_LAST_FINISHED
     try:
-        previous = await _snapshot_fast()
+        previous = await _worker_timed("LEITURA_VERSAO_PUBLICADA", "VERIFICANDO",
+                                       _snapshot_fast(), 15.0)
         # O download só começa depois que a versão atual e os dois horários
         # estiverem disponíveis para comparação, exceto primeira instalação.
         if previous is None and _DB_ERROR:
@@ -1073,12 +1137,20 @@ async def _manual_check_and_refresh(profile: dict[str, Any]) -> None:
         # Primeiro compara APENAS os horários dos dois arquivos publicados.
         # A busca pela base completa começa somente se houver uma diferença.
         if previous is not None and previous.get("persistencia") != "MEMORIA_APENAS":
-            sources = await asyncio.wait_for(
-                asyncio.to_thread(_source_metadata_blocking), timeout=35.0)
-            if _same_sources(previous, *sources):
+            sources = await _worker_timed(
+                "METADADOS_DRIVE", "VERIFICANDO",
+                asyncio.to_thread(_source_metadata_blocking), 35.0)
+            old = previous.get("fontes") or {}
+            same_pdf = _same_source_file(old, sources[0], "pdf")
+            same_sheet = _same_source_file(old, sources[1], "sheet")
+            if _WORKER_PROCESS:
+                # Registrar somente o resultado da comparação, nunca nomes,
+                # conteúdo, IDs de clientes ou credenciais.
+                print(f"[POS_WORKER] comparacao pdf_igual={same_pdf} "
+                      f"planilha_igual={same_sheet} snapshot_valido=True", flush=True)
+            if same_pdf and same_sheet:
                 _SYNC_ERROR = ""
-                _SYNC_RESULT = "SEM_ALTERACAO"
-                _worker_progress()
+                _worker_stage("CONCLUIDO", "SEM_ALTERACAO")
                 return
         await _refresh_job(profile, True, sources=sources)
     except asyncio.CancelledError:
@@ -1102,8 +1174,9 @@ async def positivacao_atualizacao_status(session: str | None = Cookie(default=No
 async def positivacao_refresh(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
     profile = _signed_admin(session)
     if _worker_running(_worker_state_read()):
-        return _safe_json_response({"sucesso": True, "emAndamento": True,
-                                    "statusAtualizacao": _sync_status()})
+        status = _sync_status()
+        return _safe_json_response({"sucesso": True, "emAndamento": status["emAndamento"],
+                                    "statusAtualizacao": status})
     # Resposta HTTP breve; processo isolado consulta metadados, importa somente
     # se houver alteração e publica no PostgreSQL ANTES de trocar a fotografia.
     try:
