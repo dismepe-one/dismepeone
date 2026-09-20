@@ -860,18 +860,34 @@ def _sync_blocking(sellers: dict[str, str], televendas: dict[str, str], previous
         and old_sources.get("regraCarteiras") == "usuarios-ativos-v2"
         and _same_source_file(old_sources, pdf, "pdf")
     )
+    _worker_stage("VALIDACAO_REUSO_PDF", "PROCESSANDO")
     portfolio = _portfolio_from_published(previous) if reusable_pdf else None
+    if _WORKER_PROCESS:
+        print("[POS_WORKER] reuso_pdf "
+              f"metadados_iguais={_same_source_file(old_sources, pdf, 'pdf')} "
+              f"competencia_igual={bool(previous and previous.get('competencia') == current.strftime('%m/%Y'))} "
+              f"usuarios_iguais={old_sources.get('usuariosHash') == users_hash} "
+              f"carteira_reutilizada={portfolio is not None}", flush=True)
     if service is None:
+        _worker_stage("CONEXAO_DRIVE_DADOS", "PROCESSANDO")
         service = _build_drive_service()
     if portfolio is None:
-        portfolio, parsing = _parse_pdf(_drive_bytes(service, pdf), televendas)
+        _worker_stage("DOWNLOAD_PDF", "PROCESSANDO")
+        pdf_bytes = _drive_bytes(service, pdf)
+        _worker_stage("LEITURA_PDF", "PROCESSANDO")
+        portfolio, parsing = _parse_pdf(pdf_bytes, televendas)
     else:
+        _worker_stage("REUSO_PDF", "PROCESSANDO")
         parsing = copy.deepcopy((previous.get("leitura") or {}).get("pdf") or {})
-    sales, parsing_sales = _parse_sales(_drive_bytes(service, sheet))
+    _worker_stage("DOWNLOAD_PLANILHA", "PROCESSANDO")
+    planilha_bytes = _drive_bytes(service, sheet)
+    _worker_stage("LEITURA_PLANILHA", "PROCESSANDO")
+    sales, parsing_sales = _parse_sales(planilha_bytes)
     if previous and previous.get("indicadores", {}).get("carteira", 0) > 500:
         previous_count = previous["indicadores"]["carteira"]
         if len(portfolio) < previous_count * 0.6:
             raise RuntimeError("Carteira recebida tem menos de 60% do volume anterior; fotografia preservada para conferência.")
+    _worker_stage("CONSOLIDACAO_INDICADORES", "PROCESSANDO")
     data = _consolidate(portfolio, sales, sellers, televendas, previous)
     data["fontes"] = fingerprint
     data["leitura"] = {"pdf": parsing, "excel": parsing_sales}
@@ -988,7 +1004,10 @@ async def _refresh_job(profile: dict[str, Any], force: bool,
         raise
     except Exception as exc:
         # Mensagem apenas a administradores, sem exposicao de credenciais nem tracebacks.
-        _SYNC_ERROR = str(exc)[:280] or "A importacao nao foi concluida."
+        _SYNC_ERROR = (f"Tempo limite de importação na etapa {_WORKER_STAGE}. "
+                       "A última base publicada foi preservada."
+                       if isinstance(exc, asyncio.TimeoutError)
+                       else str(exc)[:280] or "A importacao nao foi concluida.")
         _SYNC_RESULT = "ERRO"
         if previous is not None and _CACHE is None:
             _CACHE = previous
