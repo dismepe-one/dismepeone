@@ -181,6 +181,7 @@
 <div id="inatHistoryModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="inatHistoryTitle"><div class="modal-inner notes-modal-inner"><div class="section-title"><div><h2 id="inatHistoryTitle">Histórico de inatividade</h2><p>Solicitações já decididas, das mais recentes às mais antigas.</p></div><button id="inatHistoryClose" class="btn ghost sm" type="button">Fechar</button></div><div id="inatHistoryList" class="notes-scroller" aria-live="polite">Carregando…</div><div class="inat-history-footer"><span id="inatHistorySummary" class="tiny"></span><button id="inatHistoryMore" type="button" class="btn ghost sm" hidden>Ver mais</button></div></div></div>
 <div id="notesOverviewModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="notesOverviewTitle"><div class="modal-inner notes-modal-inner"><div class="section-title"><div><h2 id="notesOverviewTitle">Acompanhamento da equipe</h2><p>Últimas 80 observações registradas na empresa.</p></div><button type="button" id="notesOverviewClose" class="btn ghost sm">Fechar</button></div><div id="notesOverviewList" class="notes-scroller"></div></div></div>
 
+ <div id="publicationSuccessModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="publicationSuccessTitle" aria-describedby="publicationSuccessDescription"><div class="modal-inner" style="text-align:center"><div aria-hidden="true" style="font-size:34px;color:var(--mid);margin-bottom:8px">✓</div><h2 id="publicationSuccessTitle">Atualização concluída com sucesso!</h2><p id="publicationSuccessDescription">Os novos números da Positivação Geral já estão disponíveis.</p><div class="modal-actions"><button type="button" id="publicationSuccessClose" class="btn green">Entendi</button></div></div></div>
 <div class="modal" id="metaModal" hidden role="dialog" aria-modal="true" aria-labelledby="metaTitle"><div class="modal-inner"><h2 id="metaTitle">Cadastrar meta geral DISMEPE</h2><p>Defina quantos clientes únicos a empresa deve positivar no período. Somente o administrador pode alterar.</p><form id="metaForm"><label for="metaInput">Meta de clientes positivados</label><input id="metaInput" type="number" min="0" max="1000000" step="1" required><div id="metaError" class="tiny" style="color:var(--red);margin-top:8px" role="alert"></div><div class="modal-actions"><button class="btn" type="button" id="cancelMeta">Cancelar</button><button class="btn green" type="submit">Salvar meta</button></div></form></div></div>
 <script>
 (function(){'use strict';
@@ -305,6 +306,13 @@ void refreshNotesBadges(d.clientes,myIndex);
 }catch(e){if(myIndex!==fetchIndex)return;tbody.innerHTML='<tr><td colspan="6" class="empty">Não foi possível carregar a lista de clientes.</td></tr>';showAlert(e.message,true);}}
 let refreshTimer=0,publicationTimer=0,requestInProgress=false,lastSnapshotTime='';
 function scheduleRefresh(delay=5000){clearTimeout(refreshTimer);refreshTimer=setTimeout(()=>refresh(false),delay);}
+ function showPublicationSuccess(){
+  $('publicationSuccessModal').hidden=false;
+  $('publicationSuccessClose').focus();
+ }
+ $('publicationSuccessClose').addEventListener('click',()=>{$('publicationSuccessModal').hidden=true;});
+ $('publicationSuccessModal').addEventListener('click',event=>{if(event.target===$('publicationSuccessModal'))$('publicationSuccessModal').hidden=true;});
+ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('publicationSuccessModal').hidden)$('publicationSuccessModal').hidden=true;});
 function finishPublicationCheck(){
  manualPending=false;
  $('btnRefresh').disabled=false;
@@ -337,6 +345,7 @@ async function pollPublicationStatus(){
    scheduleRefresh(120000);
   }else if(status.resultado==='PUBLICADA'){
    showAlert('Resultados atualizados para todos os usuários.');
+   showPublicationSuccess();
    await refresh(false);
   }else{
    showAlert('Não foi possível confirmar o resultado da verificação. Tente novamente.',true);
