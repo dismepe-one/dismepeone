@@ -546,7 +546,7 @@ def _split_customer_owner(prefix: str, owner_id: str, tel_names: dict[str, str])
     return before, "", True
 
 
-_PDF_PARSER_VERSION = "poppler-conciliacao-v9"
+_PDF_PARSER_VERSION = "poppler-recomposicao-raw-v10"
 
 
 def _pdf_pages_fast(raw: bytes, *, mode: str = "layout") -> list[str]:
@@ -584,6 +584,55 @@ def _pdf_pages_fast(raw: bytes, *, mode: str = "layout") -> list[str]:
     if not pages or not any(page.strip() for page in pages):
         raise RuntimeError("O PDF não contém texto extraível; a última base foi preservada.")
     return pages
+
+
+def _recompor_linhas_pdf_raw(pages: list[str], tel_names: dict[str, str]) -> list[str]:
+    """Reune linhas quebradas pelo pdftotext -raw sem inventar codigos ou vinculos.
+
+    No relatorio Atrio o codigo do cliente e a razao social podem estar na
+    primeira linha; a coluna VND, a cidade, a UF e os cinco valores monetarios
+    aparecem na linha seguinte. O parser original descartava esse cliente.
+    Reunir apenas quando o VND da continuacao coincide com o cabecalho da
+    pagina e a linha completa passa pela mesma validacao de nome/VND existente.
+    """
+    output_pages: list[str] = []
+    seller_id = ""
+    total_joined = 0
+    for page in pages:
+        lines = page.splitlines()
+        combined: list[str] = []
+        index = 0
+        while index < len(lines):
+            line = lines[index]
+            header = _HEADER.search(line)
+            if header:
+                seller_id = header.group(1)
+            begin = _ROW_BEGIN.match(line)
+            if seller_id and begin and not _ROW_SUFFIX.search(begin.group(2)) and index + 1 < len(lines):
+                continuation = lines[index + 1]
+                vendor = re.match(rf"^\s*{re.escape(seller_id)}\s+", continuation)
+                if vendor and not _HEADER.search(continuation):
+                    candidate = line.rstrip() + " " + continuation.lstrip()
+                    candidate_begin = _ROW_BEGIN.match(candidate)
+                    matched = (_ROW_SUFFIX.search(candidate_begin.group(2))
+                               if candidate_begin else None)
+                    if matched:
+                        prefix = candidate_begin.group(2)[:matched.start()].strip()
+                        name, _, valid = _split_customer_owner(prefix, seller_id, tel_names)
+                        if valid and name:
+                            # A linha real do PDF segue sendo interpretada por
+                            # _parse_pdf_pages, com as validacoes e os vinculos
+                            # originais. Nao usar a planilha para criar clientes.
+                            combined.append(candidate)
+                            index += 2
+                            total_joined += 1
+                            continue
+            combined.append(line)
+            index += 1
+        output_pages.append("\n".join(combined))
+    if _WORKER_PROCESS:
+        print(f"[POS_WORKER] pdf_linhas_raw_recompostas={total_joined}", flush=True)
+    return output_pages
 
 
 def _parse_pdf_pages(pages: list[str], tel_names: dict[str, str], *,
@@ -653,6 +702,8 @@ def _parse_pdf(raw: bytes, tel_names: dict[str, str]) -> tuple[dict[str, dict[st
     for mode in ("default", "raw"):
         try:
             alternative_pages = _pdf_pages_fast(raw, mode=mode)
+            if mode == "raw":
+                alternative_pages = _recompor_linhas_pdf_raw(alternative_pages, tel_names)
             extra, extra_stats = _parse_pdf_pages(alternative_pages, tel_names, strict=False)
             # Uma modalidade que não reconhece nem cem clientes não é uma
             # fonte suficiente para acrescentar vínculos à carteira publicada.
