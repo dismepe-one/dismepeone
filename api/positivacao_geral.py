@@ -46,7 +46,7 @@ PDF_NAME = "Comparativo Venda_Cliente por Vendedor.pdf"
 SHEET_NAME = "Positivacoes"
 MODULE = "POSITIVACAO_GERAL_V1"
 CONFIG_MODULE = "POSITIVACAO_META_V1"
-_BUILD = "POS-GERAL-DEV10-3-INATIVIDADE-APROVADA"
+_BUILD = "POS-GERAL-DEV10-7-SINO-INATIVIDADE"
 _TTL = 600.0
 _CACHE: dict[str, Any] | None = None
 _CACHE_AT = 0.0
@@ -1119,6 +1119,39 @@ async def positivacao_meta(body: MetaRequest, session: str | None = Cookie(defau
     _META_CACHE = body.meta
     return _safe_json_response({"sucesso": True, "meta": body.meta})
 
+
+# DEV10.7 — Decisoes da inatividade no sino; autorizacao sempre pelo cookie.
+@router.get('/positivacoes/api/notificacoes-sino')
+async def positivacoes_sino_inatividades(
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    context = await _viewer_context(session)
+    login = str(context['profile'].get('usuario') or '').strip()
+    if not login:
+        raise HTTPException(403, 'Usuário sem identificação de notificações.')
+    result = await _inat_edge('USER_NOTICES', {'usuario': login})
+    notices = result.get('notificacoes', [])
+    if not isinstance(notices, list):
+        raise HTTPException(503, 'Não foi possível consultar suas notificações.')
+    return _safe_json_response({
+        'sucesso': True, 'itens': notices,
+        'naoLidas': sum(not bool(item.get('lida')) for item in notices),
+    })
+
+
+@router.post('/positivacoes/api/notificacoes-sino/{notificacao_id}/ler')
+async def positivacoes_sino_inatividade_ler(
+    notificacao_id: str,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    context = await _viewer_context(session)
+    login = str(context['profile'].get('usuario') or '').strip()
+    if not login:
+        raise HTTPException(403, 'Usuário sem identificação de notificações.')
+    if not re.fullmatch(r'POS-INAT-[0-9]{1,12}-[1-9][0-9]*-(?:aprovado|rejeitado|reativado)', notificacao_id):
+        raise HTTPException(404, 'Notificação não encontrada.')
+    await _inat_edge('READ_NOTICE', {'usuario': login, 'id': notificacao_id})
+    return _safe_json_response({'sucesso': True})
 
 # DEV10 - observacoes compartilhadas por codigo de cliente, fora da fotografia mensal.
 # Somente o backend autenticado possui a credencial para a funcao de observacoes.

@@ -26206,8 +26206,38 @@ table thead tr{
     const list=document.getElementById('v81NotificationList'),badge=document.getElementById('v81BellBadge');const n=Number(r.naoLidas||0);if(badge){badge.textContent=n>99?'99+':String(n);badge.classList.toggle('hidden',n<1);}
     if(!list)return;const items=r.itens||[];lastNotes81=items;list.innerHTML=items.length?items.map(x=>`<div class="v81-note ${x.lida?'':'unread'}" onclick="v81OpenNotification('${esc81(x.id)}')"><div class="flex justify-between gap-3"><div class="min-w-0"><div class="flex items-center gap-2"><span class="font-black text-sm text-slate-800">${esc81(x.titulo)}</span>${x.importante?'<span class="text-[9px] px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-black">IMPORTANTE</span>':''}</div><div class="text-xs text-slate-600 mt-1 leading-5">${esc81(x.mensagem)}</div><div class="text-[10px] text-slate-400 mt-2">${esc81(x.criadoEm)} • ${esc81(x.statusLeitura)}</div></div>${x.lida?'':'<span class="w-2.5 h-2.5 rounded-full bg-orange-500 flex-none mt-1"></span>'}</div></div>`).join(''):'<div class="p-8 text-center text-slate-500 text-sm">Nenhuma notificação disponível.</div>';
   }
-  async function load81(auto){if(!has81('NOTIFICACOES_VISUALIZAR'))return;try{const r=await api81('V81_LISTAR_NOTIFICACOES');renderNotes81(r);if(auto&&!autoShown81){const prox=(r.importantesPendentes||[]).find(x=>!shownImportantSession81.has(String(x.id)));if(prox){autoShown81=true;showImportant81(prox);}}}catch(e){console.warn('[V81 notificações]',e);}}
-  window.v81OpenNotification=async id=>{const x=lastNotes81.find(n=>String(n.id)===String(id));if(x?.importante){if(x.exibirUmaVez===true&&shownImportantSession81.has(String(id)))return;showImportant81(x);return;}try{if(has81('NOTIFICACOES_MARCAR_LIDA'))await api81('V81_MARCAR_LIDA',{id});await load81(false);}catch(e){alert(e.message);}};
+  // DEV10.7: combinar os avisos de decisao do SQL com as notificacoes existentes.
+  // Falha nesta consulta nunca impede o sino antigo de funcionar.
+  async function mesclarDecisoesInatividade81(resultado){
+   try{
+    const resposta=await fetch('/positivacoes/api/notificacoes-sino',{
+     method:'GET',credentials:'include',cache:'no-store',headers:{Accept:'application/json'}
+    });
+    if(!resposta.ok)return;
+    const dados=await resposta.json();
+    if(!dados||dados.sucesso!==true||!Array.isArray(dados.itens))return;
+    const anteriores=Array.isArray(resultado.itens)?resultado.itens:[];
+    const ids=new Set(anteriores.map(item=>String(item.id)));
+    const adicionais=dados.itens.filter(item=>!ids.has(String(item.id)));
+    resultado.itens=[...adicionais,...anteriores].sort((x,y)=>
+     (Number(y.criadoEpoch)||0)-(Number(x.criadoEpoch)||0));
+    resultado.naoLidas=resultado.itens.filter(item=>!item.lida).length;
+   }catch(e){console.warn('[Positivacoes: sino]',e);}
+  }
+  async function load81(auto){if(!has81('NOTIFICACOES_VISUALIZAR'))return;try{const r=await api81('V81_LISTAR_NOTIFICACOES');await mesclarDecisoesInatividade81(r);renderNotes81(r);if(auto&&!autoShown81){const prox=(r.importantesPendentes||[]).find(x=>!shownImportantSession81.has(String(x.id)));if(prox){autoShown81=true;showImportant81(prox);}}}catch(e){console.warn('[V81 notificações]',e);}}
+  window.v81OpenNotification=async id=>{const x=lastNotes81.find(n=>String(n.id)===String(id));
+   if(String(id).startsWith('POS-INAT-')){
+    try{
+     const resposta=await fetch('/positivacoes/api/notificacoes-sino/'+encodeURIComponent(String(id))+'/ler',{
+      method:'POST',credentials:'include',cache:'no-store',headers:{Accept:'application/json'}
+     });
+     if(!resposta.ok){let detail={};try{detail=await resposta.json();}catch(_){}throw Error(detail.detail||'Nao foi possivel marcar esta notificacao como lida.');}
+     if(x)x.lida=true;
+     await load81(false);
+    }catch(e){alert(e.message||'Nao foi possivel abrir esta notificacao.');}
+    return;
+   }
+   if(x?.importante){if(x.exibirUmaVez===true&&shownImportantSession81.has(String(id)))return;showImportant81(x);return;}try{if(has81('NOTIFICACOES_MARCAR_LIDA'))await api81('V81_MARCAR_LIDA',{id});await load81(false);}catch(e){alert(e.message);}};
   window.v81ReadNote=window.v81OpenNotification;
   function showImportant81(x){
     if(!x)return;const xid=String(x.id||'');if(xid)shownImportantSession81.add(xid);
