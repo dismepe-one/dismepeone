@@ -303,26 +303,62 @@ async function loadClients(){const myIndex=++fetchIndex;const tbody=$('clientRow
 tbody.innerHTML=d.clientes.length?d.clientes.map(c=>'<tr><td><b>'+esc(c.codigo)+'</b><div class="tiny">'+esc(c.cnpj||'—')+'</div></td><td><span class="client">'+nomeHtml(c.cliente)+'</span>'+(c.inativo?'<span class="tag blocked">INATIVO</span>':'')+'<button type="button" class="note-trigger" data-note-code="'+esc(c.codigo)+'" title="Ver observações deste cliente" aria-label="Observações de '+nomeHtml(c.cliente)+'">✎ Observações <span class="note-count" hidden></span></button>'+(c.inativo?'':' <button type="button" class="btn ghost sm inat-client-quick" data-inat-open="'+esc(c.codigo)+'">Solicitar inatividade</button>')+(c.carteiraCompartilhada?'<div class="shared-wallet-label">Carteira compartilhada</div>':'')+'</td><td>'+esc((c.setores||[]).map(nomeExibicao).join(', ')||'Sem usuário vinculado')+'</td><td>'+esc((c.televendas||[]).map(nomeExibicao).join(', ')||'—')+'</td><td>'+((c.origensDetalhadas||c.origensDaVenda||c.origens||[]).map(o=>'<span class="tag '+(o.includes('Diretoria')?'dir':o.includes('Televendas')?'tele':o.includes('Vendedor')?'seller':'yes')+'">'+esc(o==='Diretoria/Supervisão'?'Diretoria':origemExibicao(o))+'</span>').join(' ')||'—')+'</td><td><span class="tag '+(clientHasAnySale(c)?'yes':'no')+'">'+esc(clientStatusLabel(c))+'</span>'+(c.bloqueado?' <span class="tag blocked">Bloqueado</span>':'')+'</td></tr>').join(''):'<tr><td colspan="6" class="empty">Nenhum cliente corresponde aos filtros.</td></tr>';
 void refreshNotesBadges(d.clientes,myIndex);
 }catch(e){if(myIndex!==fetchIndex)return;tbody.innerHTML='<tr><td colspan="6" class="empty">Não foi possível carregar a lista de clientes.</td></tr>';showAlert(e.message,true);}}
-let refreshTimer=0,requestInProgress=false,lastSnapshotTime='';
+let refreshTimer=0,publicationTimer=0,requestInProgress=false,lastSnapshotTime='';
 function scheduleRefresh(delay=5000){clearTimeout(refreshTimer);refreshTimer=setTimeout(()=>refresh(false),delay);}
+function finishPublicationCheck(){
+ manualPending=false;
+ $('btnRefresh').disabled=false;
+ $('btnRefresh').classList.remove('busy');
+ $('btnRefresh').textContent='Publicar Atualizações';
+}
+async function pollPublicationStatus(){
+ if(!manualPending)return;
+ try{
+  const response=await getJSON('/positivacoes/api/atualizacao-status');
+  const status=response.statusAtualizacao||{};
+  if(status.emAndamento){
+   showAlert(status.resultado==='EM_ANDAMENTO'?'Publicando nova base; os resultados atuais continuam disponíveis.':'Conferindo se há novas atualizações; os resultados atuais continuam disponíveis.');
+   publicationTimer=setTimeout(pollPublicationStatus,2500);
+   return;
+  }
+  finishPublicationCheck();
+  if(status.erro||status.resultado==='ERRO'){
+   showAlert(status.erro||'Não foi possível confirmar as atualizações. A base anterior foi preservada.',true);
+   scheduleRefresh(120000);
+  }else if(status.resultado==='SEM_ALTERACAO'){
+   showAlert('Essa é a última atualização disponível');
+   scheduleRefresh(120000);
+  }else if(status.resultado==='PUBLICADA'){
+   showAlert('Resultados atualizados para todos os usuários.');
+   await refresh(false);
+  }else{
+   showAlert('Não foi possível confirmar o resultado da verificação. Tente novamente.',true);
+   scheduleRefresh(120000);
+  }
+ }catch(error){
+  finishPublicationCheck();
+  showAlert(error.message+' A base anterior foi preservada; tente novamente.',true);
+  scheduleRefresh(120000);
+ }
+}
 async function refresh(force=false){
   if(requestInProgress)return;
   requestInProgress=true;
   let upToDate=false;
-  if(force){manualPending=true;$('btnRefresh').disabled=true;$('btnRefresh').classList.add('busy');$('btnRefresh').textContent='Verificando bases…';}
+  if(force){
+    clearTimeout(refreshTimer);
+    manualPending=true;$('btnRefresh').disabled=true;$('btnRefresh').classList.add('busy');
+    $('btnRefresh').textContent='Verificando bases…';
+    showAlert('Conferindo se há novas atualizações; os resultados atuais continuam disponíveis.');
+  }
   try{
     if(force){
-      const check=await getJSON('/positivacoes/api/atualizar',{method:'POST'});
-      if(check.jaAtualizada){
-        manualPending=false;upToDate=true;
-        // Evita a segunda leitura completa do painel quando a tela já exibe
-        // exatamente a fotografia que o servidor conferiu no Drive.
-        if(snapshot && check.atualizadoEm && snapshot.atualizadoEm===check.atualizadoEm && !check.statusAtualizacao?.emAndamento){
-          showAlert('Essa é a última atualização disponível');
-          scheduleRefresh(120000);
-          return;
-        }
-      }
+      await getJSON('/positivacoes/api/atualizar',{method:'POST'});
+      // O servidor confirma o resultado por um endpoint de status rápido,
+      // sem prender a requisição à leitura do Google Drive nem recarregar o painel.
+      clearTimeout(publicationTimer);
+      publicationTimer=setTimeout(pollPublicationStatus,1200);
+      return;
     }
     const result=await getJSON('/positivacoes/api/painel');
     const sync=result.statusAtualizacao||{};
@@ -371,7 +407,7 @@ async function refresh(force=false){
     requestInProgress=false;
     $('btnRefresh').disabled=manualPending;
     $('btnRefresh').classList.toggle('busy',manualPending);
-    $('btnRefresh').textContent=manualPending?'Publicando atualizações…':'Publicar Atualizações';
+    $('btnRefresh').textContent=manualPending?'Verificando atualizações…':'Publicar Atualizações';
   }
 }
 $('retryLoad').addEventListener('click',()=>{$('retryLoad').hidden=true;showAlert('');refresh(false);});

@@ -884,26 +884,50 @@ async def positivacao_panel(force: bool = Query(False), session: str | None = Co
     return _safe_json_response(summary)
 
 
+async def _manual_check_and_refresh(profile: dict[str, Any]) -> None:
+    """Confere metadados fora da requisição HTTP e só importa se necessário."""
+    global _SYNC_ERROR, _SYNC_RESULT, _SYNC_LAST_FINISHED
+    try:
+        previous = await _snapshot_fast()
+        # Uma fotografia apenas em memória ainda precisa ser persistida.
+        if previous is not None and previous.get("persistencia") != "MEMORIA_APENAS":
+            changed = await asyncio.wait_for(
+                asyncio.to_thread(_sources_changed_blocking, previous), timeout=35.0)
+            if not changed:
+                _SYNC_ERROR = ""
+                _SYNC_RESULT = "SEM_ALTERACAO"
+                return
+        await _refresh_job(profile, True)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        # Sem confirmação dos metadados, nunca alegar que a base está atualizada.
+        _SYNC_ERROR = "Não foi possível conferir as atualizações no Drive. A última base válida foi preservada."
+        _SYNC_RESULT = "ERRO"
+    finally:
+        _SYNC_LAST_FINISHED = _now()
+
+
+@router.get("/positivacoes/api/atualizacao-status")
+async def positivacao_atualizacao_status(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
+    _signed_admin(session)
+    return _safe_json_response({"sucesso": True, "statusAtualizacao": _sync_status()})
+
+
 @router.post("/positivacoes/api/atualizar")
 async def positivacao_refresh(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
     profile = _signed_admin(session)
-    global _SYNC_ERROR
+    global _SYNC_TASK, _SYNC_ERROR, _SYNC_RESULT, _SYNC_LAST_STARTED
     if _SYNC_TASK is not None and not _SYNC_TASK.done():
         return _safe_json_response({"sucesso": True, "emAndamento": True,
                                     "statusAtualizacao": _sync_status()})
-    previous = await _snapshot_fast()
-    if previous is not None:
-        try:
-            changed = await asyncio.wait_for(asyncio.to_thread(_sources_changed_blocking, previous), timeout=15.0)
-        except Exception as exc:
-            raise HTTPException(503, "Nao foi possivel verificar se as bases foram alteradas. A fotografia atual permanece preservada.") from exc
-        if not changed:
-            _SYNC_ERROR = ""  # erro antigo nao reaparece ao consultar base ja validada
-            return _safe_json_response({"sucesso": True, "jaAtualizada": True,
-                                        "mensagem": "A base atual ja e a mais atualizada.",
-                                        "atualizadoEm": previous.get("atualizadoEm", ""),
-                                        "statusAtualizacao": _sync_status()})
-    _start_sync(profile, force=True)
+    _SYNC_ERROR = ""
+    _SYNC_RESULT = "VERIFICANDO"
+    _SYNC_LAST_STARTED = time.monotonic()
+    # A resposta ao clique é imediata; o trabalho roda sob a tarefa já
+    # utilizada pelo módulo e a UI consulta somente o status leve.
+    _SYNC_TASK = asyncio.create_task(
+        _manual_check_and_refresh(profile), name="positivacoes-verificar-e-publicar")
     return _safe_json_response({"sucesso": True, "emAndamento": True,
                                 "statusAtualizacao": _sync_status()})
 
