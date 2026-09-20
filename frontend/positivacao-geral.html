@@ -134,12 +134,24 @@
     margin:6px 3px 0 0;padding:6px;font-size:11px;
   }
 }
+
+/* DEV10.8: botões compactos e histórico administrativo separado. */
+.inat-admin-actions{display:inline-flex;align-items:center;gap:5px;max-width:100%}
+.intro-actions #notesOverviewButton{flex:0 1 auto;inline-size:170px;block-size:40px;min-height:40px;padding:6px 9px;font-size:11px;border-radius:10px}
+.intro-actions .inat-admin-actions #inatAdminButton{flex:0 1 auto;inline-size:220px;block-size:40px;min-height:40px;padding:6px 9px;font-size:11px;border-radius:10px}
+.intro-actions .inat-admin-actions #inatHistoryButton{flex:0 0 40px;inline-size:40px;block-size:40px;min-height:40px;padding:7px;border-radius:10px}
+.inat-history-footer{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
+@media(max-width:700px){
+ .intro-actions #notesOverviewButton{flex:0 1 auto;inline-size:155px;block-size:40px;min-height:40px}
+ .intro-actions .inat-admin-actions{flex:0 1 auto;min-width:0}
+ .intro-actions .inat-admin-actions #inatAdminButton{flex:0 1 auto;inline-size:min(210px,calc(100vw - 90px));min-width:0;block-size:40px;min-height:40px}
+}
 </style>
 </head>
 <body>
 <header class="topbar"><div class="top-inner"><div class="brand"><img class="logo" src="/positivacoes/logo.png" alt="DISMEPE ONE"><div><small>POSITIVAÇÃO GERAL</small></div></div><div class="header-actions"><span class="pill" id="accessPill">Administrador</span><a class="btn outline sm" href="/">← <span class="label-desktop">Voltar ao início</span><span class="sr-only">Voltar ao início</span></a></div></div></header>
 <main class="shell">
-<section class="intro"><div><div class="kicker" id="scopeKicker">Resultados da DISMEPE</div><h1 id="pageTitle">Positivação Geral</h1><div class="subtitle">Acompanhe seus resultados • <span id="updated" class="updated-highlight" role="status">Aguardando leitura das bases</span></div></div><div class="intro-actions"><button id="notesOverviewButton" type="button" class="btn ghost sm" hidden>Observações da equipe</button><button id="inatAdminButton" type="button" class="btn ghost sm" hidden>Solicitações de Inatividade <span id="inatPendingBadge" class="inat-pending-count" aria-label="Solicitações pendentes">—</span></button><span id="sourceStatus" class="pill">Carregando dados</span><button id="btnRefresh" type="button" class="btn green">↻ Publicar base para todos</button></div></section>
+<section class="intro"><div><div class="kicker" id="scopeKicker">Resultados da DISMEPE</div><h1 id="pageTitle">Positivação Geral</h1><div class="subtitle">Acompanhe seus resultados • <span id="updated" class="updated-highlight" role="status">Aguardando leitura das bases</span></div></div><div class="intro-actions"><button id="notesOverviewButton" type="button" class="btn ghost sm" hidden>Observações da equipe</button><div id="inatAdminActions" class="inat-admin-actions" hidden><button id="inatAdminButton" type="button" class="btn ghost sm">Solicitações de Inatividade <span id="inatPendingBadge" class="inat-pending-count" aria-label="Solicitações pendentes">—</span></button><button id="inatHistoryButton" type="button" class="btn ghost sm" title="Histórico de inatividade" aria-label="Abrir histórico de inatividade"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.36L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg></button></div><span id="sourceStatus" class="pill">Carregando dados</span><button id="btnRefresh" type="button" class="btn green">↻ Publicar base para todos</button></div></section>
 <div id="alert" class="alert" role="alert"></div><div id="loading" class="loading">Carregando Positivações…</div><button type="button" id="retryLoad" class="btn ghost" hidden>Tentar abrir novamente</button><div id="sourceDiagnostic" class="alert" role="status"></div>
 <div id="dashboard" hidden>
 <section class="kpis" aria-label="Indicadores gerais"><article class="card kpi primary"><div class="label" id="kTotalLabel">Carteira geral de clientes únicos</div><strong id="kTotal">—</strong><div class="note">Clientes cadastrados</div></article><article class="card kpi positive"><div class="label">Clientes positivados</div><strong id="kPositive">—</strong><div class="note" id="kPositiveNote">Clientes com compras no período</div></article><article class="card kpi negative"><div class="label">Clientes não positivados</div><strong id="kNegative">—</strong><div class="note">Clientes que ainda não compraram</div></article><article class="card kpi"><div class="label">Percentual de positivação</div><strong id="kPercent">—</strong><div class="note">Clientes com compras em sua carteira</div></article></section>
@@ -165,7 +177,8 @@
   <div class="modal-actions"><button type="button" id="noteCancelEdit" class="btn" hidden>Cancelar edição</button><button id="noteSave" class="btn green" type="submit">Salvar observação</button></div>
  </form>
 </div></div>
-<div id="inatAdminModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="inatAdminTitle"><div class="modal-inner notes-modal-inner"><div class="section-title"><div><h2 id="inatAdminTitle">Solicitações de inatividade</h2><p>Somente a administração pode aprovar, rejeitar ou reativar.</p></div><button id="inatAdminClose" class="btn ghost sm" type="button">Fechar</button></div><div id="inatAdminList" class="notes-scroller">Carregando…</div></div></div>
+<div id="inatAdminModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="inatAdminTitle"><div class="modal-inner notes-modal-inner"><div class="section-title"><div><h2 id="inatAdminTitle">Solicitações de inatividade</h2><p>Pedidos pendentes de aprovação ou rejeição.</p></div><button id="inatAdminClose" class="btn ghost sm" type="button">Fechar</button></div><div id="inatAdminList" class="notes-scroller">Carregando…</div></div></div>
+<div id="inatHistoryModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="inatHistoryTitle"><div class="modal-inner notes-modal-inner"><div class="section-title"><div><h2 id="inatHistoryTitle">Histórico de inatividade</h2><p>Solicitações já decididas, das mais recentes às mais antigas.</p></div><button id="inatHistoryClose" class="btn ghost sm" type="button">Fechar</button></div><div id="inatHistoryList" class="notes-scroller" aria-live="polite">Carregando…</div><div class="inat-history-footer"><span id="inatHistorySummary" class="tiny"></span><button id="inatHistoryMore" type="button" class="btn ghost sm" hidden>Ver mais</button></div></div></div>
 <div id="notesOverviewModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="notesOverviewTitle"><div class="modal-inner notes-modal-inner"><div class="section-title"><div><h2 id="notesOverviewTitle">Acompanhamento da equipe</h2><p>Últimas 80 observações registradas na empresa.</p></div><button type="button" id="notesOverviewClose" class="btn ghost sm">Fechar</button></div><div id="notesOverviewList" class="notes-scroller"></div></div></div>
 
 <div class="modal" id="metaModal" hidden role="dialog" aria-modal="true" aria-labelledby="metaTitle"><div class="modal-inner"><h2 id="metaTitle">Cadastrar meta geral DISMEPE</h2><p>Defina quantos clientes únicos a empresa deve positivar no período. Somente o administrador pode alterar.</p><form id="metaForm"><label for="metaInput">Meta de clientes positivados</label><input id="metaInput" type="number" min="0" max="1000000" step="1" required><div id="metaError" class="tiny" style="color:var(--red);margin-top:8px" role="alert"></div><div class="modal-actions"><button class="btn" type="button" id="cancelMeta">Cancelar</button><button class="btn green" type="submit">Salvar meta</button></div></form></div></div>
@@ -209,7 +222,7 @@ async function refreshInatPendingCount(){
 }
 function applyAccess(d){
  const own=d.acesso&&d.acesso.individual;
- document.body.classList.toggle('individual-mode',!!own);$('notesOverviewButton').hidden=!!own;$('inatAdminButton').hidden=!!own;
+ document.body.classList.toggle('individual-mode',!!own);$('notesOverviewButton').hidden=!!own;$('inatAdminActions').hidden=!!own;
   if(own){
    $('companyPanel').hidden=false;
    $('accessPill').textContent=d.acesso.canal;
@@ -298,7 +311,19 @@ async function refresh(force=false){
   let upToDate=false;
   if(force){manualPending=true;$('btnRefresh').disabled=true;$('btnRefresh').classList.add('busy');$('btnRefresh').textContent='Verificando bases…';}
   try{
-    if(force){const check=await getJSON('/positivacoes/api/atualizar',{method:'POST'});if(check.jaAtualizada){manualPending=false;upToDate=true;}}
+    if(force){
+      const check=await getJSON('/positivacoes/api/atualizar',{method:'POST'});
+      if(check.jaAtualizada){
+        manualPending=false;upToDate=true;
+        // Evita a segunda leitura completa do painel quando a tela já exibe
+        // exatamente a fotografia que o servidor conferiu no Drive.
+        if(snapshot && check.atualizadoEm && snapshot.atualizadoEm===check.atualizadoEm && !check.statusAtualizacao?.emAndamento){
+          showAlert('Esta é a última atualização disponível.');
+          scheduleRefresh(120000);
+          return;
+        }
+      }
+    }
     const result=await getJSON('/positivacoes/api/painel');
     const sync=result.statusAtualizacao||{};
     if(result.semFotografia){
@@ -526,19 +551,52 @@ $('notesList').addEventListener('click',async e=>{
   await inatRefreshClient(noteClientCode);
  }catch(err){showAlert(err.message,true);button.disabled=false;}
 });
+async function inatLoadAdminItems(){
+ const d=await getJSON('/positivacoes/api/inatividades/administracao');
+ inatAdminItems=d.registros||[];
+ void refreshInatPendingCount();
+}
+function inatAdminCard(n){
+ return '<div class="note-item"><div class="note-item-top"><b>'+nomeHtml(n.cliente||n.cliente_codigo)+'</b> <span class="note-chip '+(n.situacao==='aprovado'?'late':'open')+'">'+esc(n.situacao)+'</span></div><div class="note-body">'+esc(n.justificativa)+'</div><div class="note-meta">Solicitado por '+nomeHtml(n.solicitante_nome||n.solicitante_usuario)+' • '+esc(noteDate(n.solicitado_em))+(n.decisao_motivo?' • Decisão: '+esc(n.decisao_motivo):'')+'</div><div class="note-actions">'+(n.situacao==='pendente'?'<button type="button" class="btn green sm" data-inat-act="aprovado" data-inat-code="'+esc(n.cliente_codigo)+'">Aprovar</button><button type="button" class="btn ghost sm" data-inat-act="rejeitado" data-inat-code="'+esc(n.cliente_codigo)+'">Rejeitar</button>':n.situacao==='aprovado'?'<button type="button" class="btn ghost sm" data-inat-act="reativado" data-inat-code="'+esc(n.cliente_codigo)+'">Reativar</button>':'')+'</div></div>';
+}
 async function inatOpenAdmin(){
- $('inatAdminModal').hidden=false;$('inatAdminList').textContent='Carregando solicitações…';
+ $('inatHistoryModal').hidden=true;
+ $('inatAdminModal').hidden=false;
+ $('inatAdminList').textContent='Carregando solicitações…';
  try{
-  const d=await getJSON('/positivacoes/api/inatividades/administracao');
-  inatAdminItems=(d.registros||[]);
-  void refreshInatPendingCount();
-  const sorted=[...inatAdminItems].sort((a,b)=>Number(b.situacao==='pendente')-Number(a.situacao==='pendente')||String(b.atualizado_em).localeCompare(String(a.atualizado_em)));
-  $('inatAdminList').innerHTML=sorted.length?sorted.map(n=>'<div class="note-item"><div class="note-item-top"><b>'+nomeHtml(n.cliente||n.cliente_codigo)+'</b> <span class="note-chip '+(n.situacao==='aprovado'?'late':'open')+'">'+esc(n.situacao)+'</span></div><div class="note-body">'+esc(n.justificativa)+'</div><div class="note-meta">Solicitado por '+nomeHtml(n.solicitante_nome||n.solicitante_usuario)+' • '+esc(noteDate(n.solicitado_em))+(n.decisao_motivo?' • Decisão: '+esc(n.decisao_motivo):'')+'</div><div class="note-actions">'+(n.situacao==='pendente'?'<button type="button" class="btn green sm" data-inat-act="aprovado" data-inat-code="'+esc(n.cliente_codigo)+'">Aprovar</button><button type="button" class="btn ghost sm" data-inat-act="rejeitado" data-inat-code="'+esc(n.cliente_codigo)+'">Rejeitar</button>':n.situacao==='aprovado'?'<button type="button" class="btn ghost sm" data-inat-act="reativado" data-inat-code="'+esc(n.cliente_codigo)+'">Reativar</button>':'')+'</div></div>').join(''):'Nenhuma solicitação de inatividade registrada.';
- }catch(e){$('inatAdminList').textContent='Não foi possível consultar as solicitações: '+e.message;}
+  await inatLoadAdminItems();
+  if($('inatAdminModal').hidden)return;
+  const pending=inatAdminItems.filter(n=>n.situacao==='pendente').sort((a,b)=>String(b.solicitado_em||b.atualizado_em||'').localeCompare(String(a.solicitado_em||a.atualizado_em||'')));
+  $('inatAdminList').innerHTML=pending.length?pending.map(inatAdminCard).join(''):'Nenhuma solicitação pendente.';
+ }catch(e){if(!$('inatAdminModal').hidden)$('inatAdminList').textContent='Não foi possível consultar as solicitações: '+e.message;}
+}
+let inatHistoryVisible=10;
+function inatRenderHistory(){
+ const history=inatAdminItems.filter(n=>n.situacao!=='pendente').sort((a,b)=>String(b.atualizado_em||b.decidido_em||b.solicitado_em||'').localeCompare(String(a.atualizado_em||a.decidido_em||a.solicitado_em||'')));
+ const shown=history.slice(0,inatHistoryVisible);
+ $('inatHistoryList').innerHTML=shown.length?shown.map(inatAdminCard).join(''):'Nenhum registro no histórico.';
+ $('inatHistorySummary').textContent=history.length?'Exibindo '+shown.length+' de '+history.length+' registros':'';
+ $('inatHistoryMore').hidden=shown.length>=history.length;
+}
+async function inatOpenHistory(visible=10){
+ $('inatAdminModal').hidden=true;
+ $('inatHistoryModal').hidden=false;
+ inatHistoryVisible=visible;
+ $('inatHistoryList').textContent='Carregando histórico…';
+ $('inatHistoryMore').hidden=true;
+ $('inatHistorySummary').textContent='';
+ try{
+  await inatLoadAdminItems();
+  if($('inatHistoryModal').hidden)return;
+  inatRenderHistory();
+ }catch(e){if(!$('inatHistoryModal').hidden)$('inatHistoryList').textContent='Não foi possível consultar o histórico: '+e.message;}
 }
 $('inatAdminButton').addEventListener('click',inatOpenAdmin);
+$('inatHistoryButton').addEventListener('click',()=>inatOpenHistory());
 $('inatAdminClose').addEventListener('click',()=>{$('inatAdminModal').hidden=true;});
-$('inatAdminList').addEventListener('click',async e=>{
+$('inatHistoryClose').addEventListener('click',()=>{$('inatHistoryModal').hidden=true;});
+$('inatHistoryMore').addEventListener('click',()=>{inatHistoryVisible+=10;inatRenderHistory();});
+async function inatHandleDecision(e){
  const b=e.target.closest('[data-inat-act]');if(!b||b.disabled)return;
  const code=b.dataset.inatCode,record=inatAdminItems.find(x=>x.cliente_codigo===code);
  if(!record)return;
@@ -552,11 +610,17 @@ $('inatAdminList').addEventListener('click',async e=>{
  try{
   const result=await getJSON('/positivacoes/api/inatividades/decidir',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cliente_codigo:code,versao:record.versao,decisao:action,justificativa:why.trim()})});
   showAlert(result.mensagem||'Decisão registrada.');
-  await inatOpenAdmin();lastSnapshotTime='';await refresh(false);
+  if(!$('inatHistoryModal').hidden)await inatOpenHistory(inatHistoryVisible);
+  else await inatOpenAdmin();
+  lastSnapshotTime='';await refresh(false);
  }catch(err){showAlert(err.message,true);b.disabled=false;}
+}
+$('inatAdminList').addEventListener('click',inatHandleDecision);
+$('inatHistoryList').addEventListener('click',inatHandleDecision);
+document.addEventListener('keydown',e=>{
+ if(e.key==='Escape'&&!$('inatAdminModal').hidden)$('inatAdminModal').hidden=true;
+ if(e.key==='Escape'&&!$('inatHistoryModal').hidden)$('inatHistoryModal').hidden=true;
 });
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('inatAdminModal').hidden)$('inatAdminModal').hidden=true;});
-
 
 refresh(false);
 })();

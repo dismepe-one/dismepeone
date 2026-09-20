@@ -901,6 +901,7 @@ async def positivacao_refresh(session: str | None = Cookie(default=None, alias=s
             _SYNC_ERROR = ""  # erro antigo nao reaparece ao consultar base ja validada
             return _safe_json_response({"sucesso": True, "jaAtualizada": True,
                                         "mensagem": "A base atual ja e a mais atualizada.",
+                                        "atualizadoEm": previous.get("atualizadoEm", ""),
                                         "statusAtualizacao": _sync_status()})
     _start_sync(profile, force=True)
     return _safe_json_response({"sucesso": True, "emAndamento": True,
