@@ -333,7 +333,7 @@ async function pollPublicationStatus(){
    showAlert(status.erro||'Não foi possível confirmar as atualizações. A base anterior foi preservada.',true);
    scheduleRefresh(120000);
   }else if(status.resultado==='SEM_ALTERACAO'){
-   showAlert('Essa é a última atualização disponível');
+   showAlert('A versão atual ja é a mais atualizada');
    scheduleRefresh(120000);
   }else if(status.resultado==='PUBLICADA'){
    showAlert('Resultados atualizados para todos os usuários.');
@@ -401,7 +401,7 @@ async function refresh(force=false){
     else if(result.persistencia==='MEMORIA_APENAS')notice='Os resultados foram processados, mas não foi possível salvar a atualização.';
     const manualFailed=manualPending&&!sync.emAndamento&&!!sync.erro;
     if(manualPending&&!sync.emAndamento){manualPending=false;}
-    if(upToDate&&!sync.emAndamento&&!sync.erro)notice='Essa é a última atualização disponível';
+    if(upToDate&&!sync.emAndamento&&!sync.erro)notice='A versão atual ja é a mais atualizada';
     showAlert(notice,manualFailed);
     if(sync.emAndamento)scheduleRefresh();
     else scheduleRefresh(120000);

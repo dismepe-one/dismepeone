@@ -227,6 +227,13 @@ def _drive_file_list(service: Any, folder: str) -> list[dict[str, Any]]:
             supportsAllDrives=True, includeItemsFromAllDrives=True,
         ).execute(num_retries=3)
         files.extend(result.get("files") or [])
+        pdf_found = any(_norm(item.get("name")) == _norm(PDF_NAME)
+                        and item.get("mimeType") == "application/pdf" for item in files)
+        sheet_names = {_norm(SHEET_NAME), _norm(SHEET_NAME + " XLSX")}
+        sheet_found = any(_norm(item.get("name")) in sheet_names
+                          and item.get("mimeType") in _SHEET_MIME for item in files)
+        if pdf_found and sheet_found:
+            return files
         token = result.get("nextPageToken")
         if not token:
             return files
@@ -617,26 +624,77 @@ async def _persist(data: dict[str, Any], profile: dict[str, Any]) -> None:
     })
 
 
+def _portfolio_from_published(previous: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
+    """Reusa a carteira validada somente quando o PDF e o cadastro não mudaram.
+
+    A fotografia persistida já contém todos os clientes e vínculos com os
+    usuários ativos. Não cria carteiras para vendedores não cadastrados.
+    """
+    rows = previous.get("clientes")
+    expected = (previous.get("indicadores") or {}).get("carteira")
+    if (not isinstance(rows, list) or len(rows) < 100
+            or not isinstance(expected, int) or len(rows) != expected):
+        return None
+    portfolio: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            return None
+        code = _code(row.get("codigo"))
+        name = row.get("cliente")
+        sellers = row.get("vendedores")
+        televendas = row.get("televendas")
+        if (not code or not isinstance(name, str) or not name.strip()
+                or not isinstance(sellers, list) or not isinstance(televendas, list)
+                or any(not isinstance(x, str) or not x for x in sellers + televendas)
+                or code in portfolio):
+            return None
+        portfolio[code] = {
+            "codigo": code, "cliente": name, "bloqueado": bool(row.get("bloqueado")),
+            "vendedoresPdf": list(sellers), "televendasPdf": list(televendas),
+            "vinculos": [{} for _ in range(2 if row.get("carteiraCompartilhada") else 1)],
+        }
+    return portfolio
+
+
 def _sync_blocking(sellers: dict[str, str], televendas: dict[str, str], previous: dict[str, Any] | None,
-                   refresh: bool) -> dict[str, Any]:
-    service = _build_drive_service()
-    pdf, sheet = _drive_sources(service)
+                   refresh: bool, sources: tuple[dict[str, Any], dict[str, Any]] | None = None) -> dict[str, Any]:
+    # A verificação manual já leu os horários: não faz a mesma listagem novamente.
+    service = None
+    if sources is None:
+        service = _build_drive_service()
+        pdf, sheet = _drive_sources(service)
+    else:
+        pdf, sheet = sources
     users_hash = hashlib.sha256(json.dumps({"v":sellers,"t":televendas}, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
     fingerprint = {"pdfId": pdf["id"], "pdfModified": pdf.get("modifiedTime", ""),
                    "sheetId": sheet["id"], "sheetModified": sheet.get("modifiedTime", ""),
                    "usuariosHash": users_hash, "regraCarteiras": "usuarios-ativos-v2"}
+    old_sources = (previous or {}).get("fontes") or {}
+    if (previous and old_sources.get("usuariosHash") == users_hash
+            and old_sources.get("regraCarteiras") == "usuarios-ativos-v2"
+            and _same_sources(previous, pdf, sheet)):
+        return previous
     modified = datetime.fromisoformat(str(sheet.get("modifiedTime") or "").replace("Z", "+00:00")).astimezone(TZ)
     current = datetime.now(TZ)
     if (modified.year, modified.month) != (current.year, current.month):
         raise RuntimeError("Planilha de positivações ainda não foi atualizada na competência atual.")
-    if previous and previous.get("fontes") == fingerprint:
-        return previous
-    # Caso apenas a planilha seja atualizada, a carteira já validada pode ser
-    # reaproveitada somente se o snapshot persistido contiver a base original.
-    pdf_bytes = _drive_bytes(service, pdf)
-    xlsx_bytes = _drive_bytes(service, sheet)
-    portfolio, parsing = _parse_pdf(pdf_bytes, televendas)
-    sales, parsing_sales = _parse_sales(xlsx_bytes)
+
+    # Uma planilha alterada não exige baixar e reler o PDF se a carteira, a
+    # competência e a lista de usuários ativos seguem exatamente as mesmas.
+    reusable_pdf = bool(
+        previous and previous.get("competencia") == current.strftime("%m/%Y")
+        and old_sources.get("usuariosHash") == users_hash
+        and old_sources.get("regraCarteiras") == "usuarios-ativos-v2"
+        and _same_source_file(old_sources, pdf, "pdf")
+    )
+    portfolio = _portfolio_from_published(previous) if reusable_pdf else None
+    if service is None:
+        service = _build_drive_service()
+    if portfolio is None:
+        portfolio, parsing = _parse_pdf(_drive_bytes(service, pdf), televendas)
+    else:
+        parsing = copy.deepcopy((previous.get("leitura") or {}).get("pdf") or {})
+    sales, parsing_sales = _parse_sales(_drive_bytes(service, sheet))
     if previous and previous.get("indicadores", {}).get("carteira", 0) > 500:
         previous_count = previous["indicadores"]["carteira"]
         if len(portfolio) < previous_count * 0.6:
@@ -646,7 +704,6 @@ def _sync_blocking(sellers: dict[str, str], televendas: dict[str, str], previous
     data["leitura"] = {"pdf": parsing, "excel": parsing_sales}
     data["atualizadoEm"] = _now()
     return data
-
 
 async def _reload_cached_sql() -> None:
     global _CACHE, _CACHE_AT, _DB_ERROR
@@ -693,26 +750,27 @@ async def _snapshot_fast() -> dict[str, Any] | None:
     return _CACHE
 
 
+def _same_source_file(old: dict[str, Any], item: dict[str, Any], prefix: str) -> bool:
+    def modified(value: Any) -> str:
+        return str(value or "").replace(".000Z", "Z")
+    return bool(old.get(prefix + "Modified")
+                and old.get(prefix + "Id") == item.get("id")
+                and modified(old.get(prefix + "Modified")) == modified(item.get("modifiedTime")))
+
+
 def _same_sources(previous: dict[str, Any] | None, pdf: dict[str, Any], sheet: dict[str, Any]) -> bool:
     if not previous or previous.get("competencia") != datetime.now(TZ).strftime("%m/%Y"):
         return False
     old = previous.get("fontes") or {}
-    def modified(value: Any) -> str:
-        return str(value or "").replace(".000Z", "Z")
-    return bool(old.get("pdfModified") and old.get("sheetModified")
-                and old.get("pdfId") == pdf.get("id")
-                and old.get("sheetId") == sheet.get("id")
-                and modified(old.get("pdfModified")) == modified(pdf.get("modifiedTime"))
-                and modified(old.get("sheetModified")) == modified(sheet.get("modifiedTime")))
+    return _same_source_file(old, pdf, "pdf") and _same_source_file(old, sheet, "sheet")
 
 
-def _sources_changed_blocking(previous: dict[str, Any] | None) -> bool:
-    service = _build_drive_service()
-    pdf, sheet = _drive_sources(service)
-    return not _same_sources(previous, pdf, sheet)
+def _source_metadata_blocking() -> tuple[dict[str, Any], dict[str, Any]]:
+    """Consulta somente ID e modifiedTime; não baixa arquivos nem calcula indicadores."""
+    return _drive_sources(_build_drive_service())
 
-
-async def _refresh_job(profile: dict[str, Any], force: bool) -> None:
+async def _refresh_job(profile: dict[str, Any], force: bool,
+                       sources: tuple[dict[str, Any], dict[str, Any]] | None = None) -> None:
     """Trabalho desacoplado da requisicao HTTP: baixa, consolida e grava uma fotografia validada."""
     global _CACHE, _CACHE_AT, _SYNC_ERROR, _SYNC_LAST_FINISHED, _SYNC_RESULT
     _SYNC_RESULT = "PROCESSANDO"
@@ -721,7 +779,7 @@ async def _refresh_job(profile: dict[str, Any], force: bool) -> None:
         if previous is None:
             previous = await _read_persisted()
         vendedores, televendas = await _registered_users()
-        data = await asyncio.to_thread(_sync_blocking, vendedores, televendas, previous, force)
+        data = await asyncio.to_thread(_sync_blocking, vendedores, televendas, previous, force, sources)
         data = copy.deepcopy(data)
         data["usuariosAtivos"] = {
             "vendedores": len(set(vendedores.values())),
@@ -890,15 +948,17 @@ async def _manual_check_and_refresh(profile: dict[str, Any]) -> None:
     global _SYNC_ERROR, _SYNC_RESULT, _SYNC_LAST_FINISHED
     try:
         previous = await _snapshot_fast()
-        # Uma fotografia apenas em memória ainda precisa ser persistida.
+        sources = None
+        # Primeiro compara APENAS os horários dos dois arquivos publicados.
+        # A busca pela base completa começa somente se houver uma diferença.
         if previous is not None and previous.get("persistencia") != "MEMORIA_APENAS":
-            changed = await asyncio.wait_for(
-                asyncio.to_thread(_sources_changed_blocking, previous), timeout=35.0)
-            if not changed:
+            sources = await asyncio.wait_for(
+                asyncio.to_thread(_source_metadata_blocking), timeout=35.0)
+            if _same_sources(previous, *sources):
                 _SYNC_ERROR = ""
                 _SYNC_RESULT = "SEM_ALTERACAO"
                 return
-        await _refresh_job(profile, True)
+        await _refresh_job(profile, True, sources=sources)
     except asyncio.CancelledError:
         raise
     except Exception:
