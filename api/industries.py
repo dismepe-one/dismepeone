@@ -1574,7 +1574,8 @@ async def admin_security_password_reset_individual(
             current_perms = _permission_map(confirmed.get("permissoes"))
             if (str(confirmed.get("tipo") or "") != role
                     or current_perms.get(flag) is not True
-                    or any(current_perms.get(key) != value for key, value in original.items())):
+                    or {key: value for key, value in current_perms.items() if key != flag}
+                       != {key: value for key, value in original.items() if key != flag}):
                 raise HTTPException(409, "O cadastro nao confirmou a troca obrigatoria sem alterar outras permissoes.")
         temporary = _temporary_password(14)
         await _reset_single_password_in_auth(

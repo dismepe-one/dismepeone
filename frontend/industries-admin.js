@@ -385,18 +385,25 @@
   function routeHomeCreateUserCard(){
     if(document.documentElement.dataset.dismepeHomeCreateUserCardFixed==='1')return;
     document.documentElement.dataset.dismepeHomeCreateUserCardFixed='1';
-    document.addEventListener('click',event=>{
-      if(event.defaultPrevented||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;
+    // Somente os dois cards da HOME: a mesma abertura usada pelo menu Mais.
+    // Captura no window antes dos handlers legados que abrem o painel em branco.
+    window.addEventListener('click',event=>{
+      if(event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;
       const home=document.getElementById('homeCards');
-      const card=event.target?.closest?.('.home-card');
-      if(!home||!card||!home.contains(card))return;
-      const raw=card.querySelector('.font-black,.home-card-title,strong,h2,h3')?.textContent
-        ||card.getAttribute('aria-label')||'';
+      const target=event.target;
+      if(!home||!target||typeof target.closest!=='function'||!home.contains(target))return;
+      const card=target.closest('.home-card')||target.closest('button,a,[role="button"]');
+      if(!card||!home.contains(card))return;
+      const raw=card.querySelector('.font-black,.home-card-title,.home-title,strong,h2,h3')?.textContent
+        ||card.getAttribute('aria-label')||card.getAttribute('title')||card.textContent||'';
       const label=String(raw).normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().replace(/\s+/g,' ').toUpperCase();
-      if(label!=='CRIAR USUARIO'&&label!=='CRIAR USUARIOS')return;
-      if(typeof window.openCreateUserModal!=='function')return;
+      const create=/^CRIAR USUARIOS?(?:\s|$)/.test(label);
+      const permissions=/^(?:GERENCIAR )?PERMISSOES(?:\s|$)/.test(label);
+      if(!create&&!permissions)return;
+      const open=create?window.openCreateUserModal:window.openPermissionsModal;
+      if(typeof open!=='function')return;
       event.preventDefault();event.stopImmediatePropagation();
-      window.openCreateUserModal();
+      open();
     },true);
   }
 
