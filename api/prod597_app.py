@@ -1049,6 +1049,35 @@ async def prod597_update_center(
             if before_time and after_time and after_time != before_time:
                 confirmed.add(name)
 
+        # O legado pode concluir a gravacao depois da resposta inicial.
+        # Consulte somente STATUS (nunca repita OPCACHE_ATUALIZAR) antes de
+        # declarar falha ou tentar regravar o snapshot PostgreSQL.
+        pending = {
+            name for name in (updated_names & {"MENSAL", "EXTRAS"}) - confirmed
+            if before_times.get(name)
+        }
+        if pending:
+            for delay in (2, 4, 8, 12, 20, 30):
+                await asyncio.sleep(delay)
+                try:
+                    next_status = await call_update_center_legacy(
+                        action="OPCACHE_STATUS",
+                        payload={"acao": "OPCACHE_STATUS"},
+                        legacy_token=legacy_token,
+                    )
+                except UpdateCenterBridgeError:
+                    continue
+
+                after_status = next_status
+                for name in tuple(pending):
+                    before_time = before_times.get(name) or ""
+                    after_time = prod4._time_from_result(after_status, name)
+                    if before_time and after_time and after_time != before_time:
+                        confirmed.add(name)
+                        pending.remove(name)
+                if not pending:
+                    break
+
         immediate_times = {
             name: (
                 prod4._time_from_result(result, name)
