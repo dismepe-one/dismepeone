@@ -676,6 +676,15 @@
           }
         }
 
+        // O editor nativo usa gravação integral e pode sobrescrever as chaves
+        // granulares salvas anteriormente. Ler direitos ANTES de qualquer gravação.
+        let savedPosRights=null;
+        if(isAdministrator&&usuario&&!buyer){
+          const before=await api('/admin/permissoes-detalhadas/usuario?usuario='+encodeURIComponent(usuario),{cache:'no-store'});
+          if(!before.administrador){
+            savedPosRights={usuario:before.usuario,tipo:before.tipo,permissoes:before.permissoes};
+          }
+        }
         const r=await oldPermissionSave.apply(this,arguments);
 
         if(usuario&&tipo&&hasIndustryKeys&&canManagePermissions){
@@ -688,6 +697,27 @@
           await renderIndustryPermissionsInPermissionsScreen(true);
         }
 
+        // Se a tela legada apagou direitos granulares, repor apenas esses dez
+        // direitos e reler o servidor. Não alterar qualquer outro módulo.
+        if(savedPosRights){
+          const path='/admin/permissoes-detalhadas/usuario?usuario='+encodeURIComponent(savedPosRights.usuario);
+          const after=await api(path,{cache:'no-store'});
+          if(!after.administrador&&String(after.tipo).toUpperCase()===String(savedPosRights.tipo).toUpperCase()){
+            const desired=savedPosRights.permissoes;
+            const differs=posDetailKeys.some(([key])=>after.permissoes[key]!==desired[key]);
+            if(differs){
+              await api('/admin/permissoes-detalhadas/salvar',{method:'POST',body:JSON.stringify({
+                usuario:after.usuario,revisao:after.revisao,permissoes:desired
+              })});
+            }
+            const check=await api(path,{cache:'no-store'});
+            if(posDetailKeys.some(([key])=>check.permissoes[key]!==desired[key])){
+              throw new Error('As permissões detalhadas foram alteradas pela tela antiga. Reabra o usuário e salve novamente.');
+            }
+          }else if(!after.administrador){
+            throw new Error('O cargo mudou durante a gravação. Reabra as permissões detalhadas para confirmar o novo acesso.');
+          }
+        }
         return r;
       };
 
@@ -793,7 +823,11 @@
         save.disabled=true;message.textContent='Gravando permissões sem alterar os demais módulos...';
         try{
           const result=await api('/admin/permissoes-detalhadas/salvar',{method:'POST',body:JSON.stringify({usuario:detailedOpenedFor,revisao:detailedRevision,permissoes:choices})});
-          message.textContent=result.mensagem||'Permissões salvas.';
+          const confirmed=await api('/admin/permissoes-detalhadas/usuario?usuario='+encodeURIComponent(detailedOpenedFor),{cache:'no-store'});
+          if(posDetailKeys.some(([key])=>confirmed.permissoes[key]!==choices[key])){
+            throw new Error('O cadastro não confirmou as permissões selecionadas. Reabra o usuário e verifique antes de liberar o acesso.');
+          }
+          message.textContent=result.mensagem||'Permissões salvas e confirmadas.';
           detailedRevision='';closeDetailedPermissions();
           if(typeof window.loadPermissionsFromServer==='function')await window.loadPermissionsFromServer();
         }catch(e){message.textContent='Erro: '+(e.message||'Não foi possível salvar.');save.disabled=false;}

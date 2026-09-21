@@ -333,7 +333,7 @@ def _page_profile(session: str | None) -> dict[str, Any]:
     return profile
 
 
-async def _viewer_context(session: str | None) -> dict[str, Any]:
+async def _viewer_context(session: str | None, *, fresh: bool = False) -> dict[str, Any]:
     """Resolve usuario, cargo e carteira no cadastro ATIVO, jamais por filtro da URL."""
     profile = _page_profile(session)
     role = _norm(profile.get("tipo"))
@@ -344,7 +344,7 @@ async def _viewer_context(session: str | None) -> dict[str, Any]:
     if not login:
         raise HTTPException(403, "Usuário sem identificação de carteira.")
     global _ROSTER, _ROSTER_AT
-    if not _ROSTER or time.monotonic() - _ROSTER_AT >= 30:
+    if fresh or not _ROSTER or time.monotonic() - _ROSTER_AT >= 30:
         try:
             result = await asyncio.wait_for(_edge("USUARIOS_LIST", {}), timeout=8.0)
             users = result.get("usuarios")
@@ -386,7 +386,7 @@ async def _viewer_context(session: str | None) -> dict[str, Any]:
 
 @router.get("/positivacoes/api/acesso")
 async def positivacao_current_access(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
-    context = await _viewer_context(session)
+    context = await _viewer_context(session, fresh=True)
     return _safe_json_response({"sucesso": True, "visualizarTodas": bool(context.get("view_all")),
                                 "capacidades": _pos_capabilities(context)})
 
@@ -584,7 +584,7 @@ def _split_customer_owner(prefix: str, owner_id: str, tel_names: dict[str, str])
     return before, "", True
 
 
-_PDF_PARSER_VERSION = "poppler-recomposicao-raw-v10"
+_PDF_PARSER_VERSION = "poppler-recomposicao-raw-v11-cidade"
 
 
 def _pdf_pages_fast(raw: bytes, *, mode: str = "layout") -> list[str]:
@@ -699,17 +699,28 @@ def _parse_pdf_pages(pages: list[str], tel_names: dict[str, str], *,
             if not valid or not name:
                 stats["linhasInvalidas"] += 1
                 continue
+            # O trecho após a coluna VND e antes da UF corresponde à cidade no PDF.
+            # Usa o mesmo marcador do parser de carteira para não capturar
+            # partes do nome do cliente ou da televendas como município.
+            owner_marks = list(re.finditer(
+                rf"(?<!\d){re.escape(seller_id)}(?=\s+[^\d]+$)", before
+            ))
+            city = before[owner_marks[-1].end():].strip() if owner_marks else ""
+            uf = match.group("uf").upper() if city else ""
             tail = begin.group(2)[match.end():]
             blocked = bool(re.search(r"(?i)^\s*Bloq(?:\b|(?=\d))", tail))
             old = clients.get(code)
             if not old:
                 old = {"codigo": code, "cliente": name, "bloqueado": blocked,
+                       "cidade": city, "uf": uf,
                        "vendedoresPdf": [], "televendasPdf": [], "vinculos": []}
                 clients[code] = old
             else:
                 # Divergência entre linhas repetidas: nunca liberar cliente
                 # caso exista uma ocorrência marcada como bloqueada.
                 old["bloqueado"] = old["bloqueado"] or blocked
+                if not old.get("cidade") and city:
+                    old["cidade"], old["uf"] = city, uf
             if seller_name not in old["vendedoresPdf"]:
                 old["vendedoresPdf"].append(seller_name)
             if tel_name and tel_name not in old["televendasPdf"]:
@@ -866,6 +877,7 @@ def _consolidate(clients: dict[str, dict[str, Any]], sales: dict[str, dict[str, 
         status = "Positivado" if origins else "Não positivado"
         row = {
             "codigo": code, "cliente": original["cliente"], "cnpj": (entry or {}).get("cnpj", ""),
+            "cidade": original.get("cidade", ""), "uf": original.get("uf", ""),
             "televendasQuePositivaram": list(dict.fromkeys(credited.get("Televendas", []))),
             "vendedores": actors, "televendas": teleactors,
             "setores": actors, "bloqueado": blocked, "origens": origins,
@@ -992,6 +1004,7 @@ def _portfolio_from_published(previous: dict[str, Any]) -> dict[str, dict[str, A
         portfolio[code] = {
             "codigo": code, "cliente": name, "bloqueado": bool(row.get("bloqueado")),
             "vendedoresPdf": list(sellers), "televendasPdf": list(televendas),
+            "cidade": str(row.get("cidade") or ""), "uf": str(row.get("uf") or ""),
             "vinculos": [{} for _ in range(2 if row.get("carteiraCompartilhada") else 1)],
         }
     return portfolio
@@ -1416,7 +1429,9 @@ def _selected(data: dict[str, Any], status: str, setor: str, search: str,
             continue
         if nao_bloqueados and c["bloqueado"]:
             continue
-        if norm_search and norm_search not in _norm(" ".join([c["codigo"], c["cliente"], c["cnpj"]])):
+        if norm_search and norm_search not in _norm(" ".join([
+                c["codigo"], c["cliente"], c["cnpj"],
+                str(c.get("cidade") or ""), str(c.get("uf") or "")])):
             continue
         result.append(c)
     return result
@@ -1479,7 +1494,8 @@ def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, An
                 detalhes.append("Diretoria" if origin == "Diretoria/Supervisão" else origin)
         rows.append({
             "codigo": original["codigo"], "cliente": original["cliente"],
-            "cnpj": original.get("cnpj", ""), "bloqueado": bool(original.get("bloqueado")),
+            "cnpj": original.get("cnpj", ""), "cidade": original.get("cidade", ""),
+            "uf": original.get("uf", ""), "bloqueado": bool(original.get("bloqueado")),
             "vendedores": [person] if owner_seller else list(source.get("vendedores") or []),
             "setores": [person] if owner_seller else [],
             "televendas": tv_cadastrados if owner_seller else [person],
@@ -2138,7 +2154,10 @@ def _export_fields(row: dict[str, Any]) -> list[str]:
         situation = "Positivado por " + " e ".join(
             "Diretoria" if name == "Diretoria/Supervisão" else name for name in others
         )
-    return [row["codigo"], row["cnpj"], row["cliente"], ", ".join(row["setores"]) or "Sem vínculo cadastrado",
+    return [row["codigo"], row["cnpj"], row["cliente"],
+            ((str(row.get("cidade") or "") + " / " + str(row.get("uf") or ""))
+             if row.get("cidade") and row.get("uf") else str(row.get("cidade") or "—")),
+            ", ".join(row["setores"]) or "Sem vínculo cadastrado",
             ", ".join(row["televendas"]), " + ".join(row.get("origensDetalhadas") or origins), situation,
             "Sim" if row["bloqueado"] else "Não"]
 
@@ -2177,7 +2196,7 @@ async def positivacao_export(
     notes_by_code: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for note in notes:
         notes_by_code[note["cliente_codigo"]].append(note)
-    headers = ["Código", "CNPJ", "Cliente", "Carteira", "Televendas Cad.", "Origem", "Status", "Bloqueado"]
+    headers = ["Código", "CNPJ", "Cliente", "Cidade / UF", "Carteira", "Televendas Cad.", "Origem", "Status", "Bloqueado"]
     if kind == "excel":
         from openpyxl import Workbook
         from openpyxl.styles import Alignment, Font, PatternFill
@@ -2194,14 +2213,14 @@ async def positivacao_export(
             if row.get("inativo"):
                 for cell in ws[ws.max_row]:
                     cell.fill = PatternFill("solid", fgColor="FCE8E6")
-                flag = ws.cell(ws.max_row, 7)
+                flag = ws.cell(ws.max_row, 8)
                 flag.value = "INATIVO"
                 flag.fill = PatternFill("solid", fgColor="B42318")
                 flag.font = Font(color="FFFFFF", bold=True)
             if row["bloqueado"] and not row.get("inativo"):
                 for cell in ws[ws.max_row]:
                     cell.fill = PatternFill("solid", fgColor="FCE8E6")
-                flagged = ws.cell(ws.max_row, 8)
+                flagged = ws.cell(ws.max_row, 9)
                 flagged.value = "BLOQUEADO"
                 flagged.fill = PatternFill("solid", fgColor="B42318")
                 flagged.font = Font(color="FFFFFF", bold=True)
@@ -2210,7 +2229,7 @@ async def positivacao_export(
         for cell in ws[1]:
             cell.fill = PatternFill("solid", fgColor="075548")
             cell.font = Font(color="FFFFFF", bold=True)
-        for col, width in {"A":12,"B":20,"C":48,"D":43,"E":30,"F":35,"G":20,"H":13,"I":65,"J":62}.items():
+        for col, width in {"A":12,"B":20,"C":54,"D":27,"E":43,"F":30,"G":35,"H":20,"I":13,"J":65,"K":62}.items():
             ws.column_dimensions[col].width=width
         for row in ws.iter_rows(min_row=2):
             for cell in row:
@@ -2241,13 +2260,14 @@ async def positivacao_export(
     elif kind == "pdf":
         from xml.sax.saxutils import escape
         from reportlab.lib import colors
-        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.pagesizes import A3, landscape
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, LongTable
         out=io.BytesIO()
-        doc=SimpleDocTemplate(out, pagesize=landscape(A4), rightMargin=22, leftMargin=22, topMargin=28, bottomMargin=25)
+        doc=SimpleDocTemplate(out, pagesize=landscape(A3), rightMargin=22, leftMargin=22, topMargin=28, bottomMargin=25)
         styles=getSampleStyleSheet()
-        styles.add(ParagraphStyle(name="CellTinyPos", parent=styles["Normal"], fontSize=6, leading=8))
+        styles.add(ParagraphStyle(name="CellTinyPos", parent=styles["Normal"],
+                                  fontSize=7.2, leading=10, wordWrap="CJK", splitLongWords=1))
         styles.add(ParagraphStyle(name="ObsTinyPos", parent=styles["Normal"], fontSize=7,
                                   leading=10, spaceAfter=5, wordWrap="CJK"))
         story=[Paragraph("DISMEPE ONE | Positivação Geral", styles["Heading2"]),
@@ -2259,7 +2279,7 @@ async def positivacao_export(
             fields = _export_fields(row)
             if row.get("inativo"):
                 inactive_pdf_rows.append(len(table_data))
-                fields[6] = "INATIVO"
+                fields[7] = "INATIVO"
             if row["bloqueado"] and not row.get("inativo"):
                 blocked_pdf_rows.append(len(table_data))
                 fields[-1] = "BLOQUEADO"
@@ -2267,7 +2287,10 @@ async def positivacao_export(
             if row["bloqueado"] and not row.get("inativo"):
                 cells[-1] = Paragraph('<font color="#B42318"><b>BLOQUEADO</b></font>', styles["CellTinyPos"])
             table_data.append(cells)
-        table=LongTable(table_data, colWidths=[44,72,170,123,106,112,74,55], repeatRows=1, hAlign="LEFT")
+        # A3 paisagem: descrição do cliente maior e cidade em coluna própria.
+        # Paragraph e splitLongWords impedem que textos invadam a próxima célula.
+        table=LongTable(table_data, colWidths=[58,96,292,99,126,115,144,112,70],
+                        repeatRows=1, hAlign="LEFT")
         table.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#075548")),
                                    ("TEXTCOLOR",(0,0),(-1,0),colors.white),
                                    ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white, colors.HexColor("#F4F8F6")]),

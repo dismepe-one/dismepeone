@@ -168,6 +168,13 @@ async def granular_permissions_save(
                 "usuario_norm": normalizar(row["usuario"]),
                 "tipo": str(row["tipo"]), "permissoes": updated,
             })
+            # Nunca confirmar sucesso sem reler a fonte de verdade.
+            confirmed = await _granular_user(row["usuario"])
+            actual = _permission_map(confirmed.get("permissoes"))
+            if any(actual.get(key) is not allowed for key, allowed in body.permissoes.items()):
+                raise HTTPException(status_code=503, detail=(
+                    "O banco não confirmou as permissões selecionadas. Nenhuma liberação será presumida."
+                ))
         except IndustryError as exc:
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     if normalizar(editor.get("usuario") or editor.get("sub")) == normalizar(row["usuario"]):
@@ -1309,7 +1316,7 @@ def _build_pdf(rows: list[dict[str, Any]], lab: str, generated_at: str) -> bytes
     try:
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4, landscape
-        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib.units import mm
         from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     except Exception as exc:
@@ -1361,7 +1368,15 @@ def _build_pdf(rows: list[dict[str, Any]], lab: str, generated_at: str) -> bytes
 
     col_widths = [17*mm, 74*mm, 13*mm, 14*mm, 17*mm, 13*mm, 13*mm, 13*mm, 13*mm, 13*mm, 31*mm, 22*mm, 24*mm]
     if include_lab:
-        col_widths = [26*mm, 15*mm, 55*mm, 11*mm, 13*mm, 15*mm, 11*mm, 11*mm, 11*mm, 11*mm, 11*mm, 25*mm, 18*mm, 20*mm]
+        # Largura disponível: 297 - (2 x 7) = 283 mm (A4 paisagem).
+        col_widths = [26*mm, 15*mm, 78*mm, 11*mm, 13*mm, 15*mm, 11*mm, 11*mm, 11*mm, 11*mm, 11*mm, 25*mm, 18*mm, 20*mm]
+    body_style = ParagraphStyle("StockBodyV12", parent=styles["Normal"],
+                                fontName="Helvetica", fontSize=6.2, leading=8,
+                                wordWrap="CJK", splitLongWords=1)
+    head_style = ParagraphStyle("StockHeadV12", parent=body_style,
+                                fontName="Helvetica-Bold", textColor=colors.white)
+    data = [[Paragraph(xml_escape(str(value or "")), head_style if idx == 0 else body_style)
+             for value in record] for idx, record in enumerate(data)]
     table = Table(data, colWidths=col_widths, repeatRows=1, hAlign="LEFT")
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#005548")),
