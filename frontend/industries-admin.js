@@ -382,6 +382,24 @@
     }
   }
 
+  function routeHomeCreateUserCard(){
+    if(document.documentElement.dataset.dismepeHomeCreateUserCardFixed==='1')return;
+    document.documentElement.dataset.dismepeHomeCreateUserCardFixed='1';
+    document.addEventListener('click',event=>{
+      if(event.defaultPrevented||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;
+      const home=document.getElementById('homeCards');
+      const card=event.target?.closest?.('.home-card');
+      if(!home||!card||!home.contains(card))return;
+      const raw=card.querySelector('.font-black,.home-card-title,strong,h2,h3')?.textContent
+        ||card.getAttribute('aria-label')||'';
+      const label=String(raw).normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().replace(/\s+/g,' ').toUpperCase();
+      if(label!=='CRIAR USUARIO'&&label!=='CRIAR USUARIOS')return;
+      if(typeof window.openCreateUserModal!=='function')return;
+      event.preventDefault();event.stopImmediatePropagation();
+      window.openCreateUserModal();
+    },true);
+  }
+
   function ensureIndustriesHomeCard(){
     // A HOME já possui o card nativo controlado por renderHomeCards().
     // Este injetor antigo era a origem do segundo card em caixa alta.
@@ -1025,7 +1043,7 @@
     overlay.onclick=e=>{if(e.target===overlay&&!run.disabled)dismiss();};
     actions.append(close,run);card.append(title,info,label,status,output,actions);overlay.appendChild(card);document.body.appendChild(overlay);
     try{
-      const result=await api('/admin/users?individual_reset='+Date.now(),{cache:'no-store'});
+      const result=await api('/admin/security/password-reset-individual/users?individual_reset='+Date.now(),{cache:'no-store'});
       if(!overlay.isConnected)return;
       const users=(result.usuarios||[]).filter(u=>u&&u.ativo!==false&&String(u.status||'ATIVO').toUpperCase()==='ATIVO'&&String(u.tipo||'').trim());
       const self=String(document.getElementById('loggedUser')?.textContent||'').trim().toLowerCase();
@@ -1036,12 +1054,38 @@
       select.disabled=false;run.disabled=false;
       status.textContent='Apenas o usuário escolhido terá sua senha substituída.';
     }catch(e){status.textContent='Não foi possível carregar a lista de usuários: '+(e.message||'Erro.');}
+    function confirmIndividualReset(selected){
+      return new Promise(resolve=>{
+        const cover=document.createElement('div');cover.setAttribute('role','dialog');
+        cover.setAttribute('aria-modal','true');cover.setAttribute('aria-label','Confirmar geração de senha temporária');
+        cover.style.cssText='position:fixed;inset:0;z-index:2147483502;background:rgba(2,20,17,.84);display:grid;place-items:center;padding:16px';
+        const panel=document.createElement('section');
+        panel.style.cssText='width:min(475px,100%);background:#fff;color:#17332c;border-radius:18px;padding:22px;box-shadow:0 24px 80px rgba(0,0,0,.3)';
+        const heading=document.createElement('h2');heading.textContent='Confirmar geração de senha temporária';
+        heading.style.cssText='font-size:19px;font-weight:900;margin:0 0 12px';
+        const account=document.createElement('p');account.textContent='Usuário selecionado: '+selected;
+        account.style.cssText='font-size:14px;font-weight:800;overflow-wrap:anywhere';
+        const warning=document.createElement('p');
+        warning.textContent='Somente esta conta receberá uma nova senha. A senha atual deixará de funcionar, e o usuário deverá criar uma senha pessoal no próximo login. Deseja continuar?';
+        warning.style.cssText='font-size:13px;line-height:1.5;color:#4b635b';
+        const buttons=document.createElement('div');buttons.style.cssText='display:flex;justify-content:flex-end;gap:9px;flex-wrap:wrap;margin-top:18px';
+        const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancelar';
+        const accept=document.createElement('button');accept.type='button';accept.textContent='Confirmar e gerar senha';
+        for(const button of [cancel,accept])button.style.cssText='padding:11px 14px;border:1px solid #cddfd7;border-radius:9px;background:#fff;cursor:pointer';
+        accept.style.background='#005548';accept.style.color='#fff';accept.style.fontWeight='800';
+        const finish=approved=>{cover.remove();resolve(approved);};
+        cancel.onclick=()=>finish(false);accept.onclick=()=>finish(true);
+        buttons.append(cancel,accept);panel.append(heading,account,warning,buttons);cover.appendChild(panel);
+        document.body.appendChild(cover);cancel.focus();
+      });
+    }
     run.onclick=async()=>{
       const login=select.value;
       if(!login){status.textContent='Selecione um usuário.';return;}
       const selected=select.options[select.selectedIndex].text;
-      if(!confirm('Gerar uma nova senha SOMENTE para '+selected+'? A senha anterior deixará de funcionar.'))return;
-      run.disabled=true;select.disabled=true;close.disabled=true;
+      run.disabled=true;select.disabled=true;
+      if(!await confirmIndividualReset(selected)){run.disabled=false;select.disabled=false;return;}
+      close.disabled=true;
       status.textContent='Gerando a senha somente para o usuário escolhido...';
       try{
         const data=await api('/admin/security/password-reset-individual',{
@@ -1076,7 +1120,7 @@
   }
 
   async function init(){
-    addStyle();applyFixedConfigPresentation();ensureDirectorRoleOptions();syncLeadershipRoleHighlight();
+    addStyle();applyFixedConfigPresentation();ensureDirectorRoleOptions();syncLeadershipRoleHighlight();routeHomeCreateUserCard();
     try{
       const me=await api('/auth/me?industry_admin='+Date.now(),{cache:'no-store'});
       const u=me?.usuario||{};const role=String(u.tipo||u.perfil||u.role||u.cargo||'').trim().toUpperCase();const p=u.permissoes||{};

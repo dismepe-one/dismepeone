@@ -1477,6 +1477,56 @@ async def _reset_single_password_in_auth(*, usuario: str, tipo: str, senha_inter
         raise HTTPException(502, "O servico nao confirmou a identidade do usuario. A senha nao sera exibida.")
 
 
+async def _individual_password_target(usuario: str) -> dict[str, Any]:
+    """Busca a conta ativa diretamente, inclusive INDUSTRIA, sem ampliar outras listagens."""
+    result = await _edge_admin_write(
+        "USUARIO_CONTEXTO", {"usuario_norm": normalizar(usuario)},
+    )
+    target = result.get("usuario")
+    if (not result.get("encontrado") or not isinstance(target, dict)
+            or normalizar(target.get("usuario")) != normalizar(usuario)
+            or target.get("ativo") is not True
+            or normalizar(target.get("status")) != "ATIVO"):
+        raise HTTPException(404, "Usuario ativo nao localizado no cadastro.")
+    return target
+
+
+@router.get("/admin/security/password-reset-individual/users")
+async def admin_security_password_reset_individual_users(
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    """Lista exclusiva desta tela; nao modifica /admin/users nem expoe senhas."""
+    actor = _strict_admin_profile(session)
+    actor_login = str(actor.get("usuario") or actor.get("sub") or "").strip()
+    if not actor_login:
+        raise HTTPException(403, "Administrador sem login identificado.")
+    try:
+        live_admin = await _granular_user(actor_login)
+        if not _is_admin_profile(live_admin):
+            raise HTTPException(403, "Apenas um administrador ativo pode consultar esta lista.")
+        result = await _edge_admin_write("USUARIOS_LIST", {})
+    except IndustryError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
+    records = result.get("usuarios")
+    if not isinstance(records, list):
+        raise HTTPException(503, "Lista de usuarios indisponivel.")
+    users: list[dict[str, str]] = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        login = str(record.get("usuario") or "").strip()
+        role = str(record.get("tipo") or "").strip()
+        if (not login or not role or record.get("ativo") is not True
+                or normalizar(record.get("status")) != "ATIVO"
+                or normalizar(login) == normalizar(actor_login)):
+            continue
+        users.append({"usuario": login,
+                      "nome": str(record.get("nome") or record.get("vendedor") or login).strip(),
+                      "tipo": role})
+    users.sort(key=lambda item: normalizar(item["nome"]))
+    return {"sucesso": True, "usuarios": users}
+
+
 @router.post("/admin/security/password-reset-individual")
 async def admin_security_password_reset_individual(
     body: AdminIndividualPasswordResetRequest,
@@ -1497,7 +1547,7 @@ async def admin_security_password_reset_individual(
 
     async with _PASSWORD_RESET_LOCK:
         try:
-            target = await _granular_user(body.usuario)
+            target = await _individual_password_target(body.usuario)
         except IndustryError as exc:
             raise HTTPException(exc.status_code, str(exc)) from exc
         login = str(target.get("usuario") or "").strip()
@@ -1518,7 +1568,7 @@ async def admin_security_password_reset_individual(
             except IndustryError as exc:
                 raise HTTPException(exc.status_code, "Nao foi possivel marcar a troca obrigatoria de senha.") from exc
             try:
-                confirmed = await _granular_user(login)
+                confirmed = await _individual_password_target(login)
             except IndustryError as exc:
                 raise HTTPException(exc.status_code, "A marcacao de troca obrigatoria nao foi confirmada.") from exc
             current_perms = _permission_map(confirmed.get("permissoes"))
