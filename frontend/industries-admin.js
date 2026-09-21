@@ -836,6 +836,123 @@
     }catch(e){const state=box.querySelector('#posDetailState');if(state)state.textContent='Não foi possível consultar o usuário: '+(e.message||'erro desconhecido');}
   }
 
+
+  // Central de permissões com confirmação real e execução em massa por cargo.
+  let advancedCatalog=[],advancedPeople=[],advancedOpenFor='',advancedRevision='',advancedPreview=null;
+  const advancedUrl='/admin/permissoes-avancadas/';
+  function advancedElement(name,attrs={},value=''){
+    const el=document.createElement(name);
+    Object.entries(attrs).forEach(([k,v])=>{if(k==='className')el.className=v;else el.setAttribute(k,v)});
+    if(value)el.textContent=value;
+    return el;
+  }
+  function advancedClose(){document.getElementById('advancedPermissionsModal')?.remove();advancedPreview=null;}
+  function advancedLauncher(){
+    if(!isAdministrator)return;
+    const panel=document.getElementById('permissionPanel');
+    if(!panel||document.getElementById('advancedPermissionsLauncher'))return;
+    const b=advancedElement('button',{id:'advancedPermissionsLauncher',type:'button'},'⚙ Central de permissões • individual e em massa');
+    b.style.cssText='display:block;margin:12px 0;padding:12px 14px;border:1px solid #a9d3c6;background:#005548;color:white;border-radius:12px;font-weight:800;cursor:pointer;max-width:100%';
+    b.onclick=advancedOpen;
+    panel.appendChild(b);
+  }
+  async function advancedOpen(){
+    advancedClose();
+    const layer=advancedElement('div',{id:'advancedPermissionsModal'});
+    layer.style.cssText='position:fixed;inset:0;z-index:2147483002;background:#002d25c4;padding:14px;display:grid;place-items:center';
+    const box=advancedElement('section',{role:'dialog','aria-modal':'true','aria-label':'Central de permissões'});
+    box.style.cssText='background:#fff;border-radius:18px;padding:23px;width:min(790px,100%);max-height:94vh;overflow:auto;color:#123b34';
+    box.innerHTML='<h2 style="font-size:20px;font-weight:850">Central de Permissões</h2><p style="font-size:12px;color:#60746f">Selecione a função, o público e confirme uma prévia antes de alterar os acessos. As permissões exibidas possuem validação própria na API.</p><p id="advMessage" role="status">Consultando usuários e permissões atuais...</p>';
+    const close=advancedElement('button',{type:'button'},'Fechar');close.onclick=advancedClose;
+    close.style.cssText='float:right;padding:8px 14px;border:1px solid #cbded7;border-radius:10px';
+    box.prepend(close);layer.appendChild(box);document.body.appendChild(layer);
+    layer.addEventListener('click',e=>{if(e.target===layer)advancedClose()});
+    const message=()=>box.querySelector('#advMessage');
+    try{
+      const [catalog,people]=await Promise.all([
+        api(advancedUrl+'catalogo',{cache:'no-store'}),api(advancedUrl+'usuarios',{cache:'no-store'})
+      ]);
+      if(!layer.isConnected)return;
+      advancedCatalog=catalog.grupos||[];advancedPeople=people.usuarios||[];
+      message().textContent=catalog.aviso||'';
+      if(!advancedCatalog.length){message().textContent='Nenhuma função validada disponível.';return;}
+      const tabs=advancedElement('div');tabs.style.cssText='display:flex;gap:8px;margin:12px 0;flex-wrap:wrap';
+      const one=advancedElement('button',{type:'button'},'Por usuário');
+      const mass=advancedElement('button',{type:'button'},'Aplicar em massa');
+      [one,mass].forEach(b=>{b.style.cssText='padding:10px;border:1px solid #bed4cb;border-radius:10px;cursor:pointer;background:#edf7f2;font-weight:800'});
+      tabs.append(one,mass);box.appendChild(tabs);
+      const form=advancedElement('form');form.style.cssText='display:grid;gap:12px';box.appendChild(form);
+      const userSelect=advancedElement('select',{id:'advSingle'});
+      userSelect.appendChild(new Option('Selecione o usuário...',''));
+      advancedPeople.forEach(u=>userSelect.add(new Option(u.nome+' — '+u.tipo+' ('+u.usuario+')',u.usuario)));
+      const scope=advancedElement('select',{id:'advScope'});
+      [['vendedores','Todos os vendedores'],['televendas','Todos os televendas'],['ambos','Todos os vendedores e televendas'],['selecionados','Selecionar funcionários individualmente']].forEach(([v,n])=>scope.add(new Option(n,v)));
+      const individualList=advancedElement('div');individualList.style.cssText='display:none;max-height:145px;overflow:auto;border:1px solid #d7e4e0;border-radius:10px;padding:9px';
+      advancedPeople.forEach(u=>{const label=advancedElement('label');label.style.cssText='display:flex;gap:8px;margin:5px 0';const cb=advancedElement('input',{type:'checkbox',value:u.usuario});label.append(cb,document.createTextNode(u.nome+' ('+u.tipo+')'));individualList.appendChild(label)});
+      const group=advancedElement('select',{id:'advGroup'});advancedCatalog.forEach(g=>group.add(new Option(g.nome,g.id)));
+      const mode=advancedElement('select',{id:'advMode'});
+      mode.add(new Option('Adicionar somente as permissões marcadas','adicionar'));
+      mode.add(new Option('Substituir somente as permissões deste módulo','substituir'));
+      const checks=advancedElement('div');checks.style.cssText='display:grid;gap:8px;border:1px solid #d7e4e0;border-radius:12px;padding:12px;background:#f6faf8';
+      const selectionStatus=advancedElement('p');selectionStatus.style.cssText='font-size:12px;min-height:25px;color:#075548';
+      const previewBox=advancedElement('div');previewBox.style.cssText='display:none;padding:12px;border:1px solid #b1d4c7;border-radius:10px;background:#f1f8f5;font-size:12px;max-height:230px;overflow:auto';
+      const actions=advancedElement('div');actions.style.cssText='display:flex;gap:8px;flex-wrap:wrap';
+      const doPreview=advancedElement('button',{type:'button'},'Conferir prévia');
+      const doSave=advancedElement('button',{type:'submit'},'Salvar permissões');
+      [doPreview,doSave].forEach(b=>b.style.cssText='padding:11px 14px;border-radius:10px;border:0;background:#005548;color:#fff;font-weight:800;cursor:pointer');
+      actions.append(doPreview,doSave);
+      const wrapper=(title,element)=>{const label=advancedElement('label',{},title);label.style.cssText='display:grid;gap:5px;font-size:12px;font-weight:800';label.appendChild(element);return label};
+      form.append(wrapper('Usuário',userSelect),wrapper('Público da aplicação em massa',scope),individualList,wrapper('Módulo',group),wrapper('Modo de aplicação',mode),checks,selectionStatus,previewBox,actions);
+      [userSelect,scope,group,mode].forEach(el=>el.style.cssText='width:100%;padding:10px;border:1px solid #cddfd7;border-radius:9px;background:white;color:#123b34');
+      let massMode=false,singleCurrent=null;
+      function clearPreview(){advancedPreview=null;previewBox.style.display='none';doSave.disabled=massMode;}
+      function currentGroup(){return advancedCatalog.find(x=>x.id===group.value)}
+      function checkedKeys(){return [...checks.querySelectorAll('input[type=checkbox]:checked')].map(x=>x.value)}
+      function buildChecks(){clearPreview();checks.replaceChildren();const rights=singleCurrent?.permissoes||{};
+        currentGroup().itens.forEach(item=>{const label=advancedElement('label');label.style.cssText='display:flex;gap:9px;align-items:flex-start;font-size:13px';const c=advancedElement('input',{type:'checkbox',value:item.chave});c.checked=!massMode&&rights[item.chave]===true;c.disabled=!massMode&&(!singleCurrent||singleCurrent.administrador);c.addEventListener('change',clearPreview);label.append(c,document.createTextNode(item.nome));checks.appendChild(label)});
+      }
+      function updateMode(){singleCurrent=null;form.querySelectorAll('#advSingle,#advScope,#advMode').forEach(el=>el.parentNode.style.display=massMode?(el.id==='advSingle'?'none':'grid'):(el.id==='advSingle'?'grid':'none'));
+        individualList.style.display=massMode&&scope.value==='selecionados'?'block':'none';doPreview.style.display=massMode?'inline-flex':'none';doSave.textContent=massMode?'Confirmar aplicação em massa':'Salvar permissões';buildChecks()}
+      one.onclick=()=>{massMode=false;updateMode();selectionStatus.textContent='Selecione o usuário para consultar os direitos atuais.'};
+      mass.onclick=()=>{massMode=true;updateMode();selectionStatus.textContent='Escolha as permissões e gere uma prévia antes da confirmação.'};
+      userSelect.onchange=async()=>{singleCurrent=null;buildChecks();if(!userSelect.value)return;selectionStatus.textContent='Carregando cadastro atualizado...';try{const r=await api(advancedUrl+'usuario?usuario='+encodeURIComponent(userSelect.value),{cache:'no-store'});if(!layer.isConnected||userSelect.value!==r.usuario)return;singleCurrent=r;advancedRevision=r.revisao;buildChecks();selectionStatus.textContent=r.administrador?'Perfil administrador: permissões fixas.':'Permissões atuais conferidas no cadastro.';}catch(e){selectionStatus.textContent='Erro: '+(e.message||'Falha ao consultar usuário.')}};
+      group.onchange=buildChecks;
+      scope.onchange=()=>{clearPreview();individualList.style.display=scope.value==='selecionados'?'block':'none'};
+      mode.onchange=clearPreview;
+      individualList.addEventListener('change',clearPreview);
+      function requestBody(){return {escopo:scope.value,usuarios:scope.value==='selecionados'?[...individualList.querySelectorAll('input:checked')].map(x=>x.value):[],grupo:group.value,modo:mode.value,chaves:checkedKeys()};}
+      doPreview.onclick=async()=>{clearPreview();doPreview.disabled=true;selectionStatus.textContent='Conferindo usuários e diferenças no servidor...';try{const body=requestBody();const p=await api(advancedUrl+'previa',{method:'POST',body:JSON.stringify(body)});if(!layer.isConnected)return;advancedPreview={...body,token:p.token,expira_em:p.expiraEm,usuariosConferidos:p.usuarios.map(u=>({usuario:u.usuario,revisao:u.revisao}))};previewBox.replaceChildren();previewBox.appendChild(advancedElement('strong',{},p.quantidade+' usuários / '+p.totalAlteracoes+' mudanças de permissão.'));p.usuarios.forEach(u=>{const row=advancedElement('div',{},u.nome+' ('+u.tipo+'): '+u.alteracoes.length+' alteração(ões)');row.style.marginTop='5px';previewBox.appendChild(row)});previewBox.style.display='block';doSave.disabled=false;selectionStatus.textContent='Confira todos os destinatários e confirme somente se estiverem corretos.';}catch(e){selectionStatus.textContent='Erro na prévia: '+(e.message||'falha desconhecida')}finally{doPreview.disabled=false}};
+      form.onsubmit=async e=>{e.preventDefault();doSave.disabled=true;let pending=advancedPreview;
+        try{
+          if(massMode){
+            if(!pending)throw Error('Gere uma prévia antes de aplicar.');
+            const approved=pending.usuariosConferidos||[];
+            if(!window.confirm('Confirmar a alteração dos '+approved.length+' funcionários exibidos na prévia?')){doSave.disabled=false;return;}
+            let changed=0,unchanged=0,processed=0;
+            for(let index=0;index<approved.length;index+=5){
+              const batch=approved.slice(index,index+5);
+              const body={escopo:'selecionados',usuarios:batch.map(u=>u.usuario),grupo:pending.grupo,modo:pending.modo,chaves:pending.chaves};
+              selectionStatus.textContent='Conferindo e gravando usuários '+(index+1)+'–'+Math.min(index+5,approved.length)+' de '+approved.length+'...';
+              const current=await api(advancedUrl+'previa',{method:'POST',body:JSON.stringify(body)});
+              if(current.usuarios.length!==batch.length||current.usuarios.some((u,j)=>u.usuario!==batch[j].usuario||u.revisao!==batch[j].revisao)){
+                throw Error('O cadastro mudou desde a prévia. '+processed+' usuários foram concluídos; gere nova prévia para os demais.');
+              }
+              const result=await api(advancedUrl+'aplicar',{method:'POST',body:JSON.stringify({...body,token:current.token,expira_em:current.expiraEm})});
+              changed+=result.alterados;unchanged+=result.semAlteracao;processed+=result.quantidade;
+            }
+            selectionStatus.textContent='Concluído: '+changed+' alterados e '+unchanged+' já configurados. Todos os '+processed+' usuários foram conferidos no banco. Para permissões legadas do portal Indústrias, o funcionário deve entrar novamente.';
+            clearPreview();
+          }
+          else {if(!singleCurrent)throw Error('Selecione um usuário.');const changes=Object.fromEntries([...checks.querySelectorAll('input[type=checkbox]')].map(c=>[c.value,c.checked]));selectionStatus.textContent='Salvando e conferindo no banco...';await api(advancedUrl+'salvar',{method:'POST',body:JSON.stringify({usuario:singleCurrent.usuario,revisao:advancedRevision,permissoes:changes})});const confirmed=await api(advancedUrl+'usuario?usuario='+encodeURIComponent(singleCurrent.usuario),{cache:'no-store'});if(Object.keys(changes).some(k=>confirmed.permissoes[k]!==changes[k]))throw Error('O servidor não confirmou os valores selecionados.');singleCurrent=confirmed;advancedRevision=confirmed.revisao;selectionStatus.textContent='Permissões salvas e confirmadas no cadastro.'+(group.value==='MAPA_ESTOQUE'?' O funcionário deve entrar novamente para renovar a sessão do portal Indústrias.':'');}
+        }catch(err){selectionStatus.textContent='Falha: '+(err.message||'Permissões não confirmadas. Reabra e confira antes de prosseguir.');}
+        finally{if(!massMode)doSave.disabled=false;}
+      };
+      updateMode();
+      const alreadySelected=String(document.getElementById('permissionUser')?.value||'').trim();
+      if(alreadySelected&&advancedPeople.some(x=>x.usuario===alreadySelected)){userSelect.value=alreadySelected;userSelect.dispatchEvent(new Event('change'))}
+    }catch(e){if(message())message().textContent='Não foi possível abrir a central: '+(e.message||'erro desconhecido')}
+  }
+
   async function init(){
     addStyle();applyFixedConfigPresentation();
     try{
@@ -849,8 +966,8 @@
       canAccessIndustryPortal=p[INTERNAL_PORTAL_PERMISSION]===true;
     }catch(e){isAdministrator=false;canManageUsers=false;canViewPermissions=false;canManagePermissions=false;canUpdateStock=false;canAccessIndustryPortal=false;}
     if(canManageUsers){ensureUserModal();ensureUserLauncher();}
-    ensureSettingsSection();wrapLaunchers();syncIndustriesHeaderButton();ensureIndustriesHomeCard();ensureDetailedPermissionLauncher();
-    new MutationObserver(()=>{applyFixedConfigPresentation();ensureUserLauncher();ensureSettingsSection();wrapLaunchers();syncIndustriesHeaderButton();ensureIndustriesHomeCard();if(document.getElementById('permissionsModal')&&!document.getElementById('permissionsModal').classList.contains('hidden'))setTimeout(()=>{renderIndustryPermissionsInPermissionsScreen(false);ensureDetailedPermissionLauncher();},0);}).observe(document.documentElement,{subtree:true,childList:true});
+    ensureSettingsSection();wrapLaunchers();syncIndustriesHeaderButton();ensureIndustriesHomeCard();ensureDetailedPermissionLauncher();advancedLauncher();
+    new MutationObserver(()=>{applyFixedConfigPresentation();ensureUserLauncher();ensureSettingsSection();wrapLaunchers();syncIndustriesHeaderButton();ensureIndustriesHomeCard();if(document.getElementById('permissionsModal')&&!document.getElementById('permissionsModal').classList.contains('hidden'))setTimeout(()=>{renderIndustryPermissionsInPermissionsScreen(false);ensureDetailedPermissionLauncher();advancedLauncher();},0);}).observe(document.documentElement,{subtree:true,childList:true});
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();

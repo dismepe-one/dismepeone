@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import io
 import json
 import re
@@ -191,6 +192,260 @@ async def granular_permissions_save(
             domain=settings.cookie_domain, path="/")
     return {"sucesso": True, "usuario": row["usuario"], "mensagem":
             "Permissões da Positivação Geral atualizadas. As demais permissões foram preservadas."}
+
+
+# Permissões efetivas: somente chaves cuja API já verifica o acesso.
+# Não incluir funções inexistentes: opções sem validação no servidor seriam enganosas.
+_ADVANCED_GROUPS: dict[str, dict[str, str]] = {
+    "POSITIVACAO_GERAL": dict(_POS_GRANULAR),
+    "MAPA_ESTOQUE": {
+        "INDUSTRIA_PORTAL_INTERNO": "Acessar o portal interno de Indústrias e o Mapa de Estoque (novo login)",
+        "INDUSTRIA_MAPA_ATUALIZAR": "Atualizar a base do Mapa (requer acesso ao portal e novo login)",
+    },
+}
+_ADVANCED_NAMES = {"POSITIVACAO_GERAL": "Positivação Geral", "MAPA_ESTOQUE": "Mapa de Estoque / Indústrias"}
+_ADVANCED_KEYS = {key for values in _ADVANCED_GROUPS.values() for key in values}
+
+
+class AdvancedPermissionSave(BaseModel):
+    usuario: str = Field(min_length=1, max_length=120)
+    revisao: str = Field(min_length=64, max_length=64)
+    permissoes: dict[str, bool] = Field(min_length=1, max_length=20)
+
+
+class AdvancedPermissionBatch(BaseModel):
+    escopo: str = Field(min_length=5, max_length=30)
+    usuarios: list[str] = Field(default_factory=list, max_length=100)
+    grupo: str = Field(min_length=3, max_length=50)
+    modo: str = Field(min_length=7, max_length=15)
+    chaves: list[str] = Field(default_factory=list, max_length=20)
+
+
+class AdvancedPermissionApply(AdvancedPermissionBatch):
+    token: str = Field(min_length=64, max_length=64)
+    expira_em: int
+
+
+def _advanced_effective(row: dict[str, Any]) -> dict[str, bool]:
+    raw = _permission_map(row.get("permissoes"))
+    own_role = normalizar(row.get("tipo")) in {"VENDEDOR", "TELEVENDAS"}
+    defaults = {"POS_GERAL_VER_PROPRIA", "POS_GERAL_OBSERVACOES_VER",
+                "POS_GERAL_OBSERVACOES_EDITAR", "POS_GERAL_INATIVIDADE_SOLICITAR",
+                "POS_GERAL_EXPORTAR"}
+    return {key: (True if _is_admin_profile(row) else
+                  raw.get(key) is True if key in raw else own_role and key in defaults)
+            for key in _ADVANCED_KEYS}
+
+
+def _advanced_targets(users: list[dict[str, Any]], body: AdvancedPermissionBatch) -> list[dict[str, Any]]:
+    if body.grupo not in _ADVANCED_GROUPS or body.modo not in {"adicionar", "substituir"}:
+        raise HTTPException(400, "Grupo ou modo inválido.")
+    permitted = set(_ADVANCED_GROUPS[body.grupo])
+    if len(body.chaves) != len(set(body.chaves)) or not set(body.chaves).issubset(permitted):
+        raise HTTPException(400, "Há permissões inválidas ou duplicadas na seleção.")
+    if body.modo == "adicionar" and not body.chaves:
+        raise HTTPException(400, "Escolha ao menos uma permissão para adicionar.")
+    scopes = {"vendedores": {"VENDEDOR"}, "televendas": {"TELEVENDAS"},
+              "ambos": {"VENDEDOR", "TELEVENDAS"}, "selecionados": {"VENDEDOR", "TELEVENDAS"}}
+    if body.escopo not in scopes:
+        raise HTTPException(400, "Escopo de usuários inválido.")
+    if body.escopo != "selecionados" and body.usuarios:
+        raise HTTPException(400, "O escopo de todos não aceita uma lista individual.")
+    requested = {normalizar(name) for name in body.usuarios}
+    if body.escopo == "selecionados" and (not requested or len(requested) != len(body.usuarios)):
+        raise HTTPException(400, "Escolha usuários distintos para a aplicação individual.")
+    result = [u for u in users
+              if normalizar(u.get("tipo")) in scopes[body.escopo]
+              and not _is_admin_profile(u)
+              and (body.escopo != "selecionados" or normalizar(u.get("usuario")) in requested)]
+    if body.escopo == "selecionados" and {normalizar(u["usuario"]) for u in result} != requested:
+        raise HTTPException(400, "Seleção contém usuário não localizado ou fora dos cargos permitidos.")
+    if not result or len(result) > 100:
+        raise HTTPException(400, "O grupo está vazio ou excede o limite de 100 funcionários por operação.")
+    if len({normalizar(u["usuario"]) for u in result}) != len(result):
+        raise HTTPException(409, "Cadastro possui logins duplicados; operação cancelada.")
+    return sorted(result, key=lambda u: normalizar(u["usuario"]))
+
+
+def _advanced_changes(row: dict[str, Any], body: AdvancedPermissionBatch) -> dict[str, bool]:
+    raw = _permission_map(row.get("permissoes"))
+    keys = set(body.chaves)
+    if body.modo == "substituir":
+        return {key: key in keys for key in _ADVANCED_GROUPS[body.grupo]}
+    return {key: True for key in keys if raw.get(key) is not True}
+
+
+def _advanced_check_dependencies(row: dict[str, Any], changes: dict[str, bool]) -> None:
+    # A permissão de atualizar não substitui o direito de entrar no portal.
+    related = {"INDUSTRIA_PORTAL_INTERNO", "INDUSTRIA_MAPA_ATUALIZAR"}
+    if not related.intersection(changes):
+        return
+    current = _permission_map(row.get("permissoes"))
+    current.update(changes)
+    if (current.get("INDUSTRIA_MAPA_ATUALIZAR") is True
+            and current.get("INDUSTRIA_PORTAL_INTERNO") is not True):
+        raise HTTPException(400, "Para liberar atualização do Mapa, libere também o acesso ao portal Indústrias.")
+
+
+def _advanced_signature(rows: list[dict[str, Any]], body: AdvancedPermissionBatch, expira_em: int) -> str:
+    content = {"escopo": body.escopo, "usuarios": sorted(map(normalizar, body.usuarios)),
+               "grupo": body.grupo, "modo": body.modo, "chaves": sorted(body.chaves),
+               "expiraEm": expira_em,
+               "revisoes": [(normalizar(r["usuario"]), _granular_revision(r)) for r in rows]}
+    raw = json.dumps(content, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return hmac.new(settings.jwt_secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
+
+
+async def _advanced_roster() -> list[dict[str, Any]]:
+    try:
+        return _active_supabase_users(await _edge_admin_write("USUARIOS_LIST", {}))
+    except IndustryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+async def _advanced_verify(usuario: str, expected: dict[str, Any], tipo: str) -> bool:
+    roster = await _advanced_roster()
+    rows = [u for u in roster if normalizar(u.get("usuario")) == normalizar(usuario)]
+    if len(rows) != 1 or normalizar(rows[0].get("tipo")) != normalizar(tipo):
+        return False
+    # Comparar TODAS as chaves, não somente os checks enviados pela interface.
+    return _permission_map(rows[0].get("permissoes")) == expected
+
+
+def _advanced_invalidate_roster() -> None:
+    # Invalidação imediata no processo corrente; outros processos conferem em até 30 s.
+    from . import positivacao_geral
+    positivacao_geral._ROSTER_AT = 0.0
+
+
+@router.get("/admin/permissoes-avancadas/catalogo")
+async def advanced_permissions_catalog(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
+    _permission_view_profile(session)
+    return {"sucesso": True, "grupos": [
+        {"id": code, "nome": _ADVANCED_NAMES[code],
+         "itens": [{"chave": key, "nome": label} for key, label in items.items()]}
+        for code, items in _ADVANCED_GROUPS.items()
+    ], "aviso": "Somente funções com validação específica no servidor são exibidas aqui."}
+
+
+@router.get("/admin/permissoes-avancadas/usuarios")
+async def advanced_permissions_users(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
+    _strict_admin_profile(session)
+    roster = await _advanced_roster()
+    return {"sucesso": True, "usuarios": [
+        {"usuario": u["usuario"], "nome": u["nome"], "tipo": u["tipo"]}
+        for u in roster if normalizar(u.get("tipo")) in {"VENDEDOR", "TELEVENDAS"}
+        and not _is_admin_profile(u)
+    ]}
+
+
+@router.get("/admin/permissoes-avancadas/usuario")
+async def advanced_permissions_user(usuario: str, session: str | None = Cookie(default=None, alias=settings.cookie_name)):
+    _permission_view_profile(session)
+    row = await _granular_user(usuario)
+    return {"sucesso": True, "usuario": row["usuario"], "nome": row["nome"],
+            "tipo": row["tipo"], "revisao": _granular_revision(row),
+            "administrador": _is_admin_profile(row), "permissoes": _advanced_effective(row)}
+
+
+@router.post("/admin/permissoes-avancadas/salvar")
+async def advanced_permissions_save(
+    body: AdvancedPermissionSave,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    _strict_admin_profile(session)
+    if not set(body.permissoes).issubset(_ADVANCED_KEYS):
+        raise HTTPException(400, "Uma das permissões não possui autorização no servidor.")
+    async with _GRANULAR_LOCK:
+        row = await _granular_user(body.usuario)
+        if _is_admin_profile(row):
+            raise HTTPException(403, "As permissões do administrador não podem ser alteradas aqui.")
+        if _granular_revision(row) != body.revisao:
+            raise HTTPException(409, "Cadastro alterado; reabra o usuário e tente novamente.")
+        updated = dict(_permission_map(row.get("permissoes")))
+        _advanced_check_dependencies(row, body.permissoes)
+        updated.update(body.permissoes)
+        try:
+            await _edge_admin_write("USUARIO_PERMISSOES_SET", {
+                "usuario_norm": normalizar(row["usuario"]), "tipo": str(row["tipo"]),
+                "permissoes": updated,
+            })
+        except IndustryError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        if not await _advanced_verify(row["usuario"], updated, str(row["tipo"])):
+            raise HTTPException(503, "A gravação não foi confirmada no cadastro; não considere a permissão liberada.")
+        _advanced_invalidate_roster()
+    return {"sucesso": True, "usuario": row["usuario"], "mensagem": "Permissões salvas e conferidas no cadastro."}
+
+
+@router.post("/admin/permissoes-avancadas/previa")
+async def advanced_permissions_preview(
+    body: AdvancedPermissionBatch,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    _strict_admin_profile(session)
+    rows = _advanced_targets(await _advanced_roster(), body)
+    expira_em = int(time.time()) + 600
+    changed = []
+    for row in rows:
+        actual = _advanced_effective(row)
+        changes = _advanced_changes(row, body)
+        _advanced_check_dependencies(row, changes)
+        changed.append({"usuario": row["usuario"], "nome": row["nome"], "tipo": row["tipo"],
+                        "revisao": _granular_revision(row),
+                        "alteracoes": [{"chave": key, "antes": actual[key], "depois": value}
+                                       for key, value in changes.items() if actual[key] != value]})
+    return {"sucesso": True, "quantidade": len(rows),
+            "usuarios": changed, "totalAlteracoes": sum(len(x["alteracoes"]) for x in changed),
+            "token": _advanced_signature(rows, body, expira_em), "expiraEm": expira_em}
+
+
+@router.post("/admin/permissoes-avancadas/aplicar")
+async def advanced_permissions_apply(
+    body: AdvancedPermissionApply,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    editor = _strict_admin_profile(session)
+    if int(time.time()) > body.expira_em or body.expira_em > time.time() + 600:
+        raise HTTPException(409, "Prévia expirada; gere uma nova antes de aplicar.")
+    async with _GRANULAR_LOCK:
+        current = await _advanced_roster()
+        rows = _advanced_targets(current, body)
+        if not hmac.compare_digest(_advanced_signature(rows, body, body.expira_em), body.token):
+            raise HTTPException(409, "Cadastro ou seleção alterados; gere novamente a prévia.")
+        confirmed: list[str] = []
+        unchanged: list[str] = []
+        for row in rows:
+            actual = dict(_permission_map(row.get("permissoes")))
+            changes = _advanced_changes(row, body)
+            _advanced_check_dependencies(row, changes)
+            next_map = dict(actual)
+            next_map.update(changes)
+            if next_map == actual:
+                unchanged.append(row["usuario"])
+                continue
+            try:
+                await _edge_admin_write("USUARIO_PERMISSOES_SET", {
+                    "usuario_norm": normalizar(row["usuario"]), "tipo": str(row["tipo"]),
+                    "permissoes": next_map,
+                })
+                if not await _advanced_verify(row["usuario"], next_map, str(row["tipo"])):
+                    raise RuntimeError("O cadastro não confirmou a gravação.")
+            except Exception as exc:
+                _advanced_invalidate_roster()
+                # Operação não é uma transação única: explicitar sucesso parcial;
+                # nunca informar sucesso global quando houve erro em um destinatário.
+                raise HTTPException(503, detail={
+                    "mensagem": f"Aplicação interrompida: {len(confirmed)} usuários confirmados; "
+                                "um registro falhou ou não pôde ser confirmado. Gere uma nova prévia para os restantes.",
+                    "confirmados": confirmed, "semAlteracao": unchanged,
+                    "falhouEm": row["usuario"], "motivo": str(exc)[:160],
+                }) from exc
+            confirmed.append(row["usuario"])
+        _advanced_invalidate_roster()
+    return {"sucesso": True, "quantidade": len(rows), "alterados": len(confirmed),
+            "semAlteracao": len(unchanged), "usuariosConfirmados": confirmed,
+            "mensagem": "Permissões persistidas e verificadas para todos os usuários selecionados."}
 
 
 class IndustryOperatorPermissionsRequest(BaseModel):
