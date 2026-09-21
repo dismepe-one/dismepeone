@@ -1923,6 +1923,34 @@ async def positivacao_observacoes_alterar(
     return _safe_json_response({'sucesso': True, 'observacao': result.get('observacao')})
 
 
+@router.delete('/positivacoes/api/observacoes/{codigo}/{observacao_id}')
+async def positivacao_observacoes_excluir(
+    codigo: str, observacao_id: int, versao: int = Query(..., ge=1),
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    context = await _viewer_context(session)
+    codigo = _obs_valid_code(codigo)
+    if not _pos_cap(context, 'POS_GERAL_OBSERVACOES_EDITAR'):
+        raise HTTPException(403, 'Você não possui permissão para excluir observações.')
+    await _obs_permission(context, codigo, historic_admin=True, write=True)
+    notes = await _obs_page([codigo])
+    record = next((item for item in notes if item['id'] == observacao_id), None)
+    if record is None:
+        raise HTTPException(404, 'Observação não encontrada neste cliente.')
+    if not _obs_can_edit(record, context):
+        raise HTTPException(403, 'Somente o autor ou um administrador pode excluir esta observação.')
+    if int(record['versao']) != versao:
+        raise HTTPException(409, 'Observação alterada por outro usuário. Recarregue e tente novamente.')
+    author_login = str(context['profile'].get('usuario') or '').strip()
+    if not author_login:
+        raise HTTPException(403, 'Sessão sem usuário identificado.')
+    await _obs_edge('DELETE', {
+        'id': observacao_id, 'cliente_codigo': codigo,
+        'versao': versao, 'apagada_por': author_login,
+    })
+    return _safe_json_response({'sucesso': True, 'mensagem': 'Observação excluída.'})
+
+
 def _obs_export_text(note: dict[str, Any]) -> str:
     kind = 'Fixa' if note['tipo'] == 'fixa' else 'Temporária'
     deadline = (' | Retorno: ' + str(note['retorno_em'])) if note.get('retorno_em') else ''
@@ -2240,11 +2268,25 @@ async def positivacao_export(
         ws.title = "Positivacao Geral"
         ws.append(headers + ["Observações", "Inatividade"])
         for row in rows:
-            texts = "\n\n".join(_obs_export_text(n) for n in notes_by_code.get(row["codigo"], []))
+            registered = notes_by_code.get(row["codigo"], [])
+            texts = "\n\n".join(_obs_export_text(n) for n in registered)
             status_inat = ("INATIVO • aprovado em " + str(row.get("inatividadeAprovadaEm") or "")[:10] +
                            " • " + str(row.get("inatividadeMotivo") or "")) if row.get("inativo") else ""
-            ws.append(_export_fields(row) + [_obs_excel_text(texts[:32000]),
-                                             _obs_excel_text(status_inat[:32000])])
+            fields = _export_fields(row)
+            markers = []
+            if registered:
+                markers.append(f"OBSERVAÇÕES ({len(registered)})")
+            if row.get("inativo"):
+                markers.append("CLIENTE INATIVO")
+            if markers:
+                fields[2] += "\n" + " | ".join(markers)
+            ws.append(fields + [_obs_excel_text(texts[:32000]),
+                                _obs_excel_text(status_inat[:32000])])
+            if registered and not row.get("inativo") and not row["bloqueado"]:
+                for cell in ws[ws.max_row]:
+                    cell.fill = PatternFill("solid", fgColor="E5F1FF")
+                ws.cell(ws.max_row, 3).font = Font(color="14539A", bold=True)
+                ws.cell(ws.max_row, 10).font = Font(color="14539A", bold=True)
             if row.get("inativo"):
                 for cell in ws[ws.max_row]:
                     cell.fill = PatternFill("solid", fgColor="FCE8E6")
@@ -2310,8 +2352,12 @@ async def positivacao_export(
         table_data=[[Paragraph(escape(h),styles["CellTinyPos"]) for h in headers]]
         blocked_pdf_rows = []
         inactive_pdf_rows = []
+        noted_pdf_rows = []
         for row in rows:
             fields = _export_fields(row)
+            registered = notes_by_code.get(row["codigo"], [])
+            if registered:
+                noted_pdf_rows.append(len(table_data))
             if row.get("inativo"):
                 inactive_pdf_rows.append(len(table_data))
                 fields[7] = "INATIVO"
@@ -2319,6 +2365,22 @@ async def positivacao_export(
                 blocked_pdf_rows.append(len(table_data))
                 fields[-1] = "BLOQUEADO"
             cells = [Paragraph(escape(str(x)), styles["CellTinyPos"]) for x in fields]
+            # Coluna Cliente: destaque e resumo direto na linha correspondente,
+            # sem obrigar o vendedor a procurar observações ao final do PDF.
+            customer = '<b>' + escape(str(row["cliente"])) + '</b>'
+            if row.get("inativo"):
+                customer += '<br/><font color="#B42318"><b>CLIENTE INATIVO</b></font>'
+                reason = str(row.get("inatividadeMotivo") or "").strip()
+                if reason:
+                    customer += '<br/><font color="#B42318">Motivo: ' + escape(reason[:170]) + '</font>'
+            if registered:
+                customer += '<br/><font color="#14539A"><b>OBSERVAÇÕES (' + str(len(registered)) + ')</b></font>'
+                for note in registered[:3]:
+                    preview = str(note.get("motivo") or "").strip() + ': ' + str(note.get("texto") or "").strip()
+                    customer += '<br/><font color="#14539A">- ' + escape(preview[:190]) + '</font>'
+                if len(registered) > 3:
+                    customer += '<br/><font color="#14539A">+ ' + str(len(registered)-3) + ' outras observações</font>'
+            cells[2] = Paragraph(customer, styles["CellTinyPos"])
             if row["bloqueado"] and not row.get("inativo"):
                 cells[-1] = Paragraph('<font color="#B42318"><b>BLOQUEADO</b></font>', styles["CellTinyPos"])
             table_data.append(cells)
@@ -2333,6 +2395,9 @@ async def positivacao_export(
                                    ("BOTTOMPADDING",(0,0),(-1,-1),5),
                                    ("TOPPADDING",(0,0),(-1,-1),5),
                                    ("LINEBELOW",(0,0),(-1,0),.5,colors.HexColor("#075548"))]))
+        if noted_pdf_rows:
+            table.setStyle(TableStyle([("BACKGROUND", (0, i), (-1, i), colors.HexColor("#E5F1FF"))
+                                       for i in noted_pdf_rows]))
         if blocked_pdf_rows:
             table.setStyle(TableStyle([("BACKGROUND", (0, i), (-1, i), colors.HexColor("#FCE8E6"))
                                        for i in blocked_pdf_rows]))
@@ -2340,26 +2405,8 @@ async def positivacao_export(
             table.setStyle(TableStyle([("BACKGROUND", (0, i), (-1, i), colors.HexColor("#FCE8E6"))
                                        for i in inactive_pdf_rows]))
         story.append(table)
-        if notes:
-            story.extend([Spacer(1, 16), Paragraph("Observações dos clientes", styles["Heading2"])])
-            for row in rows:
-                registered = notes_by_code.get(row["codigo"], [])
-                if not registered:
-                    continue
-                label = escape(str(row["codigo"]) + " - " + str(row["cliente"]))
-                story.append(Paragraph("<b>" + label + "</b>", styles["Normal"]))
-                for note in registered:
-                    safe_text = escape(_obs_export_text(note)).replace("\n", "<br/>")
-                    story.append(Paragraph(safe_text, styles["ObsTinyPos"]))
-                story.append(Spacer(1, 6))
-        if inactive_pdf_rows:
-            story.extend([Spacer(1,14), Paragraph("Clientes inativos — fora dos indicadores e pendências", styles["Heading2"])])
-            for row in rows:
-                if row.get("inativo"):
-                    desc = ("Cliente " + row["codigo"] + " — " + row["cliente"] +
-                            " | Aprovado em: " + str(row.get("inatividadeAprovadaEm") or "")[:10] +
-                            " | Motivo: " + str(row.get("inatividadeMotivo") or ""))
-                    story.append(Paragraph(escape(desc), styles["ObsTinyPos"]))
+        # Observações e inatividade aparecem na própria linha do cliente.
+        # A planilha Excel mantém, além da linha destacada, o texto integral.
         doc.build(story)
         media="application/pdf"; ext="pdf"
     else:

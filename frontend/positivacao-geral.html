@@ -75,6 +75,7 @@
 .notes-scroller{display:grid;gap:10px;max-height:32vh;overflow:auto;margin:13px 0;padding-right:3px}
 .note-item{padding:12px;border:1px solid #d6e7df;border-radius:11px;background:#f9fcfa;min-width:0}
 .note-item-top,.note-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.note-actions{margin-top:9px}
+.note-delete{color:#b42318;border-color:#eeb6b1}.note-delete:hover,.note-delete:focus-visible{background:#fff1f0;border-color:#b42318}
 .note-chip{display:inline-flex;padding:4px 8px;border-radius:99px;font-size:10px;font-weight:850;background:#e6efff;color:#25528f}
 .note-chip.fixed{background:#dff4e9;color:#08664c}.note-chip.done{background:#edf2ef;color:#5d7469}.note-chip.late{background:#fff1db;color:#a8610b}.note-chip.open{background:#eef7fb;color:#236889}
 .note-reason{margin:8px 0 4px;font-size:12px;font-weight:900;overflow-wrap:anywhere}.note-body{font-size:12px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
@@ -511,6 +512,7 @@ function noteCard(note){
   '<div class="note-meta">Por '+nomeHtml(note.autor_nome)+' • '+esc(noteDate(note.criada_em))+
   (note.retorno_em?' • Retorno: '+esc(noteDate(note.retorno_em)):'')+'</div>'+
   '<div class="note-actions">'+(note.editavel?'<button type="button" class="btn ghost sm" data-note-edit="'+Number(note.id)+'">Editar / concluir</button>':'')+
+  (note.editavel?'<button type="button" class="btn ghost sm note-delete" data-note-delete="'+Number(note.id)+'" aria-label="Excluir esta observação">Excluir</button>':'')+
   '<button type="button" class="btn ghost sm" data-note-history="'+Number(note.id)+'">Histórico</button>'+
   (note.tipo==='fixa'&&snapshot?.acesso?.capacidades?.solicitarInatividade?'<button type="button" class="btn ghost sm" data-inat-note="'+Number(note.id)+'">Solicitar inatividade</button>':'')+'</div></article>';
 }
@@ -561,6 +563,23 @@ $('noteCancel').addEventListener('click',()=>{$('notesModal').hidden=true;noteCl
 $('noteCancelEdit').addEventListener('click',()=>noteFormState(null));
 $('notesModal').addEventListener('click',event=>{if(event.target===$('notesModal')){$('notesModal').hidden=true;noteClientCode='';}});
 $('notesList').addEventListener('click',async event=>{
+ const remove=event.target.closest('[data-note-delete]');
+ if(remove){
+  const note=noteRecords.find(n=>Number(n.id)===Number(remove.dataset.noteDelete));
+  if(!note?.editavel||noteBusy)return;
+  if(!confirm('Excluir esta observação do cliente? Ela deixará de aparecer nas listas e exportações.'))return;
+  noteBusy=true;remove.disabled=true;
+  const code=noteClientCode;
+  try{
+   await getJSON('/positivacoes/api/observacoes/'+encodeURIComponent(code)+'/'+Number(note.id)+'?versao='+Number(note.versao),{method:'DELETE'});
+   if(noteEditing&&Number(noteEditing.id)===Number(note.id))noteFormState(null);
+   $('notesHistory').hidden=true;
+   if(noteClientCode===code){await openClientNotes(code);await loadClients();}
+   showAlert('Observação excluída.');
+  }catch(e){$('noteError').textContent=e.message;showAlert(e.message,true);remove.disabled=false;}
+  finally{noteBusy=false;}
+  return;
+ }
  const edit=event.target.closest('[data-note-edit]');
  if(edit){
   const note=noteRecords.find(n=>Number(n.id)===Number(edit.dataset.noteEdit));
