@@ -591,7 +591,7 @@ def _split_customer_owner(prefix: str, owner_id: str, tel_names: dict[str, str])
     return before, "", True
 
 
-_PDF_PARSER_VERSION = "poppler-recomposicao-raw-v12-nomes-originais"
+_PDF_PARSER_VERSION = "poppler-recomposicao-raw-v13-consulta-diretoria"
 
 
 def _pdf_pages_fast(raw: bytes, *, mode: str = "layout") -> list[str]:
@@ -882,7 +882,14 @@ def _consolidate(clients: dict[str, dict[str, Any]], sales: dict[str, dict[str, 
         seller_positive = sorted(set(actors) & credited_sellers)
         tele_positive = sorted(set(teleactors) & credited_tele)
         status = "Positivado" if origins else "Não positivado"
+        # Carteira da Diretoria = cabeçalhos DIRETORIA/DIRETORIA I/
+        # DIRETORIA INATIVO do PDF. Não confundir com a origem da venda
+        # "Diretoria/Supervisão" da planilha; não criar crédito de vendedor.
+        directorate = bool(original.get("carteiraDiretoria")) or any(
+            _norm(owner).startswith("DIRETORIA") for owner in original["vendedoresPdf"]
+        )
         row = {
+            "carteiraDiretoria": directorate,
             "codigo": code, "cliente": original["cliente"], "cnpj": (entry or {}).get("cnpj", ""),
             "cidade": original.get("cidade", ""), "uf": original.get("uf", ""),
             "televendasQuePositivaram": list(dict.fromkeys(credited.get("Televendas", []))),
@@ -1011,6 +1018,8 @@ def _portfolio_from_published(previous: dict[str, Any]) -> dict[str, dict[str, A
         portfolio[code] = {
             "codigo": code, "cliente": name, "bloqueado": bool(row.get("bloqueado")),
             "vendedoresPdf": list(sellers), "televendasPdf": list(televendas),
+            # Guardar associação original em reusos rápidos do PDF.
+            "carteiraDiretoria": row.get("carteiraDiretoria") is True,
             "cidade": str(row.get("cidade") or ""), "uf": str(row.get("uf") or ""),
             "vinculos": [{} for _ in range(2 if row.get("carteiraCompartilhada") else 1)],
         }
@@ -1413,11 +1422,15 @@ def _selected(data: dict[str, Any], status: str, setor: str, search: str,
     if status not in {"todos", "positivados", "nao-positivados", "bloqueados", "inativos"}:
         raise HTTPException(400, "Filtro inválido.")
     is_tv = setor.startswith("TV:")
+    is_directorate = setor == "DIR:CARTEIRA"
     person = _norm(setor[3:] if is_tv else setor)
     norm_search = _norm(search)
     result = []
     for c in data["clientes"]:
-        if person:
+        if is_directorate:
+            if c.get("carteiraDiretoria") is not True:
+                continue
+        elif person:
             wallet = c["televendas"] if is_tv else c["setores"]
             if all(_norm(x) != person for x in wallet):
                 continue
@@ -1470,7 +1483,17 @@ def _origins_for_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
 
 def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     if context.get("view_all"):
-        return {**data, "acesso": {"individual": False,
+        # Somente administradores ou usuários com POS_GERAL_VER_TODOS.
+        # A opção não é incluída na resposta de carteira individual.
+        diretoria = [r for r in data["clientes"] if r.get("carteiraDiretoria") is True]
+        ativos = [r for r in diretoria if not r.get("inativo")]
+        positivos = sum(r.get("status") == "Positivado" for r in ativos)
+        grupos_diretoria = ([{"setor": "Diretoria", "total": len(ativos),
+                            "positivados": positivos, "naoPositivados": len(ativos)-positivos,
+                            "bloqueados": sum(bool(r.get("bloqueado")) for r in ativos),
+                            "percentual": round(100*positivos/len(ativos), 2) if ativos else 0}]
+                           if diretoria else [])
+        return {**data, "carteirasDiretoria": grupos_diretoria, "acesso": {"individual": False,
                 "canal": "Administração" if context.get("admin") else "Visualização autorizada",
                 "capacidades": _pos_capabilities(context)}}
     person = context["pessoa"]
@@ -1567,11 +1590,14 @@ async def positivacao_filtered_summary(
     if not setor:
         return _safe_json_response({"indicadores": data["indicadores"],
                                     "origens": data["origens"], "setores": data["setores"],
-                                    "carteirasTelevendas": data.get("carteirasTelevendas", [])})
+                                    "carteirasTelevendas": data.get("carteirasTelevendas", []),
+                                    "carteirasDiretoria": data.get("carteirasDiretoria", [])})
     is_tv = setor.startswith("TV:")
-    person = _norm(setor[3:] if is_tv else setor)
+    is_directorate = setor == "DIR:CARTEIRA"
+    person = _norm("Diretoria" if is_directorate else setor[3:] if is_tv else setor)
     key = "televendas" if is_tv else "setor"
-    group = data.get("carteirasTelevendas", []) if is_tv else data["setores"]
+    group = (data.get("carteirasDiretoria", []) if is_directorate else
+             data.get("carteirasTelevendas", []) if is_tv else data["setores"])
     matched = next((x for x in group if _norm(x[key]) == person), None)
     if matched is None:
         raise HTTPException(400, "Profissional indisponivel na fotografia atual.")
@@ -1580,7 +1606,7 @@ async def positivacao_filtered_summary(
     total = len(live)
     positive = sum(x["status"] == "Positivado" for x in live)
     blocked = sum(bool(x["bloqueado"]) for x in live)
-    channel = "Televendas" if is_tv else "Vendedor"
+    channel = "Diretoria" if is_directorate else "Televendas" if is_tv else "Vendedor"
     origins = _origins_for_rows(customers)
     focused = {**matched, "total": total, "positivados": positive,
                "naoPositivados": total-positive, "bloqueados": blocked,
@@ -2179,6 +2205,8 @@ async def positivacao_export(
     if not _pos_cap(context, 'POS_GERAL_EXPORTAR'):
         raise HTTPException(403, 'Você não possui permissão para exportar Positivações.')
     setor = _enforced_sector(setor, context)
+    if setor == "DIR:CARTEIRA":
+        raise HTTPException(403, "A carteira da Diretoria está disponível apenas para consulta na tela.")
     # Nunca processar a exportacao corporativa completa.
     if not setor or not setor.strip():
         raise HTTPException(400, "Selecione um vendedor ou televendas antes de exportar PDF ou Excel.")
