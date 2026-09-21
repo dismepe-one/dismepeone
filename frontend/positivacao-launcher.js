@@ -3,6 +3,24 @@
  if(window.__DISMEPE_POS_LAUNCHER__)return;
  window.__DISMEPE_POS_LAUNCHER__=true;
  let admin=false,pending=false;
+ const POSITIVACOES_URL='https://dismepeone.com.br/positivacoes';
+ // Captura o clique no card da Home antes do onclick legado que pode abrir uma tela em branco.
+ // Atua somente sobre o card Positivações já exibido; a API mantém o controle real de acesso.
+ function routeHomeCard(event){
+   if(event.defaultPrevented || event.button!==0 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey)return;
+   const home=document.getElementById('homeCards');
+   const target=event.target;
+   const card=target && typeof target.closest==='function' ? target.closest('a.home-card, button.home-card') : null;
+   if(!home || !card || !home.contains(card))return;
+   const label=String(card.querySelector('.font-black, strong, h2, h3')?.textContent || card.getAttribute('aria-label') || '')
+     .normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();
+   const isPositivacoes=card.id==='homePositivacaoGeral' || card.id==='homePositivacoesDev9'
+     || /^(?:MINHAS?\s+)?POSITIVAC(?:OES|AO(?:\s+GERAL)?)$/.test(label);
+   if(!isPositivacoes)return;
+   event.preventDefault();
+   event.stopImmediatePropagation();
+   window.location.assign(POSITIVACOES_URL);
+ }
  function paint(){
    const host=document.getElementById('homeCards');
    if(!host)return;
@@ -13,7 +31,7 @@
    button.type='button';button.id='homePositivacaoGeral';
    button.className='home-card text-left';
    button.innerHTML='<span class="home-icon"><i class="fa-solid fa-chart-pie"></i></span><span class="min-w-0"><span class="block font-black text-[14px] text-slate-800">Positivações</span><span class="block text-[11px] leading-4 text-slate-500 mt-0.5">Carteira única, meta geral e análise por setor</span></span><i class="home-arrow fa-solid fa-chevron-right"></i>';
-   button.addEventListener('click',()=>{window.location.href='/positivacoes';});
+   button.addEventListener('click',()=>{window.location.assign(POSITIVACOES_URL);});
    host.appendChild(button);
  }
  async function check(){
@@ -23,6 +41,7 @@
    }catch(_){admin=false;}finally{pending=false;paint();}
  }
  function start(){
+   window.addEventListener('click',routeHomeCard,true);
    check();
    const host=document.getElementById('homeCards');
    if(host){new MutationObserver(()=>{if(document.getElementById('homePositivacaoGeral'))return;if(admin)paint();else check();}).observe(host,{childList:true});}
