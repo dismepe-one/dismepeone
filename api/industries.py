@@ -865,6 +865,27 @@ def _is_focus_row(row: dict[str, Any]) -> bool:
     return bool(re.search(r"Prod\.?\s*Foco", raw_lab, flags=re.I))
 
 
+def _globo_individual_from_partial(row: dict[str, Any]) -> dict[str, Any] | None:
+    """Retorna somente POSITIVACAO_CLIENTES ja calculada no snapshot mensal.
+
+    Nao recalcula clientes, metas ou premios e nao envia outras metricas.
+    """
+    partial = row.get("metricasParcial")
+    components = partial.get("componentes") if isinstance(partial, dict) else None
+    if not isinstance(components, list):
+        return None
+    for item in components:
+        if isinstance(item, dict) and item.get("metrica") == "POSITIVACAO_CLIENTES":
+            return {
+                "realizado": item.get("realizado"),
+                "meta": item.get("meta"),
+                "premio": item.get("premio"),
+                "pendente": bool(item.get("pendente")),
+                "motivo": str(item.get("motivo") or "")[:180],
+            }
+    return None
+
+
 def _sanitize_sales_row(row: dict[str, Any], channel: str, days: float) -> dict[str, Any]:
     foco = _is_focus_row(row)
     objetivo = _num(_row_value(row, ("__OBJETIVO", "objetivo", "Objetivo", "Meta", "meta", "META", "OBJETIVO")))
@@ -2318,6 +2339,14 @@ async def industries_data(
 
     vend_rows = [_sanitize_sales_row(x, "VENDEDORES", days) for x in vend_raw]
     tlv_rows = [_sanitize_sales_row(x, "TELEVENDAS", days) for x in tlv_raw]
+
+    # A parcial da industria usa o MESMO componente ja publicado na parcial
+    # interna. Somente Globo selecionado; demais laboratorios inalterados.
+    if not all_labs and _lab_key(lab) == "GLOBO":
+        for original, shown in zip(vend_raw, vend_rows):
+            shown["positivacaoIndividualGlobo"] = _globo_individual_from_partial(original)
+        for original, shown in zip(tlv_raw, tlv_rows):
+            shown["positivacaoIndividualGlobo"] = _globo_individual_from_partial(original)
 
     venda_v = sum(x["venda"] for x in vend_rows)
     venda_t = sum(x["venda"] for x in tlv_rows)
