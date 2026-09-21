@@ -974,6 +974,7 @@ async def prod597_update_center(
 
     before_status: dict[str, Any] = {}
     before_times: dict[str, str] = {}
+    before_snapshot_times: dict[str, str] = {}
     if action == "OPCACHE_ATUALIZAR":
         try:
             before_status = await call_update_center_legacy(
@@ -987,6 +988,12 @@ async def prod597_update_center(
             name: prod4._time_from_result(before_status, name)
             for name in names
         }
+        # Fonte independente: pode ter sido gravada pelo worker mesmo que
+        # OPCACHE_STATUS ainda não informe a nova data.
+        for name in updated_names & {"MENSAL", "EXTRAS"}:
+            _display, snapshot_iso = await _persisted_cache_time(name)
+            if snapshot_iso:
+                before_snapshot_times[name] = snapshot_iso
 
     try:
         result = await call_update_center_legacy(
@@ -1049,26 +1056,36 @@ async def prod597_update_center(
             if before_time and after_time and after_time != before_time:
                 confirmed.add(name)
 
-        # O legado pode concluir a gravacao depois da resposta inicial.
-        # Consulte somente STATUS (nunca repita OPCACHE_ATUALIZAR) antes de
-        # declarar falha ou tentar regravar o snapshot PostgreSQL.
-        pending = {
-            name for name in (updated_names & {"MENSAL", "EXTRAS"}) - confirmed
-            if before_times.get(name)
-        }
+        # Repetimos exclusivamente leituras. Sem horario anterior no legado,
+        # ainda verificamos se o PostgreSQL recebeu efetivamente uma nova base.
+        persisted_confirmed: dict[str, tuple[str, str]] = {}
+        pending = (updated_names & {"MENSAL", "EXTRAS"}) - confirmed
         if pending:
             for delay in (2, 4, 8, 12, 20, 30):
                 await asyncio.sleep(delay)
+                # O banco é verificado primeiro: se já foi atualizado,
+                # não aguardamos outra consulta lenta ao servidor legado.
+                for name in tuple(pending):
+                    baseline = before_snapshot_times.get(name)
+                    if baseline:
+                        display, current_iso = await _persisted_cache_time(name)
+                        if current_iso and current_iso != baseline:
+                            persisted_confirmed[name] = (display, current_iso)
+                            confirmed.add(name)
+                            pending.remove(name)
+                if not pending:
+                    break
+
                 try:
                     next_status = await call_update_center_legacy(
                         action="OPCACHE_STATUS",
                         payload={"acao": "OPCACHE_STATUS"},
                         legacy_token=legacy_token,
                     )
+                    after_status = next_status
                 except UpdateCenterBridgeError:
-                    continue
+                    pass
 
-                after_status = next_status
                 for name in tuple(pending):
                     before_time = before_times.get(name) or ""
                     after_time = prod4._time_from_result(after_status, name)
@@ -1103,15 +1120,26 @@ async def prod597_update_center(
                 result["mensalSync"] = "ERRO_LEGADO_NAO_CONFIRMADO"
             else:
                 try:
-                    mensal_display, mensal_iso = await _refresh_monthly_snapshot(
-                        legacy_token=legacy_token,
-                        profile=profile,
-                    )
+                    persisted = persisted_confirmed.get("MENSAL")
+                    baseline = before_snapshot_times.get("MENSAL")
+                    if persisted is None and baseline:
+                        display, current_iso = await _persisted_cache_time("MENSAL")
+                        if current_iso and current_iso != baseline:
+                            persisted = (display, current_iso)
+                    if persisted is not None:
+                        mensal_display, mensal_iso = persisted
+                        result["mensalSnapshotFonte"] = "POSTGRESQL_CONFIRMADO"
+                        result["mensalSync"] = "POSTGRESQL_ATUALIZADO_EM"
+                    else:
+                        mensal_display, mensal_iso = await _refresh_monthly_snapshot(
+                            legacy_token=legacy_token,
+                            profile=profile,
+                        )
+                        result["mensalSnapshotFonte"] = "POSTGRESQL_REGRAVADO"
+                        result["mensalSync"] = UPDATE_CENTER_SQL_SYNC_VERSION
                     requested_times["MENSAL"] = mensal_display
                     result["horarioMensal"] = mensal_display
                     result["horarioMensalISO"] = mensal_iso
-                    result["mensalSnapshotFonte"] = "POSTGRESQL_REGRAVADO"
-                    result["mensalSync"] = UPDATE_CENTER_SQL_SYNC_VERSION
                 except Exception as exc:
                     sync_errors.append(
                         "Campanhas Mensais: a base legada foi atualizada, mas o "
@@ -1131,15 +1159,26 @@ async def prod597_update_center(
                 result["extrasSync"] = "ERRO_LEGADO_NAO_CONFIRMADO"
             else:
                 try:
-                    extras_display, extras_iso = await _refresh_extras_snapshot(
-                        legacy_token=legacy_token,
-                        profile=profile,
-                    )
+                    persisted = persisted_confirmed.get("EXTRAS")
+                    baseline = before_snapshot_times.get("EXTRAS")
+                    if persisted is None and baseline:
+                        display, current_iso = await _persisted_cache_time("EXTRAS")
+                        if current_iso and current_iso != baseline:
+                            persisted = (display, current_iso)
+                    if persisted is not None:
+                        extras_display, extras_iso = persisted
+                        result["extrasSnapshotFonte"] = "POSTGRESQL_CONFIRMADO"
+                        result["extrasSync"] = "POSTGRESQL_ATUALIZADO_EM"
+                    else:
+                        extras_display, extras_iso = await _refresh_extras_snapshot(
+                            legacy_token=legacy_token,
+                            profile=profile,
+                        )
+                        result["extrasSnapshotFonte"] = "POSTGRESQL_REGRAVADO"
+                        result["extrasSync"] = UPDATE_CENTER_SQL_SYNC_VERSION
                     requested_times["EXTRAS"] = extras_display
                     result["horarioExtras"] = extras_display
                     result["horarioExtrasISO"] = extras_iso
-                    result["extrasSnapshotFonte"] = "POSTGRESQL_REGRAVADO"
-                    result["extrasSync"] = UPDATE_CENTER_SQL_SYNC_VERSION
                 except Exception as exc:
                     sync_errors.append(
                         "Campanhas Extras: a base legada foi atualizada, mas o "
