@@ -313,12 +313,12 @@
     const inserirHistorico=!!document.getElementById('hp59823History')?.checked;
     if(button){
       button.disabled=true;
-      button.innerHTML='<i class="fa-solid fa-spinner fa-spin" style="margin-right:6px;"></i>Atualizando...';
+      button.innerHTML='<i class="fa-solid fa-spinner fa-spin" style="margin-right:6px;"></i>Publicando...';
     }
-    setMessage('Atualizando Campanhas Mensais e Extras...','neutral');
+    setMessage('Publicando na HOME as bases já disponíveis no PostgreSQL...','neutral');
     try{
-      await refreshSourceCaches();
-      setMessage('Bases atualizadas no PostgreSQL. Publicando a HOME...','neutral');
+      // Publicação é independente de OPCACHE_ATUALIZAR: usa as bases já gravadas.
+      // Não reprocessar MENSAL nem exigir alteração de EXTRAS aqui.
       const result=await request('/admin/home-publication/publish',{
         method:'POST',
         body:JSON.stringify({atualizarHorario,inserirHistorico})
@@ -342,8 +342,8 @@
       renderStatus(status);
       setMessage(
         result.atualizouHorario
-          ?'Mensal e Extras atualizados; números publicados e horário da HOME atualizado.'
-          :'Mensal e Extras atualizados; números publicados. O horário anterior da HOME foi mantido.',
+          ?'Fotografia disponível publicada; horário da HOME atualizado.'
+          :'Fotografia disponível publicada; o horário anterior da HOME foi mantido.',
         'ok'
       );
       setTimeout(()=>{
