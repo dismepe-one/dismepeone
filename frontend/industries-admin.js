@@ -399,7 +399,39 @@
       const label=String(raw).normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().replace(/\s+/g,' ').toUpperCase();
       const create=/^CRIAR USUARIOS?(?:\s|$)/.test(label);
       const permissions=/^(?:GERENCIAR )?PERMISSOES(?:\s|$)/.test(label);
-      if(!create&&!permissions)return;
+      const ganhos=/^RESUMO DE GANHOS(?:\s|$)/.test(label);
+      if(!create&&!permissions&&!ganhos)return;
+      if(ganhos){
+        // Aciona a opcao existente do menu Mais em vez da rota antiga do card.
+        // Nao modifica a tela nem a consulta das premiacoes.
+        const norm=text=>String(text||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+          .trim().replace(/\s+/g,' ').toUpperCase();
+        const actionable='button,a,[role="button"],[role="menuitem"],[onclick]';
+        const menuItem=()=>{
+          const items=[...document.querySelectorAll(actionable)].filter(item=>{
+            if(home.contains(item)||item===card)return false;
+            const text=norm(item.getAttribute('aria-label')||item.getAttribute('title')||item.textContent);
+            return /^RESUMO DE GANHOS(?:\s|$)/.test(text);
+          });
+          return items.find(item=>item.getClientRects().length>0&&!item.closest('[hidden],[aria-hidden="true"]'))
+            ||items.find(item=>item.closest('[onclick]')||item.matches('button,a,[role="button"],[role="menuitem"]'))
+            ||null;
+        };
+        event.preventDefault();event.stopImmediatePropagation();
+        const chosen=menuItem();
+        if(chosen){chosen.click();return;}
+        // Quando o menu Mais cria as opcoes somente ao abrir, abre-o uma unica vez.
+        const more=[...document.querySelectorAll('button,a,[role="button"]')].find(item=>
+          !home.contains(item)&&item.getClientRects().length>0&&
+          norm(item.getAttribute('aria-label')||item.getAttribute('title')||item.textContent)==='MAIS');
+        if(more)more.click();
+        setTimeout(()=>{
+          const loaded=menuItem();
+          if(loaded)loaded.click();
+          else window.alert('A opcao Resumo de Ganhos nao foi localizada no menu Mais. Abra pelo menu Mais e informe o resultado para conferir a navegacao.');
+        },120);
+        return;
+      }
       const open=create?window.openCreateUserModal:window.openPermissionsModal;
       if(typeof open!=='function')return;
       event.preventDefault();event.stopImmediatePropagation();
