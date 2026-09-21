@@ -531,12 +531,17 @@
     // Este arquivo pode carregar antes do login e receber 401 no primeiro
     // /auth/me. Recalcula a permissão pela sessão corrente ao abrir o modal.
     if(!canManageUsersNow())return;
+    const individualExisting=document.getElementById('individualPasswordLauncher');
+    if(individualExisting)individualExisting.hidden=!isAdministrator;
     const form=document.getElementById('createUserForm');if(!form||document.getElementById('industryUserLauncher'))return;
-    const wrap=document.createElement('div');wrap.innerHTML='<button type="button" id="industryUserLauncher"><i class="fa-solid fa-industry"></i><span>Criar usuário da indústria</span></button><button type="button" id="industryLabEditLauncher"><i class="fa-solid fa-pen-to-square"></i><span>Editar laboratórios do usuário</span></button><button type="button" id="passwordSecurityLauncher"><i class="fa-solid fa-shield-halved"></i><span>Segurança de senhas</span></button><p style="font-size:10px;color:#64748b;margin:6px 2px 0 0">Acesso externo restrito ao(s) laboratório(s) autorizado(s), com senha temporária aleatória e troca obrigatória no primeiro login.</p>';
+    const wrap=document.createElement('div');wrap.innerHTML='<button type="button" id="industryUserLauncher"><i class="fa-solid fa-industry"></i><span>Criar usuário da indústria</span></button><button type="button" id="industryLabEditLauncher"><i class="fa-solid fa-pen-to-square"></i><span>Editar laboratórios do usuário</span></button><button type="button" id="passwordSecurityLauncher"><i class="fa-solid fa-shield-halved"></i><span>Segurança de senhas</span></button><button type="button" id="individualPasswordLauncher" hidden><i class="fa-solid fa-key"></i><span>Gerar senha temporária individual</span></button><p style="font-size:10px;color:#64748b;margin:6px 2px 0 0">Acesso externo restrito ao(s) laboratório(s) autorizado(s), com senha temporária aleatória e troca obrigatória no primeiro login.</p>';
     form.insertBefore(wrap,form.firstChild);
     document.getElementById('industryUserLauncher').onclick=openIndustryUser;
     document.getElementById('industryLabEditLauncher').onclick=openIndustryLabEditor;
     document.getElementById('passwordSecurityLauncher').onclick=openPasswordSecurityModal;
+    const individualLauncher=document.getElementById('individualPasswordLauncher');
+    individualLauncher.hidden=!isAdministrator;
+    individualLauncher.onclick=openIndividualPasswordModal;
   }
 
   function refreshConfigEnhancements(){
@@ -980,6 +985,77 @@
     const lines=[['Nome','Login','Cargo','Senha temporária'].map(safe).join(';'),...rows.map(r=>[r.nome,r.usuario,r.tipo,r.senhaTemporaria].map(safe).join(';'))];
     const blob=new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
     const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='DISMEPE_senhas_temporarias_'+new Date().toISOString().slice(0,10)+'.csv';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+  }
+
+  async function openIndividualPasswordModal(){
+    if(!isAdministrator){alert('Ação exclusiva do administrador.');return;}
+    document.getElementById('individualPasswordModal')?.remove();
+    const overlay=document.createElement('div');overlay.id='individualPasswordModal';
+    overlay.style.cssText='position:fixed;inset:0;z-index:2147483501;background:rgba(2,20,17,.78);display:grid;place-items:center;padding:16px';
+    const card=document.createElement('section');
+    card.style.cssText='width:min(580px,100%);max-height:92vh;overflow:auto;background:#fff;color:#17332c;border-radius:18px;padding:22px;box-shadow:0 24px 80px rgba(0,0,0,.3)';
+    const title=document.createElement('h2');title.textContent='Gerar senha temporária individual';
+    title.style.cssText='font-size:20px;margin:0 0 8px;font-weight:900';
+    const info=document.createElement('p');
+    info.textContent='Selecione somente a conta que esqueceu a senha. A senha atual dessa conta deixará de funcionar e a troca será obrigatória no próximo login. Permissões e laboratórios não serão alterados.';
+    info.style.cssText='font-size:12px;line-height:1.5;color:#526962';
+    const label=document.createElement('label');label.textContent='Usuário';
+    label.style.cssText='font-size:12px;font-weight:800;display:grid;gap:6px;margin:14px 0';
+    const select=document.createElement('select');select.disabled=true;
+    select.style.cssText='width:100%;min-height:42px;border:1px solid #cddfd7;border-radius:9px;padding:8px;background:#fff';
+    select.add(new Option('Carregando usuários...',''));
+    label.appendChild(select);
+    const status=document.createElement('p');status.setAttribute('role','status');
+    status.style.cssText='font-size:12px;min-height:20px;color:#075548';
+    const output=document.createElement('div');output.hidden=true;
+    output.style.cssText='margin:12px 0;padding:14px;border:1px solid #b9d8cb;border-radius:10px;background:#f1f8f5';
+    const outputTitle=document.createElement('strong');outputTitle.textContent='Senha gerada: copie e entregue somente ao usuário selecionado';
+    const secret=document.createElement('code');secret.style.cssText='display:block;overflow-wrap:anywhere;padding:10px 0;font-size:17px';
+    const copy=document.createElement('button');copy.type='button';copy.textContent='Copiar senha';
+    copy.style.cssText='padding:9px 12px;border:1px solid #9ebeb1;border-radius:8px;background:#fff;cursor:pointer';
+    copy.onclick=async()=>{try{await navigator.clipboard.writeText(secret.textContent||'');copy.textContent='Senha copiada';}catch(e){status.textContent='Não foi possível copiar automaticamente. Selecione a senha exibida acima.';}};
+    output.append(outputTitle,secret,copy);
+    const actions=document.createElement('div');actions.style.cssText='display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:16px';
+    const close=document.createElement('button');close.type='button';close.textContent='Fechar';
+    const run=document.createElement('button');run.type='button';run.textContent='Gerar senha para este usuário';run.disabled=true;
+    for(const button of [close,run])button.style.cssText='padding:10px 14px;border:1px solid #cddfd7;border-radius:9px;background:#fff;cursor:pointer';
+    run.style.background='#005548';run.style.color='#fff';run.style.fontWeight='800';
+    const dismiss=()=>{secret.textContent='';output.hidden=true;overlay.remove();};
+    close.onclick=dismiss;
+    overlay.onclick=e=>{if(e.target===overlay&&!run.disabled)dismiss();};
+    actions.append(close,run);card.append(title,info,label,status,output,actions);overlay.appendChild(card);document.body.appendChild(overlay);
+    try{
+      const result=await api('/admin/users?individual_reset='+Date.now(),{cache:'no-store'});
+      if(!overlay.isConnected)return;
+      const users=(result.usuarios||[]).filter(u=>u&&u.ativo!==false&&String(u.status||'ATIVO').toUpperCase()==='ATIVO'&&String(u.tipo||'').trim());
+      const self=String(document.getElementById('loggedUser')?.textContent||'').trim().toLowerCase();
+      select.replaceChildren(new Option('Selecione um usuário',''));
+      users.sort((a,b)=>String(a.nome||a.usuario).localeCompare(String(b.nome||b.usuario),'pt-BR',{sensitivity:'base'}))
+        .filter(u=>String(u.usuario||'').toLowerCase()!==self)
+        .forEach(u=>select.add(new Option((u.nome||u.usuario)+' — '+u.tipo+' ('+u.usuario+')',u.usuario)));
+      select.disabled=false;run.disabled=false;
+      status.textContent='Apenas o usuário escolhido terá sua senha substituída.';
+    }catch(e){status.textContent='Não foi possível carregar a lista de usuários: '+(e.message||'Erro.');}
+    run.onclick=async()=>{
+      const login=select.value;
+      if(!login){status.textContent='Selecione um usuário.';return;}
+      const selected=select.options[select.selectedIndex].text;
+      if(!confirm('Gerar uma nova senha SOMENTE para '+selected+'? A senha anterior deixará de funcionar.'))return;
+      run.disabled=true;select.disabled=true;close.disabled=true;
+      status.textContent='Gerando a senha somente para o usuário escolhido...';
+      try{
+        const data=await api('/admin/security/password-reset-individual',{
+          method:'POST',body:JSON.stringify({usuario:login}),cache:'no-store'
+        });
+        if(!overlay.isConnected)return;
+        if(data.sucesso!==true||data.usuario!==login||!data.senhaTemporaria)throw Error('A redefinição não foi confirmada.');
+        secret.textContent=data.senhaTemporaria;output.hidden=false;
+        status.textContent='Senha gerada e troca obrigatória marcada. Copie antes de fechar esta janela.';
+        // Nao liberar novo reset enquanto a senha anterior estiver sendo exibida.
+        run.textContent='Senha gerada';
+      }catch(e){status.textContent='Erro: '+(e.message||'Não foi possível redefinir a senha.');select.disabled=false;run.disabled=false;}
+      finally{close.disabled=false;}
+    };
   }
 
   async function openPasswordSecurityModal(){

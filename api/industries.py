@@ -83,6 +83,10 @@ class AdminPasswordResetDefaultsRequest(BaseModel):
     exigirTrocaExcluido: bool = True
 
 
+class AdminIndividualPasswordResetRequest(BaseModel):
+    usuario: str = Field(min_length=1, max_length=120)
+
+
 class IndustryFirstAccessFinalizeRequest(BaseModel):
     token: str = Field(min_length=20, max_length=2048)
 
@@ -1441,6 +1445,102 @@ async def _security_force_change(row: dict[str, Any], required: bool = True) -> 
         },
     )
     return perms
+
+
+async def _reset_single_password_in_auth(*, usuario: str, tipo: str, senha_interna: str) -> None:
+    """Apenas o hash interno chega ao Supabase; a senha em claro nunca e persistida."""
+    endpoint = settings.supabase_url.rstrip("/") + "/functions/v1/dismepe-password-reset-individual"
+    headers = {
+        "apikey": settings.supabase_publishable_key,
+        "x-dismepe-token": settings.edge_token,
+        "content-type": "application/json",
+        "accept": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=max(10.0, settings.request_timeout_seconds)) as client:
+            response = await client.post(endpoint, json={
+                "usuario_norm": normalizar(usuario),
+                "usuario_exato": usuario,
+                "tipo_esperado": tipo,
+                "senha_nova_interna": senha_interna,
+            }, headers=headers)
+    except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        raise HTTPException(503, "Nao foi possivel confirmar a redefinicao da senha. Nao repita a operacao antes de conferir o acesso do usuario.") from exc
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise HTTPException(502, "O servico de senha individual retornou uma resposta invalida.") from exc
+    if not isinstance(data, dict) or not response.is_success or data.get("sucesso") is not True:
+        detail = str(data.get("erro") or "Nao foi possivel redefinir a senha individualmente.") if isinstance(data, dict) else "Resposta invalida do servico de senha."
+        raise HTTPException(response.status_code if response.status_code in {400, 401, 403, 404, 409} else 503, detail)
+    if normalizar(data.get("usuario")) != normalizar(usuario):
+        raise HTTPException(502, "O servico nao confirmou a identidade do usuario. A senha nao sera exibida.")
+
+
+@router.post("/admin/security/password-reset-individual")
+async def admin_security_password_reset_individual(
+    body: AdminIndividualPasswordResetRequest,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    """Recuperacao pontual por administrador; sem senha antiga e sem alterar outras contas."""
+    actor = _strict_admin_profile(session)
+    actor_login = str(actor.get("usuario") or actor.get("sub") or "").strip()
+    if not actor_login:
+        raise HTTPException(403, "Administrador sem login identificado.")
+    # Nao confiar apenas no cargo gravado no cookie: confirmar o cadastro ativo.
+    try:
+        live_admin = await _granular_user(actor_login)
+    except IndustryError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
+    if not _is_admin_profile(live_admin):
+        raise HTTPException(403, "Apenas um administrador ativo pode redefinir senhas.")
+
+    async with _PASSWORD_RESET_LOCK:
+        try:
+            target = await _granular_user(body.usuario)
+        except IndustryError as exc:
+            raise HTTPException(exc.status_code, str(exc)) from exc
+        login = str(target.get("usuario") or "").strip()
+        role = str(target.get("tipo") or "").strip()
+        if not login or normalizar(login) != normalizar(body.usuario) or not role:
+            raise HTTPException(409, "Usuario selecionado mudou. Atualize a lista e tente novamente.")
+        if normalizar(login) == normalizar(actor_login):
+            raise HTTPException(409, "Para evitar bloquear seu acesso administrativo, nao e permitido redefinir sua propria senha nesta tela.")
+        flag = PERM_FIRST_ACCESS if normalizar(role) == ROLE_INDUSTRY else PERM_PASSWORD_CHANGE_REQUIRED
+        original = _permission_map(target.get("permissoes"))
+        if original.get(flag) is not True:
+            updated = dict(original)
+            updated[flag] = True
+            try:
+                await _edge_admin_write("USUARIO_PERMISSOES_SET", {
+                    "usuario_norm": normalizar(login), "tipo": role, "permissoes": updated,
+                })
+            except IndustryError as exc:
+                raise HTTPException(exc.status_code, "Nao foi possivel marcar a troca obrigatoria de senha.") from exc
+            try:
+                confirmed = await _granular_user(login)
+            except IndustryError as exc:
+                raise HTTPException(exc.status_code, "A marcacao de troca obrigatoria nao foi confirmada.") from exc
+            current_perms = _permission_map(confirmed.get("permissoes"))
+            if (str(confirmed.get("tipo") or "") != role
+                    or current_perms.get(flag) is not True
+                    or any(current_perms.get(key) != value for key, value in original.items())):
+                raise HTTPException(409, "O cadastro nao confirmou a troca obrigatoria sem alterar outras permissoes.")
+        temporary = _temporary_password(14)
+        await _reset_single_password_in_auth(
+            usuario=login,
+            tipo=role,
+            senha_interna=senha_interna(login, temporary, settings.auth_pepper),
+        )
+        return {
+            "sucesso": True,
+            "usuario": login,
+            "nome": str(target.get("nome") or login),
+            "tipo": role,
+            "senhaTemporaria": temporary,
+            "trocaObrigatoria": True,
+            "mensagem": "Senha temporaria gerada somente para o usuario selecionado. Copie-a agora: ela nao sera exibida novamente.",
+        }
 
 
 @router.post("/admin/security/password-reset-defaults")
