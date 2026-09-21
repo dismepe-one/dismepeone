@@ -155,8 +155,8 @@ async function init(){
     const backBtn=document.getElementById('btnBackDismepeOne');
     if(backBtn)backBtn.classList.toggle('hidden',!internal||buyer);
     const sel=document.getElementById('labSelect');
-    sel.onchange=async()=>{salesData=null;stockData=null;await Promise.all([loadData(),loadStock()])};
-    document.getElementById('compSelect').onchange=loadData;
+    sel.onchange=()=>{salesData=null;stockData=null;resetIndustryNumbers();resetIndustryStock();void loadData();void loadStock()};
+    document.getElementById('compSelect').onchange=()=>{salesData=null;resetIndustryNumbers();void loadData()};
 
     // Primeiro acesso do representante não consulta dados antes da troca de senha.
     if(external&&profile?.permissoes?.INDUSTRIA_TROCAR_SENHA===true){
@@ -173,7 +173,50 @@ async function init(){
     if(sel.value){await loadData();await loadStock()}
   }catch(e){location.replace('/')}
 }
-async function loadData(){const lab=document.getElementById('labSelect').value;if(!lab)return;const comp=document.getElementById('compSelect').value;try{salesData=await api('/industrias/data?laboratorio='+encodeURIComponent(lab)+(comp?'&competencia='+encodeURIComponent(comp):''));const cs=document.getElementById('compSelect');const current=salesData.competencia||'';const options=Array.isArray(salesData.competencias)?salesData.competencias:[];if(!comp||![...cs.options].some(o=>o.value===comp)){cs.innerHTML=options.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')||'<option value="">—</option>';cs.value=current}else cs.value=comp;renderKpis(document.querySelector('.tab.active')?.dataset.view);renderSales('VENDEDORES');renderSales('TELEVENDAS');renderCampaigns();renderIndustryHistory()}catch(e){if(e.status===428){showPwd();return}console.error(e)}}
+// Troca visual imediata e proteção contra respostas atrasadas de outro laboratório.
+let industryDataRequest=0;
+let industryStockRequest=0;
+function resetIndustryNumbers(){
+  renderKpis(document.querySelector('.tab.active')?.dataset.view);
+  for(const id of ['kMetric1','kMetric2','kMetric3']){
+    const el=document.getElementById(id);if(el)el.textContent='Carregando...';
+  }
+  const hp=document.getElementById('homePerformance');if(hp)hp.textContent='Atualizando números do laboratório selecionado...';
+  renderSales('VENDEDORES');renderSales('TELEVENDAS');renderCampaigns();renderIndustryHistory();
+}
+function resetIndustryStock(){
+  for(const id of ['sSkus','sTotal','sZero']){const el=document.getElementById(id);if(el)el.textContent='—';}
+  const updated=document.getElementById('stockUpdated');if(updated)updated.textContent='Atualizando estoque...';
+  const title=document.getElementById('stockTitleSub');if(title)title.textContent='Carregando laboratório selecionado...';
+  renderStock();
+}
+async function loadData(){
+  const lab=document.getElementById('labSelect').value;if(!lab)return;
+  const comp=document.getElementById('compSelect').value;
+  const request=++industryDataRequest;
+  try{
+    const data=await api('/industrias/data?laboratorio='+encodeURIComponent(lab)+(comp?'&competencia='+encodeURIComponent(comp):''));
+    if(request!==industryDataRequest||lab!==document.getElementById('labSelect').value||comp!==document.getElementById('compSelect').value)return;
+    salesData=data;
+    const cs=document.getElementById('compSelect');
+    const current=salesData.competencia||'';
+    const options=Array.isArray(salesData.competencias)?salesData.competencias:[];
+    if(!comp||![...cs.options].some(o=>o.value===comp)){
+      cs.innerHTML=options.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')||'<option value="">—</option>';
+      cs.value=current;
+    }else cs.value=comp;
+    renderKpis(document.querySelector('.tab.active')?.dataset.view);
+    renderSales('VENDEDORES');renderSales('TELEVENDAS');renderCampaigns();renderIndustryHistory();
+  }catch(e){
+    if(request!==industryDataRequest||lab!==document.getElementById('labSelect').value)return;
+    if(e.status===428){showPwd();return;}
+    console.error(e);
+    for(const id of ['kMetric1','kMetric2','kMetric3']){
+      const el=document.getElementById(id);if(el)el.textContent='—';
+    }
+    const hp=document.getElementById('homePerformance');if(hp)hp.textContent='Não foi possível carregar os números. Tente selecionar o laboratório novamente.';
+  }
+}
 let commercialAutoRefreshTimer=null;
 let commercialAutoRefreshBusy=false;
 async function refreshCommercialDataIfVisible(){
@@ -249,7 +292,26 @@ function campaignReward(r){const tipo=String(r?.tipo||'').toUpperCase();if(Strin
 function campaignCondition(r){const parts=[],seen=new Set();const add=v=>{const text=String(v??'').trim();if(!text)return;const key=text.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').toLowerCase();if(!seen.has(key)){seen.add(key);parts.push(text)}};add(r?.criterio);add(r?.observacao);if(!parts.length&&r?.metrica)add(String(r.metrica).replaceAll('_',' '));if(r?.exigeSomaLaboratorio&&r?.somaLabMinimo!=null)add(`Liberação com ${num(r.somaLabMinimo)} pontos do laboratório`);return parts.join(' · ')||'—'}
 function renderCampaigns(){const body=document.getElementById('campaignBody');if(!body)return;const rows=Array.isArray(salesData?.campanhas)?salesData.campanhas:[];body.innerHTML=rows.length?rows.map(r=>`<tr><td><div class="campaign-metric">${esc(r.titulo||r.metrica||'Métrica')}</div><div class="campaign-note">${esc(r.competencia||salesData?.competencia||'')}</div></td><td><span class="campaign-channel">${esc(r.canal||'Todos')}</span></td><td class="campaign-condition">${esc(campaignCondition(r))}</td><td><b>${esc(campaignReward(r))}</b></td></tr>`).join(''):'<tr><td colspan="4" class="campaign-empty">Nenhuma métrica cadastrada para este laboratório nesta competência.</td></tr>'}
 function renderIndustryHistory(){const body=document.getElementById('industryHistoryBody');if(!body)return;const rows=Array.isArray(salesData?.historico)?salesData.historico.slice(0,3):[];body.innerHTML=rows.length?rows.map(r=>`<tr><td><b>${esc(r.atualizadoEm||'—')}</b></td><td>${esc(r.competencia||'—')}</td><td class="rightnum"><b>${r.vendaTotal!=null?money(r.vendaTotal):'—'}</b></td><td class="rightnum">${r.objetivoTotal!=null?money(r.objetivoTotal):'—'}</td><td class="rightnum">${pill(r.atingimentoTotal)}</td><td>${esc(r.fonte||'—')}</td></tr>`).join(''):'<tr><td colspan="6" style="text-align:center;color:#71807b;padding:22px">Nenhum histórico de atualização disponível para este laboratório.</td></tr>'}
-async function loadStock(){const lab=document.getElementById('labSelect').value;if(!lab)return;try{stockData=await api('/industrias/estoque?laboratorio='+encodeURIComponent(lab));document.getElementById('sSkus').textContent=num(stockData?.resumo?.skus||0);document.getElementById('sTotal').textContent=num(stockData?.resumo?.estoqueTotal||0);document.getElementById('sZero').textContent=num(stockData?.resumo?.semEstoque||0);document.getElementById('stockUpdated').textContent='Mapa atualizado em '+(stockData.atualizadoEm||'—');document.getElementById('stockTitleSub').textContent=(stockData.laboratorio||lab)+' • atualizado em '+(stockData.atualizadoEm||'—');renderStock()}catch(e){if(e.status===428){showPwd();return}console.error(e)}}
+async function loadStock(){
+  const lab=document.getElementById('labSelect').value;if(!lab)return;
+  const request=++industryStockRequest;
+  try{
+    const data=await api('/industrias/estoque?laboratorio='+encodeURIComponent(lab));
+    if(request!==industryStockRequest||lab!==document.getElementById('labSelect').value)return;
+    stockData=data;
+    document.getElementById('sSkus').textContent=num(stockData?.resumo?.skus||0);
+    document.getElementById('sTotal').textContent=num(stockData?.resumo?.estoqueTotal||0);
+    document.getElementById('sZero').textContent=num(stockData?.resumo?.semEstoque||0);
+    document.getElementById('stockUpdated').textContent='Mapa atualizado em '+(stockData.atualizadoEm||'—');
+    document.getElementById('stockTitleSub').textContent=(stockData.laboratorio||lab)+' • atualizado em '+(stockData.atualizadoEm||'—');
+    renderStock();
+  }catch(e){
+    if(request!==industryStockRequest||lab!==document.getElementById('labSelect').value)return;
+    if(e.status===428){showPwd();return;}
+    console.error(e);
+    const updated=document.getElementById('stockUpdated');if(updated)updated.textContent='Estoque indisponível. Tente novamente.';
+  }
+}
 let stockSortKey='descricao',stockSortDir='asc';
 function stockNumber(v){const t=String(v??'').trim().replace(/\./g,'').replace(',','.');const n=Number(t);return Number.isFinite(n)?n:0}
 function stockDate(v){const m=String(v||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);return m?Number(`${m[3]}${m[2]}${m[1]}`):0}

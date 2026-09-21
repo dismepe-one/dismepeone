@@ -2354,13 +2354,9 @@ async def industries_data(
     obj_t = sum(x["objetivo"] for x in tlv_rows)
 
     # OBJETIVO X VENDA.xlsx no Drive é a fonte oficial de Venda Geral/Objetivo.
-    # Antes de ler o cache local, confirmamos se o arquivo do Drive mudou.
+    # A sincronização do Drive já roda em segundo plano na inicialização do portal.
+    # A troca de laboratório lê a última fotografia válida sem aguardar rede externa.
     sales_sync_status = general_sales_sync_public_status()
-    try:
-        sales_sync_status = await ensure_general_sales_fresh()
-    except Exception:
-        # Mantém a última fotografia válida se o Drive estiver temporariamente indisponível.
-        sales_sync_status = general_sales_sync_public_status()
 
     # Venda Geral nunca cai para Vendedores + Televendas.
     general = _general_sales_snapshot(lab, comp)
