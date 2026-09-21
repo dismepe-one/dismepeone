@@ -2194,7 +2194,9 @@ async def industries_operator_permissions(
         raise HTTPException(status_code=409, detail="O cargo mudou. Recarregue as permissões antes de salvar.")
     perms: dict[str, Any] = _permission_map(current_user.get("permissoes"))
     for key in managed:
-        if key in forbidden or not re.fullmatch(r"[A-Z0-9_]{2,80}", key):
+        # Permissões sensíveis da Positivação são editadas somente pela rota
+        # granular, que exige administrador e valida a revisão do cadastro.
+        if key in forbidden or key in _POS_GRANULAR or not re.fullmatch(r"[A-Z0-9_]{2,80}", key):
             continue
         perms[key] = key in selected
 
