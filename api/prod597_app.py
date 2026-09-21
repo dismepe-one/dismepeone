@@ -479,6 +479,7 @@ async def _refresh_monthly_snapshot(
     *,
     legacy_token: str,
     profile: dict[str, Any],
+    require_change: bool = False,
 ) -> tuple[str, str]:
     current, _row = await cache_get(modulo="MENSAL", settings=settings)
     fresh = await _legacy_read(
@@ -593,6 +594,19 @@ async def _refresh_monthly_snapshot(
         if value not in (None, ""):
             merged[key] = value
 
+    # Sem confirmação de horário, só sincronizamos se os dados reais lidos
+    # do legado diferirem da base persistida. Um novo horário isolado não prova
+    # que a campanha foi atualizada.
+    if require_change and not any(
+        merged.get(key) != current.get(key)
+        for key in (
+            "dadosVendedores", "dadosTelevendas", "regrasPremiacao",
+            "competencias", "diasUteisPorCompetencia",
+            "versaoCalculoVendedores", "versaoDadosSql",
+        )
+    ):
+        raise RuntimeError("DADOS legado não trouxe alteração verificável na base mensal")
+
     merged["geradoEmSql"] = datetime.now(timezone.utc).isoformat()
 
     return await _cache_set_snapshot(
@@ -612,6 +626,7 @@ async def _refresh_extras_snapshot(
     *,
     legacy_token: str,
     profile: dict[str, Any],
+    require_change: bool = False,
 ) -> tuple[str, str]:
     listing = await _legacy_read(
         action="LISTARCAMPANHASEXTRAS",
@@ -685,6 +700,10 @@ async def _refresh_extras_snapshot(
         "campanhas": campaigns,
         "vendasPorCampanha": sales_by_campaign,
     }
+    if require_change:
+        previous, _row = await cache_get(modulo="EXTRAS", settings=settings)
+        if all(snapshot.get(key) == previous.get(key) for key in ("campanhas", "vendasPorCampanha")):
+            raise RuntimeError("LISTARCAMPANHASEXTRAS não trouxe alteração verificável na base extras")
     return await _cache_set_snapshot(
         modulo="EXTRAS",
         payload=snapshot,
@@ -1056,44 +1075,18 @@ async def prod597_update_center(
             if before_time and after_time and after_time != before_time:
                 confirmed.add(name)
 
-        # Repetimos exclusivamente leituras. Sem horario anterior no legado,
-        # ainda verificamos se o PostgreSQL recebeu efetivamente uma nova base.
+        # Uma leitura final do PostgreSQL, sem esperar seis STATUS legados.
+        # Quando não houver nova data, uma diferença verificada nos dados reais
+        # do legado poderá confirmar a atualização no bloco do módulo abaixo.
         persisted_confirmed: dict[str, tuple[str, str]] = {}
-        pending = (updated_names & {"MENSAL", "EXTRAS"}) - confirmed
-        if pending:
-            for delay in (2, 4, 8, 12, 20, 30):
-                await asyncio.sleep(delay)
-                # O banco é verificado primeiro: se já foi atualizado,
-                # não aguardamos outra consulta lenta ao servidor legado.
-                for name in tuple(pending):
-                    baseline = before_snapshot_times.get(name)
-                    if baseline:
-                        display, current_iso = await _persisted_cache_time(name)
-                        if current_iso and current_iso != baseline:
-                            persisted_confirmed[name] = (display, current_iso)
-                            confirmed.add(name)
-                            pending.remove(name)
-                if not pending:
-                    break
-
-                try:
-                    next_status = await call_update_center_legacy(
-                        action="OPCACHE_STATUS",
-                        payload={"acao": "OPCACHE_STATUS"},
-                        legacy_token=legacy_token,
-                    )
-                    after_status = next_status
-                except UpdateCenterBridgeError:
-                    pass
-
-                for name in tuple(pending):
-                    before_time = before_times.get(name) or ""
-                    after_time = prod4._time_from_result(after_status, name)
-                    if before_time and after_time and after_time != before_time:
-                        confirmed.add(name)
-                        pending.remove(name)
-                if not pending:
-                    break
+        for name in (updated_names & {"MENSAL", "EXTRAS"}) - confirmed:
+            baseline = before_snapshot_times.get(name)
+            if baseline:
+                display, current_iso = await _persisted_cache_time(name)
+                if current_iso and current_iso != baseline:
+                    persisted_confirmed[name] = (display, current_iso)
+                    confirmed.add(name)
+        verified_by_data: set[str] = set()
 
         immediate_times = {
             name: (
@@ -1113,12 +1106,23 @@ async def prod597_update_center(
 
         if "MENSAL" in updated_names:
             if "MENSAL" not in confirmed:
-                sync_errors.append(
-                    "Campanhas Mensais: o servidor legado respondeu, mas nao confirmou "
-                    "a atualizacao da base. O snapshot PostgreSQL anterior foi preservado."
-                )
-                result["mensalSync"] = "ERRO_LEGADO_NAO_CONFIRMADO"
-            else:
+                try:
+                    display, iso = await _refresh_monthly_snapshot(
+                        legacy_token=legacy_token,
+                        profile=profile,
+                        require_change=True,
+                    )
+                    persisted_confirmed["MENSAL"] = (display, iso)
+                    verified_by_data.add("MENSAL")
+                    confirmed.add("MENSAL")
+                except Exception as exc:
+                    sync_errors.append(
+                        "Campanhas Mensais: não foi possível confirmar novos dados "
+                        "nem sincronizar a base. O snapshot PostgreSQL anterior foi preservado. "
+                        f"Detalhe: {str(exc)[:300]}"
+                    )
+                    result["mensalSync"] = "ERRO_LEGADO_NAO_CONFIRMADO"
+            if "MENSAL" in confirmed:
                 try:
                     persisted = persisted_confirmed.get("MENSAL")
                     baseline = before_snapshot_times.get("MENSAL")
@@ -1128,8 +1132,14 @@ async def prod597_update_center(
                             persisted = (display, current_iso)
                     if persisted is not None:
                         mensal_display, mensal_iso = persisted
-                        result["mensalSnapshotFonte"] = "POSTGRESQL_CONFIRMADO"
-                        result["mensalSync"] = "POSTGRESQL_ATUALIZADO_EM"
+                        result["mensalSnapshotFonte"] = (
+                            "POSTGRESQL_REGRAVADO" if "MENSAL" in verified_by_data
+                            else "POSTGRESQL_CONFIRMADO"
+                        )
+                        result["mensalSync"] = (
+                            UPDATE_CENTER_SQL_SYNC_VERSION if "MENSAL" in verified_by_data
+                            else "POSTGRESQL_ATUALIZADO_EM"
+                        )
                     else:
                         mensal_display, mensal_iso = await _refresh_monthly_snapshot(
                             legacy_token=legacy_token,
@@ -1152,12 +1162,23 @@ async def prod597_update_center(
 
         if "EXTRAS" in updated_names:
             if "EXTRAS" not in confirmed:
-                sync_errors.append(
-                    "Campanhas Extras: o servidor legado respondeu, mas nao confirmou "
-                    "a atualizacao da base. O snapshot PostgreSQL anterior foi preservado."
-                )
-                result["extrasSync"] = "ERRO_LEGADO_NAO_CONFIRMADO"
-            else:
+                try:
+                    display, iso = await _refresh_extras_snapshot(
+                        legacy_token=legacy_token,
+                        profile=profile,
+                        require_change=True,
+                    )
+                    persisted_confirmed["EXTRAS"] = (display, iso)
+                    verified_by_data.add("EXTRAS")
+                    confirmed.add("EXTRAS")
+                except Exception as exc:
+                    sync_errors.append(
+                        "Campanhas Extras: não foi possível confirmar novos dados "
+                        "nem sincronizar a base. O snapshot PostgreSQL anterior foi preservado. "
+                        f"Detalhe: {str(exc)[:300]}"
+                    )
+                    result["extrasSync"] = "ERRO_LEGADO_NAO_CONFIRMADO"
+            if "EXTRAS" in confirmed:
                 try:
                     persisted = persisted_confirmed.get("EXTRAS")
                     baseline = before_snapshot_times.get("EXTRAS")
@@ -1167,8 +1188,14 @@ async def prod597_update_center(
                             persisted = (display, current_iso)
                     if persisted is not None:
                         extras_display, extras_iso = persisted
-                        result["extrasSnapshotFonte"] = "POSTGRESQL_CONFIRMADO"
-                        result["extrasSync"] = "POSTGRESQL_ATUALIZADO_EM"
+                        result["extrasSnapshotFonte"] = (
+                            "POSTGRESQL_REGRAVADO" if "EXTRAS" in verified_by_data
+                            else "POSTGRESQL_CONFIRMADO"
+                        )
+                        result["extrasSync"] = (
+                            UPDATE_CENTER_SQL_SYNC_VERSION if "EXTRAS" in verified_by_data
+                            else "POSTGRESQL_ATUALIZADO_EM"
+                        )
                     else:
                         extras_display, extras_iso = await _refresh_extras_snapshot(
                             legacy_token=legacy_token,
