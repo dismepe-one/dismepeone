@@ -672,6 +672,7 @@
         const selected=inputs.filter(x=>x.checked).map(x=>String(x.dataset.permission||'').trim()).filter(Boolean);
         const hasIndustryKeys=managed.includes(STOCK_PERMISSION)&&managed.includes(INTERNAL_PORTAL_PERMISSION);
         const buyer=String(tipo||'').trim().toUpperCase()==='COMPRADOR';
+        const director=String(tipo||'').trim().toUpperCase()==='DIRETOR';
 
         // PROD5.9.8.10 — COMPRADOR nasceu depois da migração.
         // Não enviar esse cargo ao salvarPermissao legado.
@@ -739,6 +740,44 @@
               btn.disabled=false;
               btn.innerHTML='<i class="fa-solid fa-floppy-disk mr-2"></i>Salvar cargo e permissões';
             }
+          }
+        }
+
+        // DIRETOR e aceito pelo cadastro atual, mas nao pela acao legada
+        // salvarPermissao. Usar a rota interna ja existente, que preserva
+        // as permissoes nao administradas por esta tela.
+        if(director&&usuario&&canManagePermissions){
+          const btn=document.getElementById('savePermissionsButton');
+          const message=document.getElementById('permissionMessage');
+          if(btn){btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin mr-2"></i>Salvando...';}
+          try{
+            if(!hasIndustryKeys)throw new Error('A tela de permissoes esta desatualizada. Recarregue o sistema antes de salvar.');
+            const result=await api('/admin/industries/operator-permissions',{
+              method:'POST',cache:'no-store',body:JSON.stringify({
+                usuario,tipo,permissoesGerenciadas:managed,permissoesSelecionadas:selected
+              })
+            });
+            if(result?.sucesso!==true)throw new Error('O servidor nao confirmou a gravacao das permissoes.');
+            stockOperatorsLoadedAt=0;
+            if(typeof window.loadPermissionsFromServer==='function'){
+              await window.loadPermissionsFromServer();
+              const select=document.getElementById('permissionUser');
+              if(select&&[...select.options].some(option=>option.value===usuario))select.value=usuario;
+              if(typeof window.loadSelectedPermissionUser==='function')window.loadSelectedPermissionUser();
+            }
+            if(message){
+              message.textContent='Cargo DIRETOR e permissoes salvos com sucesso.';
+              message.className='rounded-xl px-4 py-3 text-sm bg-emerald-50 text-emerald-800 border border-emerald-200';
+            }
+            return result;
+          }catch(error){
+            if(message){
+              message.textContent='Nao foi possivel salvar as permissoes: '+(error?.message||'Falha na gravacao.');
+              message.className='rounded-xl px-4 py-3 text-sm bg-rose-50 text-rose-800 border border-rose-200';
+            }
+            return {sucesso:false};
+          }finally{
+            if(btn){btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-floppy-disk mr-2"></i>Salvar cargo e permissões';}
           }
         }
 

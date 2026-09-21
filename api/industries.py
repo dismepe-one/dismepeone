@@ -2869,8 +2869,16 @@ async def industries_operator_permissions(
     # USUARIO_PERMISSOES_SET sobrescreve o mapa INTEIRO no banco.
     # Manter todas as chaves fora do conjunto administrado pela tela legada.
     current_user = await _granular_user(payload.usuario)
-    if normalizar(current_user.get("tipo")) != normalizar(tipo):
-        raise HTTPException(status_code=409, detail="O cargo mudou. Recarregue as permissões antes de salvar.")
+    current_role = normalizar(current_user.get("tipo"))
+    if current_role != normalizar(tipo):
+        if normalizar(tipo) != "DIRETOR":
+            raise HTTPException(status_code=409, detail="O cargo mudou. Recarregue as permissões antes de salvar.")
+        # Apenas administrador pode promover um usuario interno a DIRETOR.
+        _strict_admin_profile(session)
+        if current_role not in _INTERNAL_ROLE_DEFAULT_PERMISSIONS or current_role in {
+            "ADMIN", "ADMINISTRADOR", ROLE_INDUSTRY, ROLE_BUYER
+        }:
+            raise HTTPException(status_code=403, detail="Este cargo nao pode ser convertido em DIRETOR nesta tela.")
     perms: dict[str, Any] = _permission_map(current_user.get("permissoes"))
     for key in managed:
         # Permissões sensíveis da Positivação são editadas somente pela rota
