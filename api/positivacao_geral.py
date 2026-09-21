@@ -910,6 +910,8 @@ def _consolidate(clients: dict[str, dict[str, Any]], sales: dict[str, dict[str, 
             s["bloqueados"] += blocked
             s["clientesCompartilhados"] += row["carteiraCompartilhada"]
         for televendedor in teleactors:
+            if not _priscielle_client_allowed(row, "TV:" + televendedor):
+                continue
             t = by_televendas.setdefault(televendedor, {"televendas": televendedor,
                 "total": 0, "positivados": 0, "naoPositivados": 0, "bloqueados": 0})
             t["total"] += 1
@@ -1417,6 +1419,20 @@ async def positivacao_refresh(session: str | None = Cookie(default=None, alias=s
                                 "statusAtualizacao": _sync_status()})
 
 
+def _priscielle_client_allowed(row: dict[str, Any], setor: str) -> bool:
+    """Regra somente para a carteira de Televendas de Priscielle.
+
+    O vinculo com Claudia Fabiana vem do PDF validado de carteiras; clientes
+    associados a cabecalhos da Diretoria ficam fora do recorte de Priscielle.
+    A fotografia corporativa e as carteiras de outras pessoas nao sao alteradas.
+    """
+    if not setor.startswith("TV:") or _norm(setor[3:]) not in {"PRISCIELLE ARAUJO", "PRISCIELLE"}:
+        return True
+    return (row.get("carteiraDiretoria") is not True and
+            any(_norm(owner) == "CLAUDIA FABIANA SILVA COSTA OLIVEIRA"
+                for owner in row.get("vendedores", [])))
+
+
 def _selected(data: dict[str, Any], status: str, setor: str, search: str,
               nao_bloqueados: bool = False) -> list[dict[str, Any]]:
     if status not in {"todos", "positivados", "nao-positivados", "bloqueados", "inativos"}:
@@ -1427,6 +1443,8 @@ def _selected(data: dict[str, Any], status: str, setor: str, search: str,
     norm_search = _norm(search)
     result = []
     for c in data["clientes"]:
+        if not _priscielle_client_allowed(c, setor):
+            continue
         if is_directorate:
             if c.get("carteiraDiretoria") is not True:
                 continue
@@ -1770,6 +1788,8 @@ async def _obs_permission(context: dict[str, Any], codigo: str,
     assigned = row.get('televendas', []) if context['canal'] == 'Televendas' else row.get('setores', [])
     if own not in {_norm(name) for name in assigned}:
         raise HTTPException(403, 'Cliente fora da sua carteira.')
+    if not _priscielle_client_allowed(row, context['setor']):
+        raise HTTPException(403, 'Cliente fora da sua carteira.')
     return row, data
 
 
@@ -2076,7 +2096,10 @@ async def _inat_enrich(data: dict[str, Any]) -> dict[str, Any]:
         groups: list[dict[str, Any]] = []
         for entry in data.get(key, []):
             person = _norm(entry.get(person_key))
-            assigned = [r for r in rows if person in {_norm(n) for n in r.get(wallet_key, [])}]
+            assigned = [r for r in rows
+                        if person in {_norm(n) for n in r.get(wallet_key, [])}
+                        and (key != 'carteirasTelevendas' or
+                             _priscielle_client_allowed(r, "TV:" + str(entry.get('televendas') or '')))]
             metric = _inat_counts(assigned)
             groups.append({**entry, 'total': metric['carteira'],
                            'positivados': metric['positivados'],
