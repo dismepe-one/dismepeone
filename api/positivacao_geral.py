@@ -566,11 +566,18 @@ def _split_customer_owner(prefix: str, owner_id: str, tel_names: dict[str, str])
     for normalized, display in sorted(tel_names.items(), key=lambda x: len(x[0]), reverse=True):
         # Mantém os limites de palavra para que JOSE não case com JOSEANE.
         if _norm(before).endswith(" " + normalized):
-            tokens = re.split(r"\s+", before)
-            display_tokens = re.split(r"\s+", display)
-            if len(tokens) > len(display_tokens):
-                name = " ".join(tokens[:-len(display_tokens)]).strip()
-                if name:
+            # O PDF traz o apelido da televendas, que pode ser menor que o
+            # nome COMPLETO no cadastro. Remover apenas os tokens do apelido
+            # encontrado no PDF — jamais os tokens do nome completo do usuário.
+            alias_count = len(normalized.split())
+            original_tokens = list(re.finditer(r"\S+", before))
+            if len(original_tokens) > alias_count:
+                name_end = original_tokens[-alias_count].start()
+                source_alias = before[name_end:].strip()
+                name = before[:name_end].rstrip()
+                # Confere que o recorte corresponde ao apelido encontrado;
+                # não inventa nomes nem altera o vínculo da carteira.
+                if name and _norm(source_alias) == normalized:
                     return name, display, True
     layout_columns = [part.strip() for part in re.split(r"\s{2,}", before) if part.strip()]
     if len(layout_columns) == 2:
@@ -584,7 +591,7 @@ def _split_customer_owner(prefix: str, owner_id: str, tel_names: dict[str, str])
     return before, "", True
 
 
-_PDF_PARSER_VERSION = "poppler-recomposicao-raw-v11-cidade"
+_PDF_PARSER_VERSION = "poppler-recomposicao-raw-v12-nomes-originais"
 
 
 def _pdf_pages_fast(raw: bytes, *, mode: str = "layout") -> list[str]:
