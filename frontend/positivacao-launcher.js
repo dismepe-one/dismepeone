@@ -18,9 +18,8 @@
  }
  async function check(){
    if(pending)return;pending=true;
-   try{const r=await fetch('/auth/me',{credentials:'include',cache:'no-store'});const d=r.ok?await r.json():{};
-     const role=String(d?.usuario?.tipo||'').trim().toUpperCase();
-     admin=role==='ADMINISTRADOR'||role==='ADMIN';
+   try{const r=await fetch('/positivacoes/api/acesso',{credentials:'include',cache:'no-store'});
+     admin=r.ok;
    }catch(_){admin=false;}finally{pending=false;paint();}
  }
  function start(){

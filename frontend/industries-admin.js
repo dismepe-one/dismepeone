@@ -725,6 +725,83 @@
     }
   }
 
+  // Central granular V1: edição separada, mantendo as permissões legadas intactas.
+  const posDetailKeys=[
+    ['POS_GERAL_VER_PROPRIA','Visualizar somente a própria carteira'],
+    ['POS_GERAL_VER_TODOS','Visualizar todas as carteiras e vendedores'],
+    ['POS_GERAL_ATUALIZAR','Publicar atualizações da base'],
+    ['POS_GERAL_META_ALTERAR','Cadastrar ou alterar a meta'],
+    ['POS_GERAL_OBSERVACOES_VER','Visualizar observações dos clientes autorizados'],
+    ['POS_GERAL_OBSERVACOES_EDITAR','Cadastrar e editar observações da própria carteira'],
+    ['POS_GERAL_OBSERVACOES_GERAIS','Visualizar observações de todas as carteiras'],
+    ['POS_GERAL_INATIVIDADE_SOLICITAR','Solicitar inatividade'],
+    ['POS_GERAL_INATIVIDADE_APROVAR','Consultar, aprovar e rejeitar inatividades'],
+    ['POS_GERAL_EXPORTAR','Exportar relatórios das carteiras autorizadas']
+  ];
+  let detailedOpenedFor='',detailedRevision='';
+  function ensureDetailedPermissionLauncher(){
+    if(!canViewPermissions)return;
+    const panel=document.getElementById('permissionPanel');
+    if(!panel||document.getElementById('posDetailedLauncher'))return;
+    const button=document.createElement('button');
+    button.id='posDetailedLauncher';button.type='button';
+    button.textContent='⚙ Permissões detalhadas • Positivação Geral';
+    button.setAttribute('aria-label','Abrir permissões detalhadas da Positivação Geral');
+    button.style.cssText='display:block;margin:14px 0;padding:12px 14px;border:1px solid #b1d4c7;background:#ecf7f2;color:#075548;border-radius:12px;font-weight:800;cursor:pointer;max-width:100%';
+    button.addEventListener('click',openDetailedPermissions);
+    panel.appendChild(button);
+  }
+  function closeDetailedPermissions(){const modal=document.getElementById('posDetailedModal');if(modal)modal.remove();detailedOpenedFor='';}
+  async function openDetailedPermissions(){
+    const usuario=String(document.getElementById('permissionUser')?.value||'').trim();
+    if(!usuario){alert('Selecione um usuário na tela de Permissões antes de continuar.');return;}
+    closeDetailedPermissions();
+    const wrap=document.createElement('div');wrap.id='posDetailedModal';
+    wrap.style.cssText='position:fixed;inset:0;z-index:2147483000;background:#002d25b9;padding:18px;display:grid;place-items:center';
+    const box=document.createElement('section');
+    box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');
+    box.setAttribute('aria-label','Permissões detalhadas da Positivação Geral');
+    box.style.cssText='background:white;border-radius:18px;padding:24px;width:min(690px,100%);max-height:90vh;overflow:auto;color:#123b34;box-shadow:0 16px 64px #001c1740';
+    wrap.appendChild(box);document.body.appendChild(wrap);
+    box.innerHTML='<h2 style="font-size:19px;font-weight:850">Positivação Geral • permissões detalhadas</h2><p id="posDetailState">Consultando permissões atuais...</p><button type="button" id="posDetailClose" style="padding:9px 15px;border-radius:10px;background:#edf3ef">Fechar</button>';
+    box.querySelector('#posDetailClose').onclick=closeDetailedPermissions;
+    wrap.addEventListener('click',e=>{if(e.target===wrap)closeDetailedPermissions()});
+    try{
+      const r=await api('/admin/permissoes-detalhadas/usuario?usuario='+encodeURIComponent(usuario),{cache:'no-store'});
+      if(!wrap.isConnected)return;
+      detailedOpenedFor=r.usuario;detailedRevision=r.revisao;
+      box.replaceChildren();
+      const title=document.createElement('h2');title.textContent='Positivação Geral • '+r.nome+' ('+r.tipo+')';title.style.cssText='font-size:19px;font-weight:850;margin-bottom:8px';box.appendChild(title);
+      const explanation=document.createElement('p');explanation.textContent='Cada função é independente. Acesso a todas as carteiras não autoriza publicação, metas, exportação, observações ou decisões de inatividade.';explanation.style.cssText='font-size:12px;color:#60746f;margin-bottom:14px';box.appendChild(explanation);
+      const form=document.createElement('form');form.id='posDetailedForm';form.style.cssText='display:grid;gap:9px';
+      posDetailKeys.forEach(([key,label])=>{
+        const line=document.createElement('label');line.style.cssText='display:flex;align-items:center;gap:10px;padding:9px;border-radius:10px;border:1px solid #d7e4e0;cursor:pointer';
+        const check=document.createElement('input');check.type='checkbox';check.name=key;check.checked=r.permissoes[key]===true;check.disabled=r.administrador;check.style.cssText='width:18px;height:18px;flex:0 0 18px';
+        const content=document.createElement('span');content.textContent=label;
+        line.append(check,content);form.appendChild(line);
+      });
+      const message=document.createElement('p');message.id='posDetailMessage';message.setAttribute('role','status');message.style.cssText='font-size:12px;min-height:18px';form.appendChild(message);
+      const buttons=document.createElement('div');buttons.style.cssText='display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap';
+      const close=document.createElement('button');close.type='button';close.textContent='Fechar';close.style.cssText='padding:10px 15px;border:1px solid #cbded7;border-radius:10px';close.onclick=closeDetailedPermissions;
+      const save=document.createElement('button');save.type='submit';save.textContent='Salvar permissões detalhadas';save.disabled=!isAdministrator||r.administrador;
+      save.style.cssText='padding:10px 15px;border:0;border-radius:10px;background:#005548;color:white;font-weight:800';buttons.append(close,save);form.appendChild(buttons);
+      if(r.administrador){message.textContent='O perfil administrador mantém todas as permissões. Suas opções são fixas.';}
+      else if(!isAdministrator){message.textContent='Somente o administrador pode editar estas permissões sensíveis.';}
+      form.onsubmit=async event=>{
+        event.preventDefault();if(!isAdministrator||r.administrador)return;
+        const choices=Object.fromEntries(posDetailKeys.map(([key])=>[key,form.elements.namedItem(key).checked]));
+        save.disabled=true;message.textContent='Gravando permissões sem alterar os demais módulos...';
+        try{
+          const result=await api('/admin/permissoes-detalhadas/salvar',{method:'POST',body:JSON.stringify({usuario:detailedOpenedFor,revisao:detailedRevision,permissoes:choices})});
+          message.textContent=result.mensagem||'Permissões salvas.';
+          detailedRevision='';closeDetailedPermissions();
+          if(typeof window.loadPermissionsFromServer==='function')await window.loadPermissionsFromServer();
+        }catch(e){message.textContent='Erro: '+(e.message||'Não foi possível salvar.');save.disabled=false;}
+      };
+      box.appendChild(form);
+    }catch(e){const state=box.querySelector('#posDetailState');if(state)state.textContent='Não foi possível consultar o usuário: '+(e.message||'erro desconhecido');}
+  }
+
   async function init(){
     addStyle();applyFixedConfigPresentation();
     try{
@@ -738,8 +815,8 @@
       canAccessIndustryPortal=p[INTERNAL_PORTAL_PERMISSION]===true;
     }catch(e){isAdministrator=false;canManageUsers=false;canViewPermissions=false;canManagePermissions=false;canUpdateStock=false;canAccessIndustryPortal=false;}
     if(canManageUsers){ensureUserModal();ensureUserLauncher();}
-    ensureSettingsSection();wrapLaunchers();syncIndustriesHeaderButton();ensureIndustriesHomeCard();
-    new MutationObserver(()=>{applyFixedConfigPresentation();ensureUserLauncher();ensureSettingsSection();wrapLaunchers();syncIndustriesHeaderButton();ensureIndustriesHomeCard();if(document.getElementById('permissionsModal')&&!document.getElementById('permissionsModal').classList.contains('hidden'))setTimeout(()=>renderIndustryPermissionsInPermissionsScreen(false),0);}).observe(document.documentElement,{subtree:true,childList:true});
+    ensureSettingsSection();wrapLaunchers();syncIndustriesHeaderButton();ensureIndustriesHomeCard();ensureDetailedPermissionLauncher();
+    new MutationObserver(()=>{applyFixedConfigPresentation();ensureUserLauncher();ensureSettingsSection();wrapLaunchers();syncIndustriesHeaderButton();ensureIndustriesHomeCard();if(document.getElementById('permissionsModal')&&!document.getElementById('permissionsModal').classList.contains('hidden'))setTimeout(()=>{renderIndustryPermissionsInPermissionsScreen(false);ensureDetailedPermissionLauncher();},0);}).observe(document.documentElement,{subtree:true,childList:true});
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();

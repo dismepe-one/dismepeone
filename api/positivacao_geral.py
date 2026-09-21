@@ -295,6 +295,23 @@ async def _edge(action: str, payload: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def _pos_cap(context: dict[str, Any], key: str) -> bool:
+    if context.get("admin"):
+        return True
+    return context.get("rights", {}).get(key) is True
+
+
+def _pos_capabilities(context: dict[str, Any]) -> dict[str, bool]:
+    return {"atualizarBase": _pos_cap(context, "POS_GERAL_ATUALIZAR"),
+            "alterarMeta": _pos_cap(context, "POS_GERAL_META_ALTERAR"),
+            "aprovarInatividade": _pos_cap(context, "POS_GERAL_INATIVIDADE_APROVAR"),
+            "solicitarInatividade": _pos_cap(context, "POS_GERAL_INATIVIDADE_SOLICITAR"),
+            "verObservacoes": _pos_cap(context, "POS_GERAL_OBSERVACOES_VER"),
+            "editarObservacoes": _pos_cap(context, "POS_GERAL_OBSERVACOES_EDITAR"),
+            "observacoesGerais": context.get("view_all", False) and _pos_cap(context, "POS_GERAL_OBSERVACOES_GERAIS") and _pos_cap(context, "POS_GERAL_OBSERVACOES_VER"),
+            "exportar": _pos_cap(context, "POS_GERAL_EXPORTAR")}
+
+
 def _page_profile(session: str | None) -> dict[str, Any]:
     """Apenas valida sessao para entregar HTML/logo sem aguardar consulta ao banco.
 
@@ -310,8 +327,9 @@ def _page_profile(session: str | None) -> dict[str, Any]:
         raise HTTPException(401, "Sessão expirada.") from exc
     except jwt.PyJWTError as exc:
         raise HTTPException(401, "Sessão inválida.") from exc
-    if _norm(profile.get("tipo")) not in {"ADMIN", "ADMINISTRADOR", "VENDEDOR", "TELEVENDAS"}:
-        raise HTTPException(403, "Perfil sem acesso ao módulo Positivações.")
+    if _norm(profile.get("tipo")) == "INDUSTRIA":
+        raise HTTPException(403, "O portal externo não possui acesso ao módulo Positivações.")
+    # HTML não fornece dados. Toda API revalida usuário ativo e permissões atuais.
     return profile
 
 
@@ -320,9 +338,8 @@ async def _viewer_context(session: str | None) -> dict[str, Any]:
     profile = _page_profile(session)
     role = _norm(profile.get("tipo"))
     if role in {"ADMIN", "ADMINISTRADOR"}:
-        return {"admin": True, "profile": profile, "setor": "", "pessoa": "", "canal": ""}
-    if role not in {"VENDEDOR", "TELEVENDAS"}:
-        raise HTTPException(403, "Este perfil não possui carteira individual de Positivações.")
+        return {"admin": True, "view_all": True, "profile": profile,
+                "setor": "", "pessoa": "", "canal": "", "rights": {}}
     login = _norm(profile.get("usuario"))
     if not login:
         raise HTTPException(403, "Usuário sem identificação de carteira.")
@@ -345,12 +362,33 @@ async def _viewer_context(session: str | None) -> dict[str, Any]:
     if (user.get("ativo") is not True or _norm(user.get("status")) != "ATIVO"
             or _norm(user.get("tipo")) != role):
         raise HTTPException(403, "Carteira indisponível para este usuário.")
+    rights = user.get("permissoes") if isinstance(user.get("permissoes"), dict) else {}
+    own_role = role in {"VENDEDOR", "TELEVENDAS"}
+    own_access = own_role and rights.get("POS_GERAL_VER_PROPRIA") is not False
+    view_all = rights.get("POS_GERAL_VER_TODOS") is True
+    if not own_access and not view_all:
+        raise HTTPException(403, "Usuário sem autorização para consultar Positivações.")
     person = str(user.get("nome") or user.get("vendedor") or user.get("usuario") or "").strip()
     if not person:
-        raise HTTPException(403, "Usuário sem carteira cadastrada.")
-    sector = "TV:" + person if role == "TELEVENDAS" else person
-    return {"admin": False, "profile": profile, "setor": sector,
-            "pessoa": person, "canal": "Televendas" if role == "TELEVENDAS" else "Vendedor"}
+        raise HTTPException(403, "Usuário sem identificação cadastrada.")
+    sector = "TV:" + person if role == "TELEVENDAS" else person if own_role else ""
+    default_own = {"POS_GERAL_VER_PROPRIA", "POS_GERAL_OBSERVACOES_VER",
+                   "POS_GERAL_OBSERVACOES_EDITAR", "POS_GERAL_INATIVIDADE_SOLICITAR",
+                   "POS_GERAL_EXPORTAR"}
+    effective = {key: (value is True if key in rights else own_role and key in default_own)
+                 for key, value in {**{k: None for k in default_own}, **rights}.items()}
+    live_profile = {**profile, "permissoes": rights, "tipo": user.get("tipo")}
+    return {"admin": False, "view_all": view_all, "profile": live_profile,
+            "setor": sector, "pessoa": person,
+            "canal": "Televendas" if role == "TELEVENDAS" else "Vendedor" if own_role else "",
+            "rights": effective}
+
+
+@router.get("/positivacoes/api/acesso")
+async def positivacao_current_access(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
+    context = await _viewer_context(session)
+    return _safe_json_response({"sucesso": True, "visualizarTodas": bool(context.get("view_all")),
+                                "capacidades": _pos_capabilities(context)})
 
 
 async def _registered_users() -> tuple[dict[str, str], dict[str, str]]:
@@ -1257,12 +1295,12 @@ async def positivacao_diagnostico(session: str | None = Cookie(default=None, ali
 async def positivacao_panel(force: bool = Query(False), session: str | None = Cookie(default=None, alias=settings.cookie_name)):
     context = await _viewer_context(session)
     profile = context["profile"]
-    if force and not context["admin"]:
-        raise HTTPException(403, "A atualização das bases é exclusiva da administração.")
+    if force and not _pos_cap(context, "POS_GERAL_ATUALIZAR"):
+        raise HTTPException(403, "Você não possui permissão para publicar a base.")
     data = await _snapshot_fast()
-    if context["admin"] and (force or (data is None and not _DB_ERROR)):
+    if _pos_cap(context, "POS_GERAL_ATUALIZAR") and (force or (data is None and not _DB_ERROR)):
         _start_sync(profile, force=force)
-    state = _sync_status() if context["admin"] else {"emAndamento": False, "erro": ""}
+    state = _sync_status() if _pos_cap(context, "POS_GERAL_ATUALIZAR") else {"emAndamento": False, "erro": ""}
     if data is None:
         return _safe_json_response({"carregando": state["emAndamento"], "semFotografia": True,
                                     "statusAtualizacao": state, "sucesso": True})
@@ -1274,7 +1312,7 @@ async def positivacao_panel(force: bool = Query(False), session: str | None = Co
     except Exception:
         summary["meta"] = _META_CACHE or 0
         summary["metaLeituraIndisponivel"] = True
-    company = data["indicadores"] if not context["admin"] else summary["indicadores"]
+    company = data["indicadores"] if not context.get("view_all") else summary["indicadores"]
     summary["metaAtingimento"] = round(company["positivados"] * 100 / summary["meta"], 2) if summary["meta"] else 0
     summary["metaFaltam"] = max(0, summary["meta"] - company["positivados"])
     summary["statusAtualizacao"] = state
@@ -1324,13 +1362,18 @@ async def _manual_check_and_refresh(profile: dict[str, Any]) -> None:
 
 @router.get("/positivacoes/api/atualizacao-status")
 async def positivacao_atualizacao_status(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
-    _signed_admin(session)
+    context = await _viewer_context(session)
+    if not _pos_cap(context, "POS_GERAL_ATUALIZAR"):
+        raise HTTPException(403, "Você não possui permissão para verificar a atualização da base.")
     return _safe_json_response({"sucesso": True, "statusAtualizacao": _sync_status()})
 
 
 @router.post("/positivacoes/api/atualizar")
 async def positivacao_refresh(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
-    profile = _signed_admin(session)
+    context = await _viewer_context(session)
+    if not _pos_cap(context, "POS_GERAL_ATUALIZAR"):
+        raise HTTPException(403, "Você não possui permissão para atualizar a base.")
+    profile = context["profile"]
     if _worker_running(_worker_state_read()):
         status = _sync_status()
         return _safe_json_response({"sucesso": True, "emAndamento": status["emAndamento"],
@@ -1380,7 +1423,7 @@ def _selected(data: dict[str, Any], status: str, setor: str, search: str,
 
 
 def _enforced_sector(sector: str, context: dict[str, Any]) -> str:
-    if context["admin"]:
+    if context.get("view_all"):
         return sector
     own = context["setor"]
     if sector and sector != own:
@@ -1404,8 +1447,10 @@ def _origins_for_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
-    if context["admin"]:
-        return data
+    if context.get("view_all"):
+        return {**data, "acesso": {"individual": False,
+                "canal": "Administração" if context.get("admin") else "Visualização autorizada",
+                "capacidades": _pos_capabilities(context)}}
     person = context["pessoa"]
     channel = context["canal"]
     owner_seller = channel == "Vendedor"
@@ -1484,7 +1529,8 @@ def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, An
             "movimentacao": {"novos": 0, "removidos": 0,
                              "bloqueadosNovos": 0, "reativados": 0},
             "acesso": {"individual": True, "canal": channel,
-                       "profissional": person, "setor": context["setor"]}}
+                       "profissional": person, "setor": context["setor"],
+                       "capacidades": _pos_capabilities(context)}}
 
 
 @router.get("/positivacoes/api/resumo-filtro")
@@ -1543,7 +1589,10 @@ async def positivacao_clients(
 @router.post("/positivacoes/api/meta")
 async def positivacao_meta(body: MetaRequest, session: str | None = Cookie(default=None, alias=settings.cookie_name)):
     global _META_CACHE
-    profile = _signed_admin(session)
+    context = await _viewer_context(session)
+    if not _pos_cap(context, "POS_GERAL_META_ALTERAR"):
+        raise HTTPException(403, "Você não possui permissão para alterar a meta.")
+    profile = context["profile"]
     serialized = {"meta": body.meta, "alteradoEm": _now()}
     try:
         await _edge("CACHE_SET", {
@@ -1655,15 +1704,17 @@ def _obs_valid_fields(note: PositivacaoObservacaoNova) -> dict[str, Any]:
 
 
 async def _obs_permission(context: dict[str, Any], codigo: str,
-                          *, historic_admin: bool = False) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+                          *, historic_admin: bool = False, write: bool = False) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     # Nunca usar o filtro, nome ou papel enviados pelo navegador para autorizar.
     code = _obs_valid_code(codigo)
     data = await _get_data(context['profile'])
     row = next((x for x in data['clientes'] if x['codigo'] == code), None)
-    if context['admin']:
+    if context['admin'] or (not write and context.get('view_all') and _pos_cap(context, 'POS_GERAL_OBSERVACOES_GERAIS') and _pos_cap(context, 'POS_GERAL_OBSERVACOES_VER')):
         if row is None and not historic_admin:
             raise HTTPException(404, 'Cliente não encontrado na carteira atual.')
         return row, data
+    if not _pos_cap(context, 'POS_GERAL_OBSERVACOES_VER'):
+        raise HTTPException(403, 'Você não possui permissão para consultar observações.')
     if row is None:
         raise HTTPException(403, 'Cliente fora da sua carteira.')
     own = _norm(context['pessoa'])
@@ -1703,8 +1754,8 @@ async def _obs_page(codes: list[str]) -> list[dict[str, Any]]:
 
 
 def _obs_can_edit(note: dict[str, Any], context: dict[str, Any]) -> bool:
-    return bool(context['admin'] or
-                _norm(note.get('autor_usuario')) == _norm(context['profile'].get('usuario')))
+    return bool(_pos_cap(context, 'POS_GERAL_OBSERVACOES_EDITAR') and (context['admin'] or
+                _norm(note.get('autor_usuario')) == _norm(context['profile'].get('usuario'))))
 
 
 @router.get('/positivacoes/api/observacoes/contagens')
@@ -1712,12 +1763,16 @@ async def positivacao_observacoes_contagens(
     codigos: str = '', session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     context = await _viewer_context(session)
+    if not _pos_cap(context, 'POS_GERAL_OBSERVACOES_VER'):
+        raise HTTPException(403, 'Você não possui permissão para consultar observações.')
     selected = [_obs_valid_code(code) for code in codigos.split(',') if code.strip()]
     if not selected or len(selected) > 50:
         raise HTTPException(400, 'Selecione até 50 clientes.')
     data = await _get_data(context['profile'])
-    if context['admin']:
+    if context.get('view_all') and _pos_cap(context, 'POS_GERAL_OBSERVACOES_GERAIS'):
         permitted = {item['codigo'] for item in data['clientes']}
+    elif not context.get('setor'):
+        raise HTTPException(403, 'Sem carteira individual para consultar observações.')
     else:
         selected_rows = _selected(data, 'todos', context['setor'], '')
         permitted = {item['codigo'] for item in selected_rows}
@@ -1736,7 +1791,7 @@ async def positivacao_observacoes_administracao(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     context = await _viewer_context(session)
-    if not context['admin']:
+    if not _pos_cap(context, 'POS_GERAL_OBSERVACOES_GERAIS') or not context.get('view_all'):
         raise HTTPException(403, 'Acompanhamento geral reservado à administração.')
     data = await _get_data(context['profile'])
     names = {item['codigo']: item['cliente'] for item in data['clientes']}
@@ -1780,7 +1835,9 @@ async def positivacao_observacoes_criar(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     context = await _viewer_context(session)
-    _, data = await _obs_permission(context, body.cliente_codigo)
+    if not _pos_cap(context, 'POS_GERAL_OBSERVACOES_EDITAR'):
+        raise HTTPException(403, 'Você não possui permissão para cadastrar observações.')
+    _, data = await _obs_permission(context, body.cliente_codigo, write=True)
     fields = _obs_valid_fields(body)
     author = context['profile']
     author_login = str(author.get('usuario') or '').strip()
@@ -1800,7 +1857,9 @@ async def positivacao_observacoes_alterar(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     context = await _viewer_context(session)
-    await _obs_permission(context, body.cliente_codigo, historic_admin=True)
+    if not _pos_cap(context, 'POS_GERAL_OBSERVACOES_EDITAR'):
+        raise HTTPException(403, 'Você não possui permissão para editar observações.')
+    await _obs_permission(context, body.cliente_codigo, historic_admin=True, write=True)
     notes = await _obs_page([body.cliente_codigo])
     record = next((x for x in notes if x['id'] == body.id), None)
     if not record:
@@ -1984,7 +2043,9 @@ async def positivacao_inatividade_solicitar(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     context = await _viewer_context(session)
-    row, _ = await _obs_permission(context, body.cliente_codigo)
+    if not _pos_cap(context, 'POS_GERAL_INATIVIDADE_SOLICITAR'):
+        raise HTTPException(403, 'Você não possui permissão para solicitar inatividade.')
+    row, _ = await _obs_permission(context, body.cliente_codigo, write=True)
     if row is None or row.get('inativo'):
         raise HTTPException(409, 'Cliente já inativo ou fora da carteira atual.')
     notes = await _obs_page([body.cliente_codigo])
@@ -2012,7 +2073,7 @@ async def positivacao_inatividade_pendentes_contagem(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     context = await _viewer_context(session)
-    if not context['admin']:
+    if not _pos_cap(context, 'POS_GERAL_INATIVIDADE_APROVAR'):
         raise HTTPException(403, 'A consulta de solicitações é exclusiva da administração.')
     # Consulta somente pendentes; limite protegido pela função existente.
     # Ao atingir o limite, mostrar 200+ em vez de alegar contagem exata.
@@ -2029,7 +2090,7 @@ async def positivacao_inatividade_administracao(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     context = await _viewer_context(session)
-    if not context['admin']:
+    if not _pos_cap(context, 'POS_GERAL_INATIVIDADE_APROVAR'):
         raise HTTPException(403, 'A aprovação é exclusiva da administração.')
     data = await _get_data(context['profile'])
     names = {row['codigo']: row['cliente'] for row in data['clientes']}
@@ -2045,7 +2106,7 @@ async def positivacao_inatividade_decidir(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     context = await _viewer_context(session)
-    if not context['admin']:
+    if not _pos_cap(context, 'POS_GERAL_INATIVIDADE_APROVAR'):
         raise HTTPException(403, 'Somente a administração pode aprovar ou rejeitar.')
     if body.decisao not in {'aprovado','rejeitado','reativado'}:
         raise HTTPException(400, 'Decisão inválida.')
@@ -2053,7 +2114,8 @@ async def positivacao_inatividade_decidir(
         raise HTTPException(400, 'Informe a justificativa da decisão.')
     # Revalidar cliente pelo código: nenhum nome, perfil ou crédito vem do navegador.
     code = _obs_valid_code(body.cliente_codigo)
-    await _obs_permission(context, code, historic_admin=True)
+    # O poder de decidir NÃO concede acesso implícito às observações ou outras APIs.
+    code = _obs_valid_code(code)
     result = await _inat_edge('REACTIVATE' if body.decisao == 'reativado' else 'DECIDE',
         {'cliente_codigo': code, 'versao': body.versao,
          'administrador_usuario': str(context['profile'].get('usuario') or '').strip(),
@@ -2088,6 +2150,8 @@ async def positivacao_export(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     context = await _viewer_context(session)
+    if not _pos_cap(context, 'POS_GERAL_EXPORTAR'):
+        raise HTTPException(403, 'Você não possui permissão para exportar Positivações.')
     setor = _enforced_sector(setor, context)
     # Nunca processar a exportacao corporativa completa.
     if not setor or not setor.strip():
@@ -2107,7 +2171,9 @@ async def positivacao_export(
     # Uma unica leitura em blocos dos comentarios dos clientes AUTORIZADOS.
     # A consulta e feita mesmo se houver zero observacoes, para nunca exportar
     # um arquivo incompleto silenciosamente quando o banco estiver indisponivel.
-    notes = await _obs_page([row["codigo"] for row in rows])
+    can_export_notes = (_pos_cap(context, 'POS_GERAL_OBSERVACOES_VER')
+                        and (not context.get('view_all') or _pos_cap(context, 'POS_GERAL_OBSERVACOES_GERAIS')))
+    notes = (await _obs_page([row["codigo"] for row in rows])) if can_export_notes else []
     notes_by_code: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for note in notes:
         notes_by_code[note["cliente_codigo"]].append(note)

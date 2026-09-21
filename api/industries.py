@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import io
 import json
 import re
@@ -75,6 +77,113 @@ class IndustrySelectionRequest(BaseModel):
 class IndustryStockPermissionRequest(BaseModel):
     usuario: str = Field(min_length=1, max_length=120)
     permitido: bool
+
+
+class GranularPermissionChange(BaseModel):
+    usuario: str = Field(min_length=1, max_length=120)
+    revisao: str = Field(min_length=64, max_length=64)
+    permissoes: dict[str, bool] = Field(min_length=1, max_length=20)
+
+
+# Somente chaves cuja autorização também é validada na API correspondente.
+_POS_GRANULAR: dict[str, str] = {
+    "POS_GERAL_VER_PROPRIA": "Visualizar apenas a própria carteira",
+    "POS_GERAL_VER_TODOS": "Visualizar todas as carteiras",
+    "POS_GERAL_ATUALIZAR": "Publicar atualizações da base",
+    "POS_GERAL_META_ALTERAR": "Cadastrar ou alterar a meta",
+    "POS_GERAL_OBSERVACOES_VER": "Consultar observações dos clientes autorizados",
+    "POS_GERAL_OBSERVACOES_EDITAR": "Criar e editar observações autorizadas",
+    "POS_GERAL_OBSERVACOES_GERAIS": "Consultar observações de toda a empresa",
+    "POS_GERAL_INATIVIDADE_SOLICITAR": "Solicitar inatividade de cliente autorizado",
+    "POS_GERAL_INATIVIDADE_APROVAR": "Consultar, aprovar ou rejeitar solicitações de inatividade",
+    "POS_GERAL_EXPORTAR": "Exportar dados das carteiras autorizadas",
+}
+_GRANULAR_LOCK = asyncio.Lock()
+
+
+def _granular_revision(row: dict[str, Any]) -> str:
+    content = {"usuario": normalizar(row.get("usuario")), "tipo": str(row.get("tipo") or ""),
+               "permissoes": _permission_map(row.get("permissoes"))}
+    return hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False,
+                                     separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+async def _granular_user(usuario: str) -> dict[str, Any]:
+    raw = await _edge_admin_write("USUARIOS_LIST", {})
+    matched = [u for u in _active_supabase_users(raw)
+               if normalizar(u.get("usuario")) == normalizar(usuario)]
+    if len(matched) != 1:
+        raise HTTPException(status_code=404, detail="Usuário ativo não localizado no cadastro.")
+    return matched[0]
+
+
+@router.get("/admin/permissoes-detalhadas/catalogo")
+async def granular_permissions_catalog(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
+    _permission_view_profile(session)
+    return {"sucesso": True, "grupos": [{"id": "POSITIVACAO_GERAL", "nome": "Positivação Geral",
+        "itens": [{"chave": k, "nome": v} for k, v in _POS_GRANULAR.items()]}]}
+
+
+@router.get("/admin/permissoes-detalhadas/usuario")
+async def granular_permissions_user(usuario: str, session: str | None = Cookie(default=None, alias=settings.cookie_name)):
+    _permission_view_profile(session)
+    try:
+        row = await _granular_user(usuario)
+    except IndustryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    raw = _permission_map(row.get("permissoes"))
+    role = normalizar(row.get("tipo"))
+    base_own = role in {"VENDEDOR", "TELEVENDAS"}
+    defaults = {"POS_GERAL_VER_PROPRIA", "POS_GERAL_OBSERVACOES_VER",
+                "POS_GERAL_OBSERVACOES_EDITAR", "POS_GERAL_INATIVIDADE_SOLICITAR",
+                "POS_GERAL_EXPORTAR"}
+    rights = {key: (True if _is_admin_profile(row) else
+                    bool(raw[key]) if key in raw else base_own and key in defaults)
+              for key in _POS_GRANULAR}
+    return {"sucesso": True, "usuario": row["usuario"], "nome": row["nome"],
+            "tipo": row["tipo"], "revisao": _granular_revision(row),
+            "permissoes": rights, "administrador": _is_admin_profile(row)}
+
+
+@router.post("/admin/permissoes-detalhadas/salvar")
+async def granular_permissions_save(
+    body: GranularPermissionChange,
+    response: Response,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    editor = _strict_admin_profile(session)  # Nunca permitir autoelevação por outro papel.
+    if set(body.permissoes) != set(_POS_GRANULAR):
+        raise HTTPException(status_code=400, detail="Lista de permissões incompleta ou desatualizada.")
+    async with _GRANULAR_LOCK:
+        try:
+            row = await _granular_user(body.usuario)
+            if _granular_revision(row) != body.revisao:
+                raise HTTPException(status_code=409, detail="As permissões mudaram. Reabra o usuário antes de salvar.")
+            if _is_admin_profile(row):
+                raise HTTPException(status_code=403, detail="O perfil administrador tem direitos fixos; altere apenas usuários não administradores.")
+            previous = _permission_map(row.get("permissoes"))
+            updated = dict(previous)
+            updated.update(body.permissoes)
+            await _edge_admin_write("USUARIO_PERMISSOES_SET", {
+                "usuario_norm": normalizar(row["usuario"]),
+                "tipo": str(row["tipo"]), "permissoes": updated,
+            })
+        except IndustryError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    if normalizar(editor.get("usuario") or editor.get("sub")) == normalizar(row["usuario"]):
+        refreshed = dict(editor)
+        refreshed["permissoes"] = updated
+        token = issue_session_token(
+            usuario=str(editor.get("usuario") or editor.get("sub")), profile=refreshed,
+            secret=settings.jwt_secret, issuer=settings.jwt_issuer,
+            lifetime_seconds=settings.session_seconds,
+        )
+        response.set_cookie(key=settings.cookie_name, value=token,
+            max_age=settings.session_seconds, httponly=True,
+            secure=settings.cookie_secure, samesite=settings.cookie_samesite,
+            domain=settings.cookie_domain, path="/")
+    return {"sucesso": True, "usuario": row["usuario"], "mensagem":
+            "Permissões da Positivação Geral atualizadas. As demais permissões foram preservadas."}
 
 
 class IndustryOperatorPermissionsRequest(BaseModel):
@@ -2078,7 +2187,12 @@ async def industries_operator_permissions(
         raise HTTPException(status_code=400, detail="A tela de permissões está desatualizada. Recarregue o sistema e tente novamente.")
 
     forbidden = {PERM_PORTAL, PERM_FIRST_ACCESS, PERM_LABS, PERM_BUYER_ALL_LABS}
-    perms: dict[str, Any] = {}
+    # USUARIO_PERMISSOES_SET sobrescreve o mapa INTEIRO no banco.
+    # Manter todas as chaves fora do conjunto administrado pela tela legada.
+    current_user = await _granular_user(payload.usuario)
+    if normalizar(current_user.get("tipo")) != normalizar(tipo):
+        raise HTTPException(status_code=409, detail="O cargo mudou. Recarregue as permissões antes de salvar.")
+    perms: dict[str, Any] = _permission_map(current_user.get("permissoes"))
     for key in managed:
         if key in forbidden or not re.fullmatch(r"[A-Z0-9_]{2,80}", key):
             continue
