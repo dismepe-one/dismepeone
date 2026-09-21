@@ -33196,5 +33196,93 @@ body #v21105MoreMenu .v21105-menu-label{
  syncLink();
 })();
 </script>
+
+<!-- DISMEPE ONE: ajuste EXCLUSIVAMENTE visual do nome/cargo no cabeçalho. -->
+<style id="dismepe-perfil-cargos-destaque-v1">
+/* Só perfis ADMINISTRADOR e DIRETOR recebem o destaque; demais cargos são preservados. */
+body header.card-glass #userSessionBox > .dismepe-perfil-destaque,
+body.home-active header.card-glass #userSessionBox > .dismepe-perfil-destaque {
+  flex:0 1 142px !important;
+  min-width:100px !important;
+  max-width:142px !important;
+  box-sizing:border-box !important;
+  padding:4px 7px !important;
+  margin-right:4px !important;
+  display:flex !important;
+  flex-direction:column !important;
+  align-items:center !important;
+  justify-content:center !important;
+  text-align:center !important;
+}
+body header.card-glass #userSessionBox > .dismepe-perfil-destaque #loggedUser {
+  display:block !important;
+  width:100% !important;
+  max-width:100% !important;
+  margin:0 !important;
+  text-align:center !important;
+  font-size:11px !important;
+  line-height:1.25 !important;
+  color:#17332c !important;
+  -webkit-text-fill-color:#17332c !important;
+}
+body header.card-glass #userSessionBox > .dismepe-perfil-destaque #loggedRole.dismepe-cargo-destaque {
+  display:inline-block !important;
+  width:auto !important;
+  max-width:100% !important;
+  box-sizing:border-box !important;
+  margin:4px auto 0 !important;
+  padding:4px 8px !important;
+  background:#005548 !important;
+  border:1px solid #52a994 !important;
+  border-radius:999px !important;
+  color:#ff991f !important;
+  -webkit-text-fill-color:#ff991f !important;
+  font-size:10px !important;
+  font-weight:900 !important;
+  letter-spacing:.015em !important;
+  line-height:1.1 !important;
+  text-align:center !important;
+  white-space:nowrap !important;
+  text-overflow:clip !important;
+  overflow:visible !important;
+}
+@media (max-width:640px) {
+  body header.card-glass #userSessionBox > .dismepe-perfil-destaque,
+  body.home-active header.card-glass #userSessionBox > .dismepe-perfil-destaque {
+    flex:0 1 112px !important;
+    min-width:96px !important;
+    max-width:112px !important;
+    padding:3px 4px !important;
+    margin-right:2px !important;
+  }
+  body header.card-glass #userSessionBox > .dismepe-perfil-destaque #loggedUser {
+    font-size:10px !important;
+  }
+  body header.card-glass #userSessionBox > .dismepe-perfil-destaque #loggedRole.dismepe-cargo-destaque {
+    font-size:9px !important;
+    padding:3px 6px !important;
+  }
+}
+</style>
+<script id="dismepe-perfil-cargos-v1">
+(function () {
+  var role = document.getElementById('loggedRole');
+  var identity = document.getElementById('loggedUser');
+  if (!role || !identity || !role.parentElement ||
+      role.parentElement !== identity.parentElement) return;
+  var profile = role.parentElement;
+  function updateRoleStyle() {
+    var normalized = (role.textContent || '').trim().toUpperCase();
+    var highlighted = normalized === 'ADMINISTRADOR' ||
+                      normalized === 'ADMIN' || normalized === 'DIRETOR';
+    profile.classList.toggle('dismepe-perfil-destaque', highlighted);
+    role.classList.toggle('dismepe-cargo-destaque', highlighted);
+  }
+  new MutationObserver(updateRoleStyle).observe(role, {
+    childList:true, characterData:true, subtree:true
+  });
+  updateRoleStyle();
+})();
+</script>
 </body>
 </html>
