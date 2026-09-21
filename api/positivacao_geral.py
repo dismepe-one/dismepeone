@@ -2145,6 +2145,64 @@ async def positivacao_inatividade_solicitar(
                                 'mensagem': 'Solicitação enviada para aprovação da administração.'})
 
 
+@router.delete('/positivacoes/api/inatividades/historico/{codigo}')
+async def positivacao_inatividade_excluir_historico(
+    codigo: str, versao: int = Query(..., ge=1),
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    context = await _viewer_context(session)
+    if not _pos_cap(context, 'POS_GERAL_INATIVIDADE_APROVAR'):
+        raise HTTPException(403, 'Somente a administração pode excluir registros de inatividade.')
+    codigo = _obs_valid_code(codigo)
+    records = await _inat_records()
+    record = next((item for item in records if str(item['cliente_codigo']) == codigo), None)
+    if record is None:
+        raise HTTPException(404, 'Registro de inatividade não encontrado.')
+    if int(record['versao']) != versao:
+        raise HTTPException(409, 'Registro modificado por outro usuário. Recarregue.')
+    if record['situacao'] not in {'rejeitado', 'reativado'}:
+        raise HTTPException(409, 'Para excluir, rejeite a solicitação pendente ou reative o cliente inativo primeiro.')
+    login = str(context['profile'].get('usuario') or '').strip()
+    if not login:
+        raise HTTPException(403, 'Usuário da administração não identificado.')
+    await _inat_edge('DELETE_HISTORY', {
+        'cliente_codigo': codigo, 'versao': versao, 'administrador_usuario': login,
+    })
+    _inat_invalidate()
+    return _safe_json_response({
+        'sucesso': True,
+        'mensagem': 'Registro retirado do histórico operacional. A exclusão ficou registrada no log de auditoria.',
+    })
+
+
+@router.get('/positivacoes/api/inatividades/log-exclusoes')
+async def positivacao_inatividade_log_exclusoes(
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    context = await _viewer_context(session)
+    if not _pos_cap(context, 'POS_GERAL_INATIVIDADE_APROVAR'):
+        raise HTTPException(403, 'Log de exclusões reservado à administração.')
+    result = await _inat_edge('EXCLUSION_LOG', {'limite': 200})
+    events = result.get('registros')
+    if not isinstance(events, list):
+        raise HTTPException(503, 'Log de exclusões indisponível.')
+    cleaned = []
+    for item in events:
+        before = item.get('anterior') if isinstance(item.get('anterior'), dict) else {}
+        after = item.get('atual') if isinstance(item.get('atual'), dict) else {}
+        cleaned.append({
+            'id': item.get('id'),
+            'cliente_codigo': str(item.get('cliente_codigo') or ''),
+            'observacao_id': before.get('observacao_id'),
+            'situacao_anterior': str(before.get('situacao') or ''),
+            'justificativa': str(before.get('justificativa') or ''),
+            'solicitante_nome': str(before.get('solicitante_nome') or ''),
+            'efetuado_por': str(item.get('efetuado_por') or ''),
+            'excluida_em': str(after.get('excluida_em') or item.get('criado_em') or ''),
+        })
+    return _safe_json_response({'sucesso': True, 'registros': cleaned})
+
+
 @router.get('/positivacoes/api/inatividades/pendentes-contagem')
 async def positivacao_inatividade_pendentes_contagem(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),

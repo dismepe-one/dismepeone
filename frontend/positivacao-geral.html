@@ -685,7 +685,14 @@ async function inatLoadAdminItems(){
  void refreshInatPendingCount();
 }
 function inatAdminCard(n){
- return '<div class="note-item"><div class="note-item-top"><b>'+nomeHtml(n.cliente||n.cliente_codigo)+'</b> <span class="note-chip '+(n.situacao==='aprovado'?'late':'open')+'">'+esc(n.situacao)+'</span></div><div class="note-body">'+esc(n.justificativa)+'</div><div class="note-meta">Solicitado por '+nomeHtml(n.solicitante_nome||n.solicitante_usuario)+' • '+esc(noteDate(n.solicitado_em))+(n.decisao_motivo?' • Decisão: '+esc(n.decisao_motivo):'')+'</div><div class="note-actions">'+(n.situacao==='pendente'?'<button type="button" class="btn green sm" data-inat-act="aprovado" data-inat-code="'+esc(n.cliente_codigo)+'">Aprovar</button><button type="button" class="btn ghost sm" data-inat-act="rejeitado" data-inat-code="'+esc(n.cliente_codigo)+'">Rejeitar</button>':n.situacao==='aprovado'?'<button type="button" class="btn ghost sm" data-inat-act="reativado" data-inat-code="'+esc(n.cliente_codigo)+'">Reativar</button>':'')+'</div></div>';
+ if(n.situacao==='excluido'){
+  return '<div class="note-item"><div class="note-item-top"><b>Cliente '+esc(n.cliente_codigo)+'</b> <span class="note-chip done">EXCLUÍDO • LOG</span></div>'+
+   '<div class="note-body">'+esc(n.justificativa||'Sem justificativa registrada.')+'</div>'+
+   '<div class="note-meta">Situação anterior: '+esc(n.situacao_anterior||'—')+
+   ' • Observação vinculada: '+esc(n.observacao_id||'—')+
+   ' • Excluído por '+esc(n.efetuado_por||'—')+' em '+esc(noteDate(n.excluida_em))+'</div></div>';
+ }
+ return '<div class="note-item"><div class="note-item-top"><b>'+nomeHtml(n.cliente||n.cliente_codigo)+'</b> <span class="note-chip '+(n.situacao==='aprovado'?'late':'open')+'">'+esc(n.situacao)+'</span></div><div class="note-body">'+esc(n.justificativa)+'</div><div class="note-meta">Solicitado por '+nomeHtml(n.solicitante_nome||n.solicitante_usuario)+' • '+esc(noteDate(n.solicitado_em))+(n.decisao_motivo?' • Decisão: '+esc(n.decisao_motivo):'')+'</div><div class="note-actions">'+(n.situacao==='pendente'?'<button type="button" class="btn green sm" data-inat-act="aprovado" data-inat-code="'+esc(n.cliente_codigo)+'">Aprovar</button><button type="button" class="btn ghost sm" data-inat-act="rejeitado" data-inat-code="'+esc(n.cliente_codigo)+'">Rejeitar</button>':n.situacao==='aprovado'?'<button type="button" class="btn ghost sm" data-inat-act="reativado" data-inat-code="'+esc(n.cliente_codigo)+'">Reativar</button>':n.situacao==='rejeitado'||n.situacao==='reativado'?'<button type="button" class="btn ghost sm" data-inat-remove="'+esc(n.cliente_codigo)+'">Excluir do histórico</button>':'')+'</div></div>';
 }
 async function inatOpenAdmin(){
  $('inatHistoryModal').hidden=true;
@@ -698,9 +705,9 @@ async function inatOpenAdmin(){
   $('inatAdminList').innerHTML=pending.length?pending.map(inatAdminCard).join(''):'Nenhuma solicitação pendente.';
  }catch(e){if(!$('inatAdminModal').hidden)$('inatAdminList').textContent='Não foi possível consultar as solicitações: '+e.message;}
 }
-let inatHistoryVisible=10;
+let inatHistoryVisible=10,inatHistoryDeletions=[];
 function inatRenderHistory(){
- const history=inatAdminItems.filter(n=>n.situacao!=='pendente').sort((a,b)=>String(b.atualizado_em||b.decidido_em||b.solicitado_em||'').localeCompare(String(a.atualizado_em||a.decidido_em||a.solicitado_em||'')));
+ const history=[...inatAdminItems.filter(n=>n.situacao!=='pendente'),...inatHistoryDeletions.map(n=>({...n,situacao:'excluido'}))].sort((a,b)=>String(b.excluida_em||b.atualizado_em||b.decidido_em||b.solicitado_em||'').localeCompare(String(a.excluida_em||a.atualizado_em||a.decidido_em||a.solicitado_em||'')));
  const shown=history.slice(0,inatHistoryVisible);
  $('inatHistoryList').innerHTML=shown.length?shown.map(inatAdminCard).join(''):'Nenhum registro no histórico.';
  $('inatHistorySummary').textContent=history.length?'Exibindo '+shown.length+' de '+history.length+' registros':'';
@@ -716,6 +723,9 @@ async function inatOpenHistory(visible=10){
  try{
   await inatLoadAdminItems();
   if($('inatHistoryModal').hidden)return;
+  const audit=await getJSON('/positivacoes/api/inatividades/log-exclusoes');
+  inatHistoryDeletions=Array.isArray(audit.registros)?audit.registros:[];
+  if($('inatHistoryModal').hidden)return;
   inatRenderHistory();
  }catch(e){if(!$('inatHistoryModal').hidden)$('inatHistoryList').textContent='Não foi possível consultar o histórico: '+e.message;}
 }
@@ -725,6 +735,23 @@ $('inatAdminClose').addEventListener('click',()=>{$('inatAdminModal').hidden=tru
 $('inatHistoryClose').addEventListener('click',()=>{$('inatHistoryModal').hidden=true;});
 $('inatHistoryMore').addEventListener('click',()=>{inatHistoryVisible+=10;inatRenderHistory();});
 async function inatHandleDecision(e){
+ const remove=e.target.closest('[data-inat-remove]');
+ if(remove){
+  if(remove.disabled)return;
+  const code=remove.dataset.inatRemove;
+  const record=inatAdminItems.find(x=>x.cliente_codigo===code);
+  if(!record||!['rejeitado','reativado'].includes(record.situacao))return;
+  if(!confirm('Excluir este registro do histórico operacional? A exclusão será registrada no log e poderá ser consultada depois.'))return;
+  remove.disabled=true;
+  try{
+   const result=await getJSON('/positivacoes/api/inatividades/historico/'+encodeURIComponent(code)+'?versao='+Number(record.versao),{method:'DELETE'});
+   showAlert(result.mensagem||'Registro excluído; auditoria preservada.');
+   if(!$('inatHistoryModal').hidden)await inatOpenHistory(inatHistoryVisible);
+   else await inatOpenAdmin();
+   lastSnapshotTime='';await refresh(false);
+  }catch(err){showAlert(err.message,true);remove.disabled=false;}
+  return;
+ }
  const b=e.target.closest('[data-inat-act]');if(!b||b.disabled)return;
  const code=b.dataset.inatCode,record=inatAdminItems.find(x=>x.cliente_codigo===code);
  if(!record)return;
