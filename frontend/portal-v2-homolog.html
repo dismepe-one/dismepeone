@@ -5170,6 +5170,7 @@ function showV36CreateUserInfo(){
               <option value="ADMINISTRADOR">Administrador</option>
               <option value="COMERCIAL">Comercial</option>
               <option value="GERENTE DE VENDAS">Gerente de Vendas</option>
+              <option value="DIRETOR">Diretor</option>
               <option value="COMPRADOR">Comprador</option>
               <option value="VENDEDOR">Vendedor</option>
               <option value="TELEVENDAS">Televendas</option>
@@ -5217,6 +5218,7 @@ function showV36CreateUserInfo(){
                         <option value="ADMINISTRADOR">ADMINISTRADOR</option>
                         <option value="COMERCIAL">COMERCIAL</option>
                         <option value="GERENTE DE VENDAS">GERENTE DE VENDAS</option>
+                        <option value="DIRETOR">DIRETOR</option>
                         <option value="COMPRADOR">COMPRADOR</option>
                         <option value="VENDEDOR">VENDEDOR</option>
                         <option value="TELEVENDAS">TELEVENDAS</option>
@@ -9200,10 +9202,13 @@ window.openCreateUserModal=function(){
         }
       }
 
+      const temporaryNote=r?.senhaTemporaria
+        ? ' Senha temporária: '+r.senhaTemporaria+' — troca obrigatória no próximo login.'
+        : '';
       showCreateUserMessage(
-        norm(tipo)==='COMPRADOR'
+        (norm(tipo)==='COMPRADOR'
           ? 'Usuário '+(r?.usuario||usuario)+' criado como COMPRADOR com acesso somente ao Dismepe One Indústrias e a todos os laboratórios.'
-          : 'Usuário '+(r?.usuario||usuario)+' criado com sucesso.',
+          : 'Usuário '+(r?.usuario||usuario)+' criado com sucesso.')+temporaryNote,
         true
       );
       document.getElementById('createUserForm')?.reset();
@@ -9348,6 +9353,7 @@ window.openCreateUserModal=function(){
     const r=norm(role);
     if(r==='CONTAS A PAGAR'||r==='FINANCEIRO'||r==='FINANCAS')return ['RESUMO_PREMIACOES','PREMIACOES_VISUALIZAR','PREMIACOES_HISTORICO','NOTIFICACOES_VISUALIZAR','NOTIFICACOES_MARCAR_LIDA','ALTERAR_SENHA'];
     if(r==='COMERCIAL'||r==='GESTOR')return ['VENDEDORES','TELEVENDAS','VISAO_GERAL','FILTRO_VENDEDORES','FILTRO_TELEVENDAS','RESUMO_PREMIACOES','CAMPANHAS_EXTRAS_VISUALIZAR','CAMPANHAS_MENSAIS_VISUALIZAR','HISTORICO_MENSAL_VISUALIZAR','HISTORICO_EXTRAS_VISUALIZAR','CONFIGURACAO','ALTERAR_SENHA'];
+    if(r==='GERENTE DE VENDAS'||r==='GERENTE VENDAS'||r==='GERENTE COMERCIAL'||r==='DIRETOR')return ['VENDEDORES','TELEVENDAS','VISAO_GERAL','FILTRO_VENDEDORES','FILTRO_TELEVENDAS','RESUMO_PREMIACOES','CAMPANHAS_EXTRAS_VISUALIZAR','CAMPANHAS_MENSAIS_VISUALIZAR','HISTORICO_MENSAL_VISUALIZAR','HISTORICO_EXTRAS_VISUALIZAR','CONFIGURACAO','ALTERAR_SENHA'];
     if(r==='VENDEDOR')return ['VENDEDORES','CONFIGURACAO','ALTERAR_SENHA'];
     if(r==='TELEVENDAS')return ['TELEVENDAS','CONFIGURACAO','ALTERAR_SENHA'];
     if(r==='SUP VENDAS'||r==='SUPERVISOR VENDAS'||r==='SUPERVISOR_VENDAS'||(r.includes('SUPERVISOR')&&r.includes('VEND')))return ['VENDEDORES','FILTRO_VENDEDORES','CONFIGURACAO','ALTERAR_SENHA'];

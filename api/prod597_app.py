@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 import jwt
 from fastapi import Cookie, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 
 from . import main as main_module
 from . import prod4_app as prod4
@@ -32,12 +33,38 @@ BASE_PATCH_FILE = ROOT / "frontend" / "update-center-prod4.js"
 MONTHLY_PATCH_FILE = ROOT / "frontend" / "monthly-sync-prod597.js"
 HOME_PUBLICATION_PATCH_FILE = ROOT / "frontend" / "home-publication-prod59823.js"
 STOCK_SCHEDULE_PATCH_FILE = ROOT / "frontend" / "stock-schedule-prod59823.js"
+SECURITY_PASSWORD_PATCH_FILE = ROOT / "frontend" / "security-password-prod600.js"
+PASSWORD_CHANGE_REQUIRED = "SEGURANCA_TROCA_SENHA_OBRIGATORIA"
 
 app.include_router(home_publication_router)
 app.include_router(stock_schedule_router)
 
 LEGACY_COOKIE_PREFIX = "dismepe_legacy_"
 LEGACY_COOKIE_MAX_AGE = 3 * 60 * 60
+
+
+@app.middleware("http")
+async def password_change_required_guard(request: Request, call_next):
+    session = request.cookies.get(settings.cookie_name)
+    if not session:
+        return await call_next(request)
+
+    path = request.url.path
+    safe_exact = {"/", "/portal-v2-homolog.html", "/phase1-login.html", "/health", "/auth/login", "/auth/me", "/auth/logout", "/admin/security/change-required-password", "/update-center-prod4.js"}
+    safe_static = request.method == "GET" and path.lower().endswith((".js", ".css", ".png", ".jpg", ".jpeg", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".webp"))
+    if path in safe_exact or safe_static:
+        return await call_next(request)
+
+    try:
+        profile = decode_session_token(session, secret=settings.jwt_secret, issuer=settings.jwt_issuer)
+    except Exception:
+        return await call_next(request)
+
+    perms = profile.get("permissoes")
+    if isinstance(perms, dict) and perms.get(PASSWORD_CHANGE_REQUIRED) is True:
+        return JSONResponse(status_code=428, content={"detail": {"codigo": "TROCA_SENHA_OBRIGATORIA", "mensagem": "Troque sua senha antes de continuar."}}, headers={"Cache-Control": "no-store, private"})
+
+    return await call_next(request)
 
 
 def _legacy_cookie_name(session: str) -> str:
@@ -872,6 +899,8 @@ async def prod597_update_center_script():
         + HOME_PUBLICATION_PATCH_FILE.read_text(encoding="utf-8")
         + "\n\n"
         + STOCK_SCHEDULE_PATCH_FILE.read_text(encoding="utf-8")
+        + "\n\n"
+        + SECURITY_PASSWORD_PATCH_FILE.read_text(encoding="utf-8")
     )
     return Response(
         content=content,

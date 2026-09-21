@@ -54,6 +54,9 @@
     const s=document.createElement('style');s.id='industryAdminStyle';s.textContent=`
       #industryUserLauncher{width:100%;border:1px solid #99cfc1;background:#eff9f6;color:#005548;border-radius:14px;padding:13px 14px;font-weight:900;display:flex;align-items:center;justify-content:center;gap:9px;}
       #industryUserLauncher:hover{background:#e2f3ee}
+      #passwordSecurityLauncher{width:100%;margin-top:8px;border:1px solid #c6d5f6;background:#f3f6ff;color:#263f7a;border-radius:14px;padding:12px 14px;font-weight:900;display:flex;align-items:center;justify-content:center;gap:9px;}
+      #passwordSecurityLauncher:hover{background:#e9efff}
+      #loggedRole.dismepe-leadership-role{display:inline-flex!important;align-items:center;justify-content:center;padding:4px 10px!important;border-radius:999px!important;background:linear-gradient(135deg,#0f766e,#047857)!important;color:#fff!important;font-weight:950!important;letter-spacing:.055em!important;box-shadow:0 0 0 1px rgba(52,211,153,.35),0 6px 18px rgba(4,120,87,.22)!important}
       #industryLabEditLauncher{width:100%;margin-top:8px;border:1px solid #cfdad7;background:#fff;color:#29483f;border-radius:14px;padding:12px 14px;font-weight:900;display:flex;align-items:center;justify-content:center;gap:9px;}
       #industryLabEditLauncher:hover{background:#f4f8f6}
       #industryLabEditModal{position:fixed;inset:0;z-index:2147482501;background:rgba(15,23,42,.66);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:16px}
@@ -529,10 +532,11 @@
     // /auth/me. Recalcula a permissão pela sessão corrente ao abrir o modal.
     if(!canManageUsersNow())return;
     const form=document.getElementById('createUserForm');if(!form||document.getElementById('industryUserLauncher'))return;
-    const wrap=document.createElement('div');wrap.innerHTML='<button type="button" id="industryUserLauncher"><i class="fa-solid fa-industry"></i><span>Criar usuário da indústria</span></button><button type="button" id="industryLabEditLauncher"><i class="fa-solid fa-pen-to-square"></i><span>Editar laboratórios do usuário</span></button><p style="font-size:10px;color:#64748b;margin:6px 2px 0 0">Acesso externo restrito ao(s) laboratório(s) autorizado(s), com senha temporária aleatória e troca obrigatória no primeiro login.</p>';
+    const wrap=document.createElement('div');wrap.innerHTML='<button type="button" id="industryUserLauncher"><i class="fa-solid fa-industry"></i><span>Criar usuário da indústria</span></button><button type="button" id="industryLabEditLauncher"><i class="fa-solid fa-pen-to-square"></i><span>Editar laboratórios do usuário</span></button><button type="button" id="passwordSecurityLauncher"><i class="fa-solid fa-shield-halved"></i><span>Segurança de senhas</span></button><p style="font-size:10px;color:#64748b;margin:6px 2px 0 0">Acesso externo restrito ao(s) laboratório(s) autorizado(s), com senha temporária aleatória e troca obrigatória no primeiro login.</p>';
     form.insertBefore(wrap,form.firstChild);
     document.getElementById('industryUserLauncher').onclick=openIndustryUser;
     document.getElementById('industryLabEditLauncher').onclick=openIndustryLabEditor;
+    document.getElementById('passwordSecurityLauncher').onclick=openPasswordSecurityModal;
   }
 
   function refreshConfigEnhancements(){
@@ -953,8 +957,50 @@
     }catch(e){if(message())message().textContent='Não foi possível abrir a central: '+(e.message||'erro desconhecido')}
   }
 
+  function syncLeadershipRoleHighlight(){
+    const role=document.getElementById('loggedRole');
+    if(!role)return;
+    const value=String(role.textContent||'').trim().toUpperCase();
+    role.classList.toggle('dismepe-leadership-role',value==='ADMINISTRADOR'||value==='DIRETOR');
+  }
+
+  function ensureDirectorRoleOptions(){
+    for(const select of document.querySelectorAll('select')){
+      const opts=[...select.options];
+      const manager=opts.find(o=>String(o.value||o.textContent||'').trim().toUpperCase()==='GERENTE DE VENDAS');
+      const already=opts.some(o=>String(o.value||o.textContent||'').trim().toUpperCase()==='DIRETOR');
+      if(manager&&!already){const option=new Option('DIRETOR','DIRETOR');manager.insertAdjacentElement('afterend',option);}
+    }
+  }
+
+  function closePasswordSecurityModal(){document.getElementById('passwordSecurityModal')?.remove();}
+
+  function downloadTemporaryPasswordReport(rows){
+    const safe=(v)=>'"'+String(v??'').replaceAll('"','""')+'"';
+    const lines=[['Nome','Login','Cargo','Senha temporária'].map(safe).join(';'),...rows.map(r=>[r.nome,r.usuario,r.tipo,r.senhaTemporaria].map(safe).join(';'))];
+    const blob=new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
+    const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='DISMEPE_senhas_temporarias_'+new Date().toISOString().slice(0,10)+'.csv';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+  }
+
+  async function openPasswordSecurityModal(){
+    if(!isAdministrator){alert('Ação exclusiva do administrador.');return;}
+    closePasswordSecurityModal();
+    const overlay=document.createElement('div');overlay.id='passwordSecurityModal';overlay.style.cssText='position:fixed;inset:0;z-index:2147483500;background:rgba(2,20,17,.78);display:grid;place-items:center;padding:16px';
+    const box=document.createElement('section');box.style.cssText='width:min(760px,100%);max-height:92vh;overflow:auto;background:white;color:#17332c;border-radius:20px;padding:22px;box-shadow:0 24px 80px rgba(0,0,0,.3)';overlay.appendChild(box);document.body.appendChild(overlay);
+    box.innerHTML='<h2 style="font-size:21px;font-weight:900;margin:0 0 6px">Segurança de senhas</h2><p style="font-size:12px;color:#60746f;margin:0 0 16px">Gera senha temporária somente para contas que ainda usam a antiga senha padrão. Quem já trocou a senha é preservado.</p><p id="pwdSecurityStatus" style="font-size:12px">Carregando usuários...</p><button type="button" id="pwdSecurityClose" style="padding:9px 14px;border-radius:10px;border:1px solid #d7e4e0">Fechar</button>';
+    box.querySelector('#pwdSecurityClose').onclick=closePasswordSecurityModal;overlay.addEventListener('click',e=>{if(e.target===overlay)closePasswordSecurityModal();});
+    try{
+      const usersResp=await api('/admin/users?security='+Date.now(),{cache:'no-store'});const users=(usersResp.usuarios||[]).filter(u=>u&&u.ativo!==false&&String(u.status||'ATIVO').toUpperCase()!=='EXCLUIDO');
+      box.replaceChildren();const title=document.createElement('h2');title.textContent='Segurança de senhas';title.style.cssText='font-size:21px;font-weight:900;margin:0 0 6px';const info=document.createElement('p');info.textContent='A senha definitiva poderá ter no mínimo 6 caracteres. As senhas temporárias geradas são únicas e deverão ser trocadas no próximo login.';info.style.cssText='font-size:12px;color:#60746f;margin:0 0 16px';
+      const label=document.createElement('label');label.textContent='Usuário que NÃO receberá senha temporária';label.style.cssText='font-size:12px;font-weight:850;display:block;margin-bottom:6px';const select=document.createElement('select');select.style.cssText='width:100%;min-height:44px;padding:8px 10px;border:1px solid #cedbd7;border-radius:10px';select.add(new Option('Nenhuma exceção',''));users.sort((a,b)=>String(a.nome||a.usuario).localeCompare(String(b.nome||b.usuario),'pt-BR',{sensitivity:'base'})).forEach(u=>select.add(new Option((u.nome||u.usuario)+' — '+(u.tipo||'')+' ('+u.usuario+')',u.usuario)));
+      const forceLine=document.createElement('label');forceLine.style.cssText='display:flex;align-items:flex-start;gap:9px;margin:12px 0;padding:10px;border:1px solid #dbe7e3;border-radius:10px';const force=document.createElement('input');force.type='checkbox';force.checked=true;force.style.cssText='width:18px;height:18px';forceLine.append(force,document.createTextNode('Mesmo sem gerar senha temporária, exigir que o usuário selecionado troque a senha atual no próximo login.'));
+      const warning=document.createElement('p');warning.textContent='A operação só altera contas cuja senha ainda é a antiga senha padrão. O relatório com senhas temporárias não é salvo no servidor.';warning.style.cssText='font-size:11px;color:#7c5a16;background:#fff8e6;border:1px solid #f0d99c;padding:10px;border-radius:10px';const status=document.createElement('p');status.setAttribute('role','status');status.style.cssText='font-size:12px;min-height:20px;margin:12px 0';const actions=document.createElement('div');actions.style.cssText='display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap';const close=document.createElement('button');close.type='button';close.textContent='Fechar';close.style.cssText='padding:10px 14px;border:1px solid #d7e4e0;border-radius:10px';close.onclick=closePasswordSecurityModal;const run=document.createElement('button');run.type='button';run.textContent='Gerar senhas temporárias';run.style.cssText='padding:10px 14px;border:0;border-radius:10px;background:#005548;color:white;font-weight:900';actions.append(close,run);box.append(title,info,label,select,forceLine,warning,status,actions);
+      run.onclick=async()=>{const selected=String(select.value||'').trim();const targetText=selected?'Todos que ainda usam a senha padrão, exceto '+select.options[select.selectedIndex].text:'Todos os usuários internos que ainda usam a senha padrão';if(!confirm(targetText+'.\n\nDeseja continuar?'))return;run.disabled=true;select.disabled=true;force.disabled=true;status.textContent='Verificando e redefinindo somente as contas que ainda usam a senha padrão...';try{const result=await api('/admin/security/password-reset-defaults',{method:'POST',body:JSON.stringify({excluirUsuario:selected,exigirTrocaExcluido:force.checked})});const rows=Array.isArray(result.alterados)?result.alterados:[];const errors=Array.isArray(result.erros)?result.erros:[];const report=document.createElement('div');report.style.cssText='margin-top:14px;border-top:1px solid #dce7e3;padding-top:14px';const summary=document.createElement('p');summary.style.cssText='font-size:12px;font-weight:800';summary.textContent=(result.mensagem||'Operação concluída.')+(errors.length?' Há ocorrências que exigem conferência.':'');report.appendChild(summary);if(rows.length){const table=document.createElement('table');table.style.cssText='width:100%;border-collapse:collapse;font-size:12px;margin-top:8px';table.innerHTML='<thead><tr><th style="text-align:left;padding:7px;border-bottom:1px solid #dce7e3">Nome</th><th style="text-align:left;padding:7px;border-bottom:1px solid #dce7e3">Login</th><th style="text-align:left;padding:7px;border-bottom:1px solid #dce7e3">Senha temporária</th></tr></thead><tbody></tbody>';const tbody=table.querySelector('tbody');rows.forEach(r=>{const tr=document.createElement('tr');for(const v of [r.nome,r.usuario,r.senhaTemporaria]){const td=document.createElement('td');td.textContent=v||'';td.style.cssText='padding:7px;border-bottom:1px solid #edf2f0;'+(v===r.senhaTemporaria?'font-family:monospace':'');tr.appendChild(td);}tbody.appendChild(tr);});report.appendChild(table);const dl=document.createElement('button');dl.type='button';dl.textContent='Baixar relatório CSV';dl.style.cssText='margin-top:10px;padding:9px 13px;border:0;border-radius:9px;background:#263f7a;color:white;font-weight:800';dl.onclick=()=>downloadTemporaryPasswordReport(rows);report.appendChild(dl);}if(result.excluido){const x=document.createElement('p');x.style.cssText='font-size:11px;margin-top:10px';x.textContent='Exceção: '+result.excluido.nome+' — senha preservada'+(result.excluido.trocaObrigatoria?' e troca obrigatória marcada para o próximo login.':'.');report.appendChild(x);}if(errors.length){const err=document.createElement('div');err.style.cssText='margin-top:10px;padding:10px;background:#fff0f0;color:#8b2525;border:1px solid #efc7c7;border-radius:10px;font-size:11px';err.textContent='Conferir: '+errors.map(e=>(e.nome||e.usuario||'Registro')+': '+e.motivo).join(' | ');report.appendChild(err);}box.appendChild(report);status.textContent=result.sucesso?'Senhas redefinidas e marcações confirmadas no cadastro.':'Operação concluída com ocorrências; confira os avisos abaixo.';}catch(e){status.textContent='Erro: '+(e.message||'Não foi possível concluir a operação.');run.disabled=false;select.disabled=false;force.disabled=false;}};
+    }catch(e){const st=box.querySelector('#pwdSecurityStatus');if(st)st.textContent='Não foi possível carregar os usuários: '+(e.message||'erro desconhecido');}
+  }
+
   async function init(){
-    addStyle();applyFixedConfigPresentation();
+    addStyle();applyFixedConfigPresentation();ensureDirectorRoleOptions();syncLeadershipRoleHighlight();
     try{
       const me=await api('/auth/me?industry_admin='+Date.now(),{cache:'no-store'});
       const u=me?.usuario||{};const role=String(u.tipo||u.perfil||u.role||u.cargo||'').trim().toUpperCase();const p=u.permissoes||{};
@@ -967,7 +1013,7 @@
     }catch(e){isAdministrator=false;canManageUsers=false;canViewPermissions=false;canManagePermissions=false;canUpdateStock=false;canAccessIndustryPortal=false;}
     if(canManageUsers){ensureUserModal();ensureUserLauncher();}
     ensureSettingsSection();wrapLaunchers();syncIndustriesHeaderButton();ensureIndustriesHomeCard();ensureDetailedPermissionLauncher();advancedLauncher();
-    new MutationObserver(()=>{applyFixedConfigPresentation();ensureUserLauncher();ensureSettingsSection();wrapLaunchers();syncIndustriesHeaderButton();ensureIndustriesHomeCard();if(document.getElementById('permissionsModal')&&!document.getElementById('permissionsModal').classList.contains('hidden'))setTimeout(()=>{renderIndustryPermissionsInPermissionsScreen(false);ensureDetailedPermissionLauncher();advancedLauncher();},0);}).observe(document.documentElement,{subtree:true,childList:true});
+    new MutationObserver(()=>{applyFixedConfigPresentation();ensureDirectorRoleOptions();syncLeadershipRoleHighlight();ensureUserLauncher();ensureSettingsSection();wrapLaunchers();syncIndustriesHeaderButton();ensureIndustriesHomeCard();if(document.getElementById('permissionsModal')&&!document.getElementById('permissionsModal').classList.contains('hidden'))setTimeout(()=>{renderIndustryPermissionsInPermissionsScreen(false);ensureDetailedPermissionLauncher();advancedLauncher();},0);}).observe(document.documentElement,{subtree:true,childList:true});
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();

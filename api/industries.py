@@ -50,6 +50,12 @@ PERM_BUYER_ALL_LABS = "INDUSTRIA_TODOS_LABORATORIOS"
 ALL_LABS_VALUE = "__TODOS__"
 ALL_LABS_LABEL = "TODOS OS LABORATÓRIOS"
 
+# Segurança de credenciais internas. A senha temporária nunca é persistida
+# pelo FastAPI; ela existe apenas em memória e é devolvida uma única vez ao administrador.
+PERM_PASSWORD_CHANGE_REQUIRED = "SEGURANCA_TROCA_SENHA_OBRIGATORIA"
+LEGACY_DEFAULT_PASSWORD = "1234"
+_PASSWORD_RESET_LOCK = asyncio.Lock()
+
 
 class IndustryUserCreateRequest(BaseModel):
     usuario: str = Field(min_length=2, max_length=120)
@@ -64,7 +70,17 @@ class IndustryUserLabsUpdateRequest(BaseModel):
 
 class IndustryPasswordRequest(BaseModel):
     senhaAtual: str = Field(min_length=1, max_length=256)
-    novaSenha: str = Field(min_length=8, max_length=256)
+    novaSenha: str = Field(min_length=6, max_length=256)
+
+
+class ForcedPasswordChangeRequest(BaseModel):
+    senhaAtual: str = Field(min_length=1, max_length=256)
+    novaSenha: str = Field(min_length=6, max_length=256)
+
+
+class AdminPasswordResetDefaultsRequest(BaseModel):
+    excluirUsuario: str = Field(default="", max_length=120)
+    exigirTrocaExcluido: bool = True
 
 
 class IndustryFirstAccessFinalizeRequest(BaseModel):
@@ -1152,6 +1168,20 @@ _INTERNAL_ROLE_DEFAULT_PERMISSIONS: dict[str, dict[str, Any]] = {
         "CONFIGURACAO": True,
         "ALTERAR_SENHA": True,
     },
+    "DIRETOR": {
+        "VENDEDORES": True,
+        "TELEVENDAS": True,
+        "VISAO_GERAL": True,
+        "FILTRO_VENDEDORES": True,
+        "FILTRO_TELEVENDAS": True,
+        "RESUMO_PREMIACOES": True,
+        "CAMPANHAS_EXTRAS_VISUALIZAR": True,
+        "CAMPANHAS_MENSAIS_VISUALIZAR": True,
+        "HISTORICO_MENSAL_VISUALIZAR": True,
+        "HISTORICO_EXTRAS_VISUALIZAR": True,
+        "CONFIGURACAO": True,
+        "ALTERAR_SENHA": True,
+    },
     "VENDEDOR": {
         "VENDEDORES": True,
         "CONFIGURACAO": True,
@@ -1326,8 +1356,10 @@ async def admin_create_user(
                 detail="Já existe um usuário ativo com este login no Supabase.",
             )
 
-    initial_password = "1234"
+    # Novos usuários internos não recebem mais uma senha compartilhada.
+    initial_password = _temporary_password(12)
     perms = _internal_role_permissions(role)
+    perms[PERM_PASSWORD_CHANGE_REQUIRED] = True
 
     try:
         result = await _edge_admin_write(
@@ -1365,7 +1397,9 @@ async def admin_create_user(
         "tipo": role,
         "setor": role,
         "permissoes": perms,
-        "senhaInicialPadrao": True,
+        "senhaInicialPadrao": False,
+        "senhaTemporaria": initial_password,
+        "trocaSenhaObrigatoria": True,
         "usuarioReativado": existing is not None,
         "authUserId": str(result.get("auth_user_id") or ""),
         "compradorCriadoDireto": role == ROLE_BUYER,
@@ -1392,6 +1426,190 @@ def _temporary_password(length: int = 14) -> str:
             and any(ch in symbols for ch in value)
         ):
             return value
+
+
+async def _security_force_change(row: dict[str, Any], required: bool = True) -> dict[str, Any]:
+    """Grava o sinalizador preservando todas as demais permissões."""
+    perms = dict(_permission_map(row.get("permissoes")))
+    perms[PERM_PASSWORD_CHANGE_REQUIRED] = bool(required)
+    await _edge_admin_write(
+        "USUARIO_PERMISSOES_SET",
+        {
+            "usuario_norm": normalizar(row["usuario"]),
+            "tipo": str(row.get("tipo") or ""),
+            "permissoes": perms,
+        },
+    )
+    return perms
+
+
+@router.post("/admin/security/password-reset-defaults")
+async def admin_security_password_reset_defaults(
+    body: AdminPasswordResetDefaultsRequest,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    """Redefine somente contas internas cuja senha ainda é a antiga senha padrão."""
+    _strict_admin_profile(session)
+    excluded = normalizar(body.excluirUsuario or "")
+
+    async with _PASSWORD_RESET_LOCK:
+        try:
+            roster = _active_supabase_users(await _edge_admin_write("USUARIOS_LIST", {}))
+        except IndustryError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+        if excluded and not any(normalizar(u.get("usuario")) == excluded for u in roster):
+            raise HTTPException(404, "O usuário excluído não foi localizado entre os usuários internos ativos.")
+
+        changed: list[dict[str, Any]] = []
+        already_changed: list[dict[str, str]] = []
+        errors: list[dict[str, str]] = []
+        excluded_result: dict[str, Any] | None = None
+        semaphore = asyncio.Semaphore(4)
+
+        async def process(row: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+            login = str(row.get("usuario") or "").strip()
+            name = str(row.get("nome") or row.get("vendedor") or login).strip()
+            role = str(row.get("tipo") or "").strip()
+
+            if excluded and normalizar(login) == excluded:
+                if body.exigirTrocaExcluido:
+                    try:
+                        await _security_force_change(row, True)
+                    except Exception as exc:
+                        return "erro", {"usuario": login, "nome": name, "motivo": "Não foi possível marcar a troca obrigatória: " + str(exc)[:150]}
+                return "excluido", {"usuario": login, "nome": name, "tipo": role, "trocaObrigatoria": bool(body.exigirTrocaExcluido)}
+
+            temporary = _temporary_password(12)
+            async with semaphore:
+                try:
+                    await _edge_admin_write(
+                        "USUARIO_SENHA_SET",
+                        {
+                            "usuario_norm": normalizar(login),
+                            "senha_atual_interna": senha_interna(login, LEGACY_DEFAULT_PASSWORD, settings.auth_pepper),
+                            "senha_nova_interna": senha_interna(login, temporary, settings.auth_pepper),
+                        },
+                    )
+                except IndustryError as exc:
+                    if exc.status_code == 401 and exc.data.get("senhaAtualIncorreta") is True:
+                        return "ja_alterada", {"usuario": login, "nome": name, "tipo": role}
+                    return "erro", {"usuario": login, "nome": name, "motivo": "Falha ao verificar/redefinir a senha: " + str(exc)[:150]}
+
+                try:
+                    await _security_force_change(row, True)
+                except Exception as exc:
+                    return "erro_com_senha", {
+                        "usuario": login,
+                        "nome": name,
+                        "tipo": role,
+                        "senhaTemporaria": temporary,
+                        "motivo": "Senha redefinida, mas a troca obrigatória não pôde ser confirmada: " + str(exc)[:150],
+                    }
+
+                return "alterada", {"usuario": login, "nome": name, "tipo": role, "senhaTemporaria": temporary}
+
+        results = await asyncio.gather(*(process(row) for row in roster))
+
+        for status, item in results:
+            if status == "alterada":
+                changed.append(item)
+            elif status == "ja_alterada":
+                already_changed.append(item)
+            elif status == "excluido":
+                excluded_result = item
+            elif status == "erro_com_senha":
+                changed.append(item)
+                errors.append({"usuario": item["usuario"], "nome": item["nome"], "motivo": item["motivo"]})
+            else:
+                errors.append(item)
+
+        try:
+            confirmed_roster = _active_supabase_users(await _edge_admin_write("USUARIOS_LIST", {}))
+            confirmed_by_user = {normalizar(u.get("usuario")): u for u in confirmed_roster}
+            must_confirm = [x["usuario"] for x in changed]
+            if excluded_result and excluded_result.get("trocaObrigatoria"):
+                must_confirm.append(excluded_result["usuario"])
+            for login in must_confirm:
+                current = confirmed_by_user.get(normalizar(login))
+                current_perms = _permission_map((current or {}).get("permissoes"))
+                if current_perms.get(PERM_PASSWORD_CHANGE_REQUIRED) is not True:
+                    if not any(e.get("usuario") == login for e in errors):
+                        errors.append({"usuario": login, "nome": str((current or {}).get("nome") or login), "motivo": "O banco não confirmou a marcação de troca obrigatória."})
+        except Exception as exc:
+            errors.append({"usuario": "", "nome": "Conferência final", "motivo": "Não foi possível reler o cadastro após a operação: " + str(exc)[:150]})
+
+        return {
+            "sucesso": len(errors) == 0,
+            "redefinidos": len(changed),
+            "jaTinhamTrocado": len(already_changed),
+            "totalAvaliados": len(roster),
+            "alterados": changed,
+            "preservados": already_changed,
+            "excluido": excluded_result,
+            "erros": errors,
+            "mensagem": f"{len(changed)} senha(s) temporária(s) gerada(s); {len(already_changed)} usuário(s) já tinham trocado a senha.",
+        }
+
+
+@router.post("/admin/security/change-required-password")
+async def security_change_required_password(
+    body: ForcedPasswordChangeRequest,
+    response: Response,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    if not session:
+        raise HTTPException(401, "Sessão ausente.")
+    profile = _session_profile(session)
+    login = str(profile.get("usuario") or profile.get("sub") or "").strip()
+    if not login:
+        raise HTTPException(401, "Sessão sem usuário identificado.")
+
+    live = await _granular_user(login)
+    current_perms = _permission_map(live.get("permissoes"))
+    if current_perms.get(PERM_PASSWORD_CHANGE_REQUIRED) is not True:
+        raise HTTPException(409, "Este usuário não possui troca obrigatória pendente.")
+    if body.novaSenha == body.senhaAtual:
+        raise HTTPException(400, "A nova senha precisa ser diferente da senha atual.")
+
+    try:
+        await _edge_admin_write(
+            "USUARIO_SENHA_SET",
+            {
+                "usuario_norm": normalizar(login),
+                "senha_atual_interna": senha_interna(login, body.senhaAtual, settings.auth_pepper),
+                "senha_nova_interna": senha_interna(login, body.novaSenha, settings.auth_pepper),
+            },
+        )
+    except IndustryError as exc:
+        if exc.status_code == 401 and exc.data.get("senhaAtualIncorreta") is True:
+            raise HTTPException(401, "A senha atual/temporária está incorreta.") from exc
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    updated = dict(current_perms)
+    updated[PERM_PASSWORD_CHANGE_REQUIRED] = False
+    try:
+        await _edge_admin_write(
+            "USUARIO_PERMISSOES_SET",
+            {"usuario_norm": normalizar(login), "tipo": str(live.get("tipo") or profile.get("tipo") or ""), "permissoes": updated},
+        )
+        confirmed = await _granular_user(login)
+        if _permission_map(confirmed.get("permissoes")).get(PERM_PASSWORD_CHANGE_REQUIRED) is not False:
+            raise RuntimeError("O cadastro não confirmou a conclusão da troca obrigatória.")
+    except Exception as exc:
+        raise HTTPException(503, "A senha foi alterada, mas o sistema não confirmou a liberação do acesso. Entre novamente com a nova senha e conclua a troca obrigatória.") from exc
+
+    refreshed = dict(profile)
+    refreshed.update({
+        "nome": confirmed.get("nome") or profile.get("nome") or "",
+        "vendedor": confirmed.get("vendedor") or profile.get("vendedor") or "",
+        "tipo": confirmed.get("tipo") or profile.get("tipo") or "",
+        "setor": confirmed.get("setor") or profile.get("setor") or "",
+        "permissoes": _permission_map(confirmed.get("permissoes")),
+    })
+    token = issue_session_token(usuario=login, profile=refreshed, secret=settings.jwt_secret, issuer=settings.jwt_issuer, lifetime_seconds=settings.session_seconds)
+    response.set_cookie(key=settings.cookie_name, value=token, max_age=settings.session_seconds, httponly=True, secure=settings.cookie_secure, samesite=settings.cookie_samesite, domain=settings.cookie_domain, path="/")
+    return {"sucesso": True, "mensagem": "Senha alterada com sucesso. O acesso foi liberado."}
 
 
 def _canonical_lab_labels(values: list[str]) -> list[str]:
@@ -2229,11 +2447,12 @@ async def industries_create_buyer(
     if not usuario:
         raise HTTPException(status_code=400, detail="Usuario invalido.")
 
-    initial_password = "1234"
+    initial_password = _temporary_password(12)
     buyer_perms: dict[str, Any] = {
         PERM_INTERNAL_PORTAL: True,
         PERM_BUYER_ALL_LABS: True,
         PERM_STOCK_UPDATE: False,
+        PERM_PASSWORD_CHANGE_REQUIRED: True,
     }
 
     def error_text(exc: IndustryError) -> str:
@@ -2334,7 +2553,9 @@ async def industries_create_buyer(
         "somentePortalIndustrias": True,
         "todosLaboratorios": True,
         "podeAtualizarMapa": False,
-        "senhaInicialPadrao": not existed,
+        "senhaInicialPadrao": False,
+        "senhaTemporaria": initial_password if not existed else None,
+        "trocaSenhaObrigatoria": not existed,
         "authUserId": str(create_result.get("auth_user_id") or ""),
         "mensagem": (
             "Usuario existente convertido em COMPRADOR."
