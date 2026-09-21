@@ -148,6 +148,10 @@ async def industries_route_guard(request: Request, call_next):
         allowed = (
             path.startswith("/industrias")
             or path in {"/auth/me", "/auth/logout", "/health"}
+            or (path == "/admin/security/change-required-password"
+                and request.method == "POST"
+                and isinstance(profile.get("permissoes"), dict)
+                and profile["permissoes"].get("SEGURANCA_TROCA_SENHA_OBRIGATORIA") is True)
         )
         if not allowed:
             return JSONResponse(

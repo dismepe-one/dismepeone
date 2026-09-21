@@ -10,7 +10,7 @@ from typing import Any
 import httpx
 import jwt
 from fastapi import Cookie, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from . import main as main_module
 from . import prod4_app as prod4
@@ -62,9 +62,28 @@ async def password_change_required_guard(request: Request, call_next):
 
     perms = profile.get("permissoes")
     if isinstance(perms, dict) and perms.get(PASSWORD_CHANGE_REQUIRED) is True:
+        # Navegacao HTML: mostrar somente o formulario de troca, sem liberar APIs.
+        # A resposta 428 continua obrigatoria para consultas e operacoes de dados.
+        accepts_html = request.method == "GET" and "text/html" in request.headers.get("accept", "").lower()
+        if accepts_html and not path.startswith(("/api/", "/admin/", "/auth/")):
+            html = ("<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"utf-8\">"
+                    "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+                    "<title>Troca obrigatória de senha | DISMEPE ONE</title></head>"
+                    "<body style=\"font-family:system-ui,sans-serif;background:#f1f7f4;color:#143f34;padding:24px\">"
+                    "<main><h1>DISMEPE ONE</h1><p>Troca obrigatória de senha. Aguarde o formulário.</p></main>"
+                    "<script src=\"/industrias/security-required-password.js\"></script></body></html>")
+            return HTMLResponse(content=html, headers={"Cache-Control": "no-store, private"})
         return JSONResponse(status_code=428, content={"detail": {"codigo": "TROCA_SENHA_OBRIGATORIA", "mensagem": "Troque sua senha antes de continuar."}}, headers={"Cache-Control": "no-store, private"})
 
     return await call_next(request)
+
+
+@app.get("/industrias/security-required-password.js", include_in_schema=False)
+async def prod_password_required_script():
+    # Entregar somente o JavaScript ja existente do formulario de troca.
+    return Response(content=SECURITY_PASSWORD_PATCH_FILE.read_text(encoding="utf-8"),
+                    media_type="application/javascript",
+                    headers={"Cache-Control": "no-store, private"})
 
 
 def _legacy_cookie_name(session: str) -> str:
