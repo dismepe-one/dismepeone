@@ -153,7 +153,7 @@
 .table-scroll .client-actions .inat-client-quick{border-color:#efd1c5;background:#fff4ee;color:#974d26}
 .table-scroll .client-actions .inat-client-quick:hover{background:#ffe9dc;border-color:#e6b9a5}
 .table-scroll .client-actions svg{display:block;width:19px;height:19px;pointer-events:none}
-.table-scroll .client-actions .note-count{position:absolute;top:-7px;right:-7px;min-width:17px;height:17px;padding:0 3px;font-size:10px;pointer-events:none}
+.table-scroll .client-actions .note-count{position:absolute;top:-9px;left:50%;right:auto;transform:translateX(-50%);z-index:2;display:inline-grid;place-items:center;min-width:21px;height:21px;padding:0 4px;border:2px solid #fff;border-radius:99px;background:#ff5a00;color:#fff;font-size:10px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums;box-shadow:0 2px 5px #002d2540;pointer-events:none}
 @media(max-width:700px){.table-scroll .client-actions .note-trigger,.table-scroll .client-actions .inat-client-quick{flex:0 0 40px;inline-size:40px;min-inline-size:40px;block-size:40px;min-block-size:40px}}
 /* A permissão individual autoriza mostrar os controles mesmo no layout de carteira própria. */
 .individual-mode #btnRefresh:not([hidden]),.individual-mode #btnMeta:not([hidden]){display:inline-flex!important}
@@ -544,6 +544,7 @@ async function refreshNotesBadges(clients,requestIndex){
    const count=Number((data.contagens||{})[button.dataset.noteCode]||0);
    button.classList.toggle('has-notes',count>0);
    button.title=count?count+' observação(ões) para este cliente':'Adicionar observação';
+   button.setAttribute('aria-label',count?count+' observação(ões) deste cliente':'Observações deste cliente');
    const badge=button.querySelector('.note-count');
    if(badge){badge.textContent=count?String(count):'';badge.hidden=!count;}
   });
