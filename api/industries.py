@@ -2258,8 +2258,16 @@ async def industries_page(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     await _industry_profile(session, require_password_changed=False)
+    html = INDUSTRIES_FILE.read_text(encoding="utf-8")
+    if html.count("</body>") != 1:
+        raise RuntimeError("Fechamento do portal Industrias nao encontrado.")
+    html = html.replace(
+        "</body>",
+        '<script src="/industrias/globo-positivacoes.js?v=GLOBO_POS_V1"></script>\n</body>',
+        1,
+    )
     return HTMLResponse(
-        INDUSTRIES_FILE.read_text(encoding="utf-8"),
+        html,
         headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
@@ -3197,3 +3205,8 @@ async def industries_complete_first_access(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     _refresh_session_cookie(response, updated)
     return {"sucesso": True, "trocaObrigatoria": False}
+
+
+# Positivacoes Globo: rota isolada, sem alterar os outros modulos.
+from .globo_positivacoes_industrias import router as globo_positivacoes_router
+router.include_router(globo_positivacoes_router)
