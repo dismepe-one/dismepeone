@@ -1428,9 +1428,10 @@ def _priscielle_client_allowed(row: dict[str, Any], setor: str) -> bool:
     """
     if not setor.startswith("TV:") or _norm(setor[3:]) not in {"PRISCIELLE ARAUJO", "PRISCIELLE"}:
         return True
-    return (row.get("carteiraDiretoria") is not True and
-            any(_norm(owner) == "CLAUDIA FABIANA SILVA COSTA OLIVEIRA"
-                for owner in row.get("vendedores", [])))
+    # Preservar os clientes de Claudia compartilhados com a Diretoria.
+    # Clientes exclusivos da Diretoria nao possuem vinculo com Claudia.
+    return any(_norm(owner) == "CLAUDIA FABIANA SILVA COSTA OLIVEIRA"
+               for owner in row.get("vendedores", []))
 
 
 def _selected(data: dict[str, Any], status: str, setor: str, search: str,
