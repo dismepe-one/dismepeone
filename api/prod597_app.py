@@ -956,6 +956,136 @@ async def prod597_update_center_script():
     )
 
 
+@app.post("/admin/home-publication/refresh-related")
+async def prod59823_refresh_related(
+    request: Request,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    """Atualiza Extras/PEDS sem republicar MENSAL ou alterar horário da HOME."""
+    if not session:
+        raise HTTPException(status_code=401, detail="Sessão ausente.")
+    try:
+        profile = decode_session_token(
+            session, secret=settings.jwt_secret, issuer=settings.jwt_issuer,
+        )
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=401, detail="Sessão inválida ou expirada.") from exc
+    if not prod4._allowed(profile):
+        raise HTTPException(status_code=403, detail="Sem permissão para atualização.")
+    body = await request.json()
+    module = str(body.get("modulo") or "").strip().upper() if isinstance(body, dict) else ""
+    if module not in {"EXTRAS", "CLIENTES_PED"}:
+        raise HTTPException(status_code=400, detail="Módulo não permitido.")
+    role = str(profile.get("tipo") or "").strip().upper()
+    perms = profile.get("permissoes") if isinstance(profile.get("permissoes"), dict) else {}
+    if module == "CLIENTES_PED" and role not in {"ADMINISTRADOR", "ADMIN"} and not (
+        perms.get("CLIENTES_PED_ATUALIZAR") is True or perms.get("CENTRO_ATUALIZACOES") is True
+    ):
+        raise HTTPException(status_code=403, detail="Sem permissão para atualizar Clientes PEDS.")
+    state_key = hashlib.sha256(session.encode("utf-8")).hexdigest()
+    token = await _legacy_token(
+        session_key=state_key,
+        payload=body,
+        persisted_token=_legacy_cookie_value(request, session),
+        wait_for_ready=True,
+    )
+    if not token:
+        raise HTTPException(status_code=409, detail="Sessão de atualização não disponível. Reentre no sistema.")
+    try:
+        previous, previous_row = await cache_get(modulo=module, settings=settings)
+        if module == "EXTRAS":
+            # A leitura real compara valores e preserva o horário quando não mudou.
+            listing = await _legacy_read(action="LISTARCAMPANHASEXTRAS", legacy_token=token)
+            source = listing.get("todas")
+            if not isinstance(source, list):
+                source = listing.get("campanhas")
+            if not isinstance(source, list):
+                raise RuntimeError("A fonte de Campanhas Extras não retornou a lista.")
+            campaigns = [dict(x) for x in source if isinstance(x, dict)]
+            sales: dict[str, list[dict[str, Any]]] = {}
+            for item in campaigns:
+                campaign_id = str(item.get("id") or "").strip()
+                if not campaign_id:
+                    continue
+                partial = await _legacy_read(
+                    action="PARCIALCAMPANHAEXTRA",
+                    legacy_token=token,
+                    extra={"id": campaign_id, "campanhaId": campaign_id, "idCampanha": campaign_id},
+                )
+                records = partial.get("registros")
+                if not isinstance(records, list):
+                    raise RuntimeError(f"A parcial da campanha {campaign_id} não foi confirmada.")
+                focus = str(item.get("codigoProdutoFoco") or "").strip()
+                normalized = []
+                for row in records:
+                    if not isinstance(row, dict):
+                        continue
+                    qty = row.get("quantidadeProdutoFoco")
+                    if qty in (None, ""):
+                        qty = row.get("quantidade")
+                    normalized.append({
+                        "colaborador": str(row.get("colaborador") or "").strip(),
+                        "laboratorio": str(row.get("laboratorio") or item.get("laboratorio") or "").strip(),
+                        "data": "",
+                        "venda": row.get("venda") or 0,
+                        "codigoProduto": str(
+                            row.get("codigoProduto") or (focus if qty not in (None, "", 0, 0.0, "0") else "")
+                        ).strip(),
+                        "quantidade": qty or 0,
+                        "observacao": _extra_observation(
+                            row.get("observacoes") if row.get("observacoes") is not None else row.get("observacao")
+                        ),
+                        "idCampanha": campaign_id,
+                        "campanhaNome": str(item.get("nome") or "").strip(),
+                    })
+                sales[campaign_id] = normalized
+            incoming = {"campanhas": campaigns, "vendasPorCampanha": sales}
+            if all(incoming[key] == previous.get(key) for key in incoming):
+                return {
+                    "sucesso": True, "modulo": module, "resultado": "SEM_ALTERACAO",
+                    "mensagem": "Campanhas Extras já estão atualizadas.",
+                    "atualizadoEm": str(previous_row.get("atualizado_em") or ""),
+                }
+        else:
+            # O cache CLIENTES_PED contém a base completa, não o escopo de um usuário.
+            # Não substituir por DADOS, por uma lista vazia ou por visão individual.
+            source = await _legacy_read(action="CLIENTES_PED", legacy_token=token)
+            incoming = source.get("dados") if isinstance(source.get("dados"), dict) else source
+            if not isinstance(incoming, dict):
+                raise RuntimeError("A fonte Clientes PEDS não retornou um objeto válido.")
+            rows = incoming.get("clientes")
+            if (
+                not isinstance(rows, list) or not rows
+                or incoming.get("snapshotCompleto") is not True
+                or not isinstance(incoming.get("setores"), list)
+            ):
+                raise RuntimeError(
+                    "A fonte Clientes PEDS não confirmou um snapshot completo. A base anterior foi preservada."
+                )
+            # Ignorar timestamps/versões transitórios se o conteúdo da base é igual.
+            compare = ("clientes", "setores", "resumo", "vendasPorSetor",
+                       "setoresMeta", "metaFamilias", "metaEmpresa", "resumoSetor")
+            if all(incoming.get(key) == previous.get(key) for key in compare):
+                return {
+                    "sucesso": True, "modulo": module, "resultado": "SEM_ALTERACAO",
+                    "mensagem": "Clientes PEDS já estão atualizados.",
+                    "atualizadoEm": str(previous_row.get("atualizado_em") or ""),
+                    "clientes": len(rows),
+                }
+        display, iso = await _cache_set_snapshot(modulo=module, payload=incoming, profile=profile)
+        return {
+            "sucesso": True, "modulo": module, "resultado": "ATUALIZADA",
+            "mensagem": f"{'Campanhas Extras' if module == 'EXTRAS' else 'Clientes PEDS'} atualizados no PostgreSQL.",
+            "atualizadoEm": iso, "atualizadoEmFormatado": display,
+            "clientes": len(incoming["clientes"]) if module == "CLIENTES_PED" else None,
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"{'Campanhas Extras' if module == 'EXTRAS' else 'Clientes PEDS'}: {str(exc)[:350]}",
+        ) from exc
+
+
 @app.post("/admin/update-center")
 async def prod597_update_center(
     request: Request,
