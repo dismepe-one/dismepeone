@@ -561,7 +561,7 @@ def _lab_key(value: Any) -> str:
 # laboratorio virtual. As permissoes e os nomes gravados nas fontes originais
 # permanecem intactos; nenhuma outra marca recebe tratamento especial.
 _NEO_PORTAL_LAB = "NEO QUIMICA"
-_NEO_SOURCE_KEYS = frozenset({"NEO QUIMICA GENERICOS", "NEO QUIMICA SMART"})
+_NEO_SOURCE_KEYS = frozenset({"NEO QUIMICA", "NEO QUIMICA GENERICO", "NEO QUIMICA GENERICOS", "NEO QUIMICA SMART"})
 
 
 def _portal_lab_key(value: Any) -> str:
