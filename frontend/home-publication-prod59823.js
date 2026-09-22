@@ -22,7 +22,7 @@
     },options));
     let data={};
     try{data=await response.json();}catch(e){}
-    if(!response.ok){
+    if(!response.ok||data?.sucesso===false){
       const detail=data?.detail;
       const message=typeof detail==='string'
         ?detail
@@ -264,7 +264,16 @@
   async function refreshSourceCaches(){
     const before=await request('/admin/home-publication/status?_before='+Date.now());
     const beforeMensal=String(before?.fontes?.mensal?.atualizadoEm||'');
- 
+    const previousSignature=String(before?.parciais?.fonteAssinatura||'');
+    const publishedSignature=String(before?.parciais?.publicadaAssinatura||'');
+    if(!previousSignature||!publishedSignature){
+      throw new Error('Não foi possível confirmar os números atuais das parciais no banco.');
+    }
+    if(previousSignature!==publishedSignature){
+      // A Central já gravou números novos; publicar sem executar outra atualização.
+      return before;
+    }
+
     // A HOME publica as parciais Mensais. Campanhas Extras têm atualização
     // e horário próprios; não bloqueiam a publicação dos vendedores.
     const modules=[
@@ -302,12 +311,14 @@
     const after=await request('/admin/home-publication/status?_after='+Date.now());
     const afterMensal=String(after?.fontes?.mensal?.atualizadoEm||'');
  
-    if(!afterMensal||afterMensal===beforeMensal){
+    const latestSignature=String(after?.parciais?.fonteAssinatura||'');
+    if(!afterMensal||afterMensal===beforeMensal||!latestSignature
+      ||latestSignature===previousSignature||latestSignature===publishedSignature){
       throw new Error(
-        'Campanhas Mensais nao foram regravadas no PostgreSQL. A HOME nao sera publicada.'
+        'A atualização não trouxe novos números de Vendedores e Televendas. '
+        +'A parcial anterior foi preservada e o horário da HOME não mudou.'
       );
     }
- 
     return after;
   }
 
