@@ -507,6 +507,11 @@ async def home_publication_publish(
 
         extras_publicado = copy.deepcopy(extras_payload)
         partials_changed = _partial_sales_changed(current, mensal_publicado)
+        extras_old_payload = current.get("extras") if isinstance(current.get("extras"), dict) else {}
+        extras_changed = any(
+            extras_publicado.get(key) != extras_old_payload.get(key)
+            for key in ("campanhas", "vendasPorCampanha")
+        )
 
         old_times = current.get("displayTimes")
         old_times = old_times if isinstance(old_times, dict) else {}
@@ -526,8 +531,10 @@ async def home_publication_publish(
                 ),
             },
             "extras": {
-                "iso": extras_iso,
-                "display": str(extras_old.get("display") or _format_time(extras_iso)),
+                "iso": now_iso if extras_changed else extras_iso,
+                "display": now_display if extras_changed else str(
+                    extras_old.get("display") or _format_time(extras_iso)
+                ),
             },
         }
 
@@ -562,6 +569,7 @@ async def home_publication_publish(
             "publicadoEm": now_iso,
             "publicadoPor": username,
             "atualizouHorario": partials_changed,
+            "atualizouHorarioExtras": extras_changed,
             "inseriuHistorico": bool(body.inserirHistorico),
             "displayTimes": display_times,
             "fontes": {
@@ -624,6 +632,7 @@ async def home_publication_publish(
             "publicadoEm": now_iso,
             "publicadoEmFormatado": now_display,
             "atualizouHorario": partials_changed,
+            "atualizouHorarioExtras": extras_changed,
             "inseriuHistorico": bool(body.inserirHistorico),
             "displayTimes": display_times,
             "historico": history,
