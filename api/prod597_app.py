@@ -1050,14 +1050,23 @@ async def prod59823_refresh_related(
             # O cache CLIENTES_PED contém a base completa, não o escopo de um usuário.
             # Não substituir por DADOS, por uma lista vazia ou por visão individual.
             source = await _legacy_read(action="CLIENTES_PED", legacy_token=token)
-            incoming = source.get("dados") if isinstance(source.get("dados"), dict) else source
+            incoming = next(
+                (candidate for candidate in (
+                    source.get("dados"), source.get("payload"), source.get("resultado"), source
+                ) if isinstance(candidate, dict) and isinstance(candidate.get("clientes"), list)),
+                None,
+            )
             if not isinstance(incoming, dict):
-                raise RuntimeError("A fonte Clientes PEDS não retornou um objeto válido.")
+                raise RuntimeError("A fonte Clientes PEDS não retornou a fotografia completa.")
             rows = incoming.get("clientes")
             if (
                 not isinstance(rows, list) or not rows
                 or incoming.get("snapshotCompleto") is not True
+                or incoming.get("escopoAcesso") != "GESTAO"
                 or not isinstance(incoming.get("setores"), list)
+                or not isinstance(incoming.get("resumo"), dict)
+                or not isinstance(incoming.get("vendasPorSetor"), dict)
+                or not isinstance(incoming.get("metaEmpresa"), dict)
             ):
                 raise RuntimeError(
                     "A fonte Clientes PEDS não confirmou um snapshot completo. A base anterior foi preservada."
