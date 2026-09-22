@@ -424,7 +424,7 @@ async def home_publication_status(
     )
 
     mensal_payload, mensal_row = mensal_result
-    _, extras_row = extras_result
+    extras_payload, extras_row = extras_result
     publication, publication_row = publication_result
     publication = publication or {}
 
@@ -463,6 +463,13 @@ async def home_publication_status(
             "mensal": _source_meta(mensal_row),
             "extras": _source_meta(extras_row),
         },
+        "extrasPublicacaoPendente": any(
+            extras_payload.get(key) != (
+                publication.get("extras", {}).get(key)
+                if isinstance(publication.get("extras"), dict) else None
+            )
+            for key in ("campanhas", "vendasPorCampanha")
+        ),
         "parciais": {
             "fonteAssinatura": _partial_signature(mensal_payload),
             "publicadaAssinatura": (
