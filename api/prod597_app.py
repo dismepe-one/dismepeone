@@ -487,10 +487,14 @@ async def _cache_set_snapshot(
         ) or f"HTTP {response.status_code}"
         raise RuntimeError(f"Snapshot {modulo}: {message}")
 
-    _saved, row = await cache_get(modulo=modulo, settings=settings)
+    # O HTTP 200 do gateway não comprova a persistência da nova fotografia.
+    # Confirme o payload real, não apenas a presença de um timestamp antigo.
+    saved, row = await cache_get(modulo=modulo, settings=settings)
     raw = str(row.get("atualizado_em") or "").strip()
-    if not raw:
-        raise RuntimeError(f"Snapshot {modulo} foi gravado sem atualizado_em.")
+    if not raw or saved != payload:
+        raise RuntimeError(
+            f"Snapshot {modulo}: leitura do PostgreSQL não confirmou os dados enviados."
+        )
     return main_module._format_snapshot_time(raw), raw
 
 
@@ -1163,6 +1167,7 @@ async def prod597_update_center(
                         mensal_display, mensal_iso = await _refresh_monthly_snapshot(
                             legacy_token=legacy_token,
                             profile=profile,
+                            require_change=True,
                         )
                         result["mensalSnapshotFonte"] = "POSTGRESQL_REGRAVADO"
                         result["mensalSync"] = UPDATE_CENTER_SQL_SYNC_VERSION
@@ -1274,7 +1279,7 @@ async def prod597_update_center(
 
     result["transporte"] = "FASTAPI_UPDATE_CENTER_DIRECT"
     if mensal_requested and not result.get("mensalSync"):
-        result["mensalSync"] = "POSTGRESQL_ATUALIZADO_EM"
+        result["mensalSync"] = "SEM_CONFIRMACAO_POSTGRESQL"
     return result
 
 
