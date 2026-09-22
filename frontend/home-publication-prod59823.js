@@ -86,13 +86,10 @@
         <div style="padding:16px 18px;">
           <div id="hp59823Sources" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;"></div>
 
-          <label style="display:flex;gap:12px;align-items:flex-start;padding:12px;border:1px solid #dbeafe;border-radius:13px;background:#f8fbff;cursor:pointer;">
-            <input id="hp59823Time" type="checkbox" checked style="margin-top:3px;width:17px;height:17px;">
-            <span>
-              <strong style="display:block;font-size:12px;color:#0f172a;">Mudar o horário exibido na HOME?</strong>
-              <span style="display:block;margin-top:2px;font-size:10px;line-height:15px;color:#64748b;">Se desmarcar, os números mudam, mas o horário que já aparece na HOME permanece igual.</span>
-            </span>
-          </label>
+          <div style="padding:12px;border:1px solid #dbeafe;border-radius:13px;background:#f8fbff;">
+            <strong style="display:block;font-size:12px;color:#0f172a;">Horário da HOME vinculado às parciais</strong>
+            <span style="display:block;margin-top:2px;font-size:10px;line-height:15px;color:#64748b;">O horário muda automaticamente somente quando novos números de Vendedores ou Televendas forem publicados e confirmados no banco.</span>
+          </div>
 
           <label style="display:flex;gap:12px;align-items:flex-start;padding:12px;border:1px solid #d1fae5;border-radius:13px;background:#f8fffb;cursor:pointer;margin-top:9px;">
             <input id="hp59823History" type="checkbox" checked style="margin-top:3px;width:17px;height:17px;">
@@ -181,7 +178,7 @@
 
   async function cancelModal(reason){
     if(!modalOpen)return;
-    const atualizar=document.getElementById('hp59823Time')?.checked;
+    const atualizar=null;
     const historico=document.getElementById('hp59823History')?.checked;
     modalOpen=false;
     const modal=document.getElementById('hp59823Modal');
@@ -309,7 +306,7 @@
 
   async function publish(){
     const button=document.getElementById('hp59823Publish');
-    const atualizarHorario=!!document.getElementById('hp59823Time')?.checked;
+    // O backend determina o horário com base nos valores efetivamente publicados.
     const inserirHistorico=!!document.getElementById('hp59823History')?.checked;
     if(button){
       button.disabled=true;
@@ -321,7 +318,7 @@
       // Não reprocessar MENSAL nem exigir alteração de EXTRAS aqui.
       const result=await request('/admin/home-publication/publish',{
         method:'POST',
-        body:JSON.stringify({atualizarHorario,inserirHistorico})
+        body:JSON.stringify({inserirHistorico})
       });
       await applyFreshHome();
 
@@ -342,8 +339,8 @@
       renderStatus(status);
       setMessage(
         result.atualizouHorario
-          ?'Fotografia disponível publicada; horário da HOME atualizado.'
-          :'Fotografia disponível publicada; o horário anterior da HOME foi mantido.',
+          ?'Novas parciais publicadas e confirmadas; horário da HOME atualizado.'
+          :'Fotografia publicada sem mudança nas parciais; horário da HOME mantido.',
         'ok'
       );
       setTimeout(()=>{
