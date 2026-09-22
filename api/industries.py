@@ -557,6 +557,38 @@ def _lab_key(value: Any) -> str:
     return normalizar(_clean_lab(value))
 
 
+# Somente no portal Industrias, os dois fornecedores NEO QUIMICA formam um
+# laboratorio virtual. As permissoes e os nomes gravados nas fontes originais
+# permanecem intactos; nenhuma outra marca recebe tratamento especial.
+_NEO_PORTAL_LAB = "NEO QUIMICA"
+_NEO_SOURCE_KEYS = frozenset({"NEO QUIMICA GENERICOS", "NEO QUIMICA SMART"})
+
+
+def _portal_lab_key(value: Any) -> str:
+    key = _lab_key(value)
+    return _NEO_PORTAL_LAB if key in _NEO_SOURCE_KEYS else key
+
+
+def _portal_lab_label(value: Any) -> str:
+    return _NEO_PORTAL_LAB if _portal_lab_key(value) == _NEO_PORTAL_LAB else _clean_lab(value)
+
+
+def _portal_source_keys(value: Any) -> set[str]:
+    return set(_NEO_SOURCE_KEYS) if _portal_lab_key(value) == _NEO_PORTAL_LAB else {_lab_key(value)}
+
+
+def _portal_labs(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        label = _portal_lab_label(value)
+        key = _portal_lab_key(label)
+        if label and key not in seen:
+            seen.add(key)
+            result.append(label)
+    return result
+
+
 def industry_allowed_labs(profile: dict[str, Any]) -> list[str]:
     perms = _permissions(profile)
     raw = perms.get(PERM_LABS)
@@ -747,17 +779,17 @@ def _choose_lab(profile: dict[str, Any], requested: str | None) -> str:
         label = _clean_lab(requested)
         if not label:
             raise HTTPException(status_code=400, detail="Selecione um laboratório.")
-        return label
+        return _portal_lab_label(label)
 
     allowed = industry_allowed_labs(profile)
     if not allowed:
         raise HTTPException(status_code=403, detail="Nenhum laboratório foi vinculado a este usuário.")
     if not requested:
-        return allowed[0]
-    key = _lab_key(requested)
+        return _portal_lab_label(allowed[0])
+    key = _portal_lab_key(requested)
     for label in allowed:
-        if _lab_key(label) == key:
-            return label
+        if _portal_lab_key(label) == key:
+            return _portal_lab_label(label)
     raise HTTPException(status_code=403, detail="Laboratório não autorizado para este usuário.")
 
 
@@ -941,6 +973,38 @@ def _sanitize_sales_row(row: dict[str, Any], channel: str, days: float) -> dict[
     }
 
 
+def _merge_neo_sales_rows(rows: list[dict[str, Any]], days: float) -> list[dict[str, Any]]:
+    """Somente a exibicao do portal: soma Genericos + Smart por profissional.
+
+    Nao altera o snapshot, nao soma metas de Produto Foco e nao modifica
+    as regras de premio da parcial original.
+    """
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        owner = " ".join(normalizar(row.get("colaborador") or "").split())
+        key = owner if owner else f"SEM_NOME_{len(grouped)}"
+        if key not in grouped:
+            grouped[key] = dict(row)
+            grouped[key]["laboratorio"] = _NEO_PORTAL_LAB
+            continue
+        target = grouped[key]
+        for field in ("objetivo", "venda", "objetivoExibicao", "vendaExibicao"):
+            target[field] = round(_num(target.get(field)) + _num(row.get(field)), 2)
+    for row in grouped.values():
+        goal = _num(row.get("objetivo"))
+        sale = _num(row.get("venda"))
+        display_goal = _num(row.get("objetivoExibicao"))
+        display_sale = _num(row.get("vendaExibicao"))
+        pct = display_sale / display_goal * 100 if display_goal > 0 else None
+        row["atingimento"] = round(sale / goal * 100, 2) if goal > 0 else None
+        row["falta"] = round(max(0, goal - sale), 2)
+        row["venderPorDia"] = round(row["falta"] / days, 2) if days > 0 else None
+        row["atingimentoExibicao"] = round(pct, 2) if pct is not None else None
+        row["venderPorDiaExibicao"] = round(max(0, display_goal - display_sale) / days, 2) if days > 0 else None
+        row["status"] = "—" if pct is None else "Meta Atingida" if pct >= 100 else "Em Progresso" if pct >= 50 else "Abaixo da Meta"
+    return list(grouped.values())
+
+
 def _days_remaining(payload: dict[str, Any], comp: str) -> float:
     days_map = payload.get("diasUteisPorCompetencia")
     if isinstance(days_map, dict):
@@ -1050,7 +1114,7 @@ def _sanitize_campaign_rule(row: dict[str, Any]) -> dict[str, Any]:
 
 def _industry_campaign_metrics(payload: dict[str, Any], lab: str, comp: str) -> list[dict[str, Any]]:
     rules = payload.get("regrasPremiacao") if isinstance(payload.get("regrasPremiacao"), list) else []
-    lab_key = _lab_key(lab)
+    lab_keys = _portal_source_keys(lab)
     out: list[dict[str, Any]] = []
     for row in rules:
         if not isinstance(row, dict) or not _rule_active(row):
@@ -1065,7 +1129,7 @@ def _industry_campaign_metrics(payload: dict[str, Any], lab: str, comp: str) -> 
         if metric_key == "PONTUACAO_PRODUTO" or "PRODUTO FOCO" in focus_text:
             continue
 
-        if _lab_key(_rule_lab(row)) != lab_key:
+        if _lab_key(_rule_lab(row)) not in lab_keys:
             continue
         rule_comp = _rule_competence(row)
         if comp and rule_comp != comp:
@@ -1081,7 +1145,7 @@ def scope_industry_bootstrap(payload: dict[str, Any], profile: dict[str, Any], c
     autorizados antes do redirecionamento para DISMEPE ONE INDÚSTRIAS.
     """
     allowed = industry_allowed_labs(profile)
-    allowed_keys = {_lab_key(x) for x in allowed}
+    allowed_keys = {key for lab in allowed for key in _portal_source_keys(lab)}
     vend_all = payload.get("dadosVendedores") if isinstance(payload.get("dadosVendedores"), list) else []
     tlv_all = payload.get("dadosTelevendas") if isinstance(payload.get("dadosTelevendas"), list) else []
     all_rows = [x for x in vend_all + tlv_all if isinstance(x, dict)]
@@ -1116,7 +1180,7 @@ def scope_industry_bootstrap(payload: dict[str, Any], profile: dict[str, Any], c
         "regrasPremiacao": [],
         "diasUteisRestantes": _days_remaining(payload, comp),
         "industria": True,
-        "laboratoriosAutorizados": allowed,
+        "laboratoriosAutorizados": _portal_labs(allowed),
         "primeiroAcesso": industry_must_change_password(profile),
     }
 
@@ -1833,16 +1897,16 @@ async def _load_stock() -> dict[str, Any]:
 async def _stock_rows_for_lab(lab: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     data = await _load_stock()
     all_labs = _is_all_labs_request(lab)
-    key = _lab_key(lab)
+    keys = _portal_source_keys(lab)
     rows: list[dict[str, Any]] = []
     for row in data.get("linhas", []):
         if not isinstance(row, dict):
             continue
         row_lab = _clean_lab(row.get("fornecedor") or row.get("laboratorio") or "")
-        if not all_labs and _lab_key(row_lab) != key:
+        if not all_labs and _lab_key(row_lab) not in keys:
             continue
         item = dict(row)
-        item["laboratorio"] = row_lab or (_clean_lab(lab) if not all_labs else "")
+        item["laboratorio"] = _portal_lab_label(row_lab) or (_clean_lab(lab) if not all_labs else "")
         rows.append(item)
     return data, rows
 
@@ -2062,7 +2126,7 @@ def _general_sales_snapshot(lab: str, competencia: str) -> dict[str, Any] | None
         return None
 
     all_labs = _is_all_labs_request(lab)
-    lab_key = _lab_key(lab)
+    lab_keys = _portal_source_keys(lab)
     comp_key = normalizar(competencia or "")
     total = 0.0
     objective = 0.0
@@ -2075,7 +2139,7 @@ def _general_sales_snapshot(lab: str, competencia: str) -> dict[str, Any] | None
         if not isinstance(row, dict):
             continue
         row_lab = row.get("laboratorio") or row.get("lab") or row.get("fornecedor") or row.get("industria")
-        if not all_labs and _lab_key(row_lab) != lab_key:
+        if not all_labs and _lab_key(row_lab) not in lab_keys:
             continue
         row_comp = row.get("competencia") or row.get("mes") or row.get("periodo") or ""
         if comp_key and row_comp and normalizar(row_comp) != comp_key:
@@ -2133,7 +2197,7 @@ def _general_sales_history(lab: str) -> list[dict[str, Any]]:
         return []
 
     all_labs = _is_all_labs_request(lab)
-    lab_key = _lab_key(lab)
+    lab_keys = _portal_source_keys(lab)
     out: list[dict[str, Any]] = []
 
     for snapshot in snapshots[:3]:
@@ -2152,7 +2216,7 @@ def _general_sales_history(lab: str) -> list[dict[str, Any]]:
             if not isinstance(row, dict):
                 continue
             row_lab = row.get("laboratorio") or row.get("lab") or row.get("fornecedor") or row.get("industria")
-            if not all_labs and _lab_key(row_lab) != lab_key:
+            if not all_labs and _lab_key(row_lab) not in lab_keys:
                 continue
 
             raw_value = row.get("venda_total")
@@ -2255,8 +2319,8 @@ async def _all_available_industry_labs() -> list[str]:
 
 async def _industry_visible_labs(profile: dict[str, Any]) -> list[str]:
     if not _is_internal_industry_viewer(profile):
-        return industry_allowed_labs(profile)
-    return await _all_available_industry_labs()
+        return _portal_labs(industry_allowed_labs(profile))
+    return _portal_labs(await _all_available_industry_labs())
 
 
 @router.get("/industrias/laboratorios")
@@ -2333,12 +2397,15 @@ async def industries_data(
             and not _is_focus_row(row)
         ]
     else:
-        key = {_lab_key(lab)}
+        key = _portal_source_keys(lab)
         vend_raw = [row for row in _filter_lab_rows(vend_all, key, comp or None) if not _is_focus_row(row)]
         tlv_raw = [row for row in _filter_lab_rows(tlv_all, key, comp or None) if not _is_focus_row(row)]
 
     vend_rows = [_sanitize_sales_row(x, "VENDEDORES", days) for x in vend_raw]
     tlv_rows = [_sanitize_sales_row(x, "TELEVENDAS", days) for x in tlv_raw]
+    if not all_labs and _portal_lab_key(lab) == _NEO_PORTAL_LAB:
+        vend_rows = _merge_neo_sales_rows(vend_rows, days)
+        tlv_rows = _merge_neo_sales_rows(tlv_rows, days)
 
     # A parcial da industria usa o MESMO componente ja publicado na parcial
     # interna. Somente Globo selecionado; demais laboratorios inalterados.
@@ -2377,11 +2444,7 @@ async def industries_data(
         "sucesso": True,
         "laboratorio": ALL_LABS_LABEL if all_labs else lab,
         "todosLaboratorios": all_labs,
-        "laboratoriosAutorizados": (
-            await _industry_visible_labs(profile)
-            if _is_internal_industry_viewer(profile)
-            else industry_allowed_labs(profile)
-        ),
+        "laboratoriosAutorizados": await _industry_visible_labs(profile),
         "acessoInterno": _is_internal_industry_viewer(profile),
         "acessoComprador": is_buyer_profile(profile),
         "vendaGeralSync": sales_sync_status,
