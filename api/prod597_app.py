@@ -431,6 +431,7 @@ async def _cache_set_snapshot(
     modulo: str,
     payload: dict[str, Any],
     profile: dict[str, Any],
+    version: str | None = None,
 ) -> tuple[str, str]:
     endpoint = settings.supabase_url.rstrip("/") + "/functions/v1/dismepe-admin"
     serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -441,7 +442,7 @@ async def _cache_set_snapshot(
         "atualizado_por": str(profile.get("usuario") or "").strip(),
         "nome": str(profile.get("nome") or profile.get("usuario") or "").strip(),
         "tamanho": len(serialized),
-        "versao": UPDATE_CENTER_SQL_SYNC_VERSION,
+        "versao": version or UPDATE_CENTER_SQL_SYNC_VERSION,
     }
 
     try:
@@ -1129,7 +1130,10 @@ async def prod59823_refresh_related(
                     "atualizadoEm": str(previous_row.get("atualizado_em") or ""),
                     "clientes": len(rows),
                 }
-        display, iso = await _cache_set_snapshot(modulo=module, payload=incoming, profile=profile)
+        display, iso = await _cache_set_snapshot(
+            modulo=module, payload=incoming, profile=profile,
+            version=str(previous_row.get("versao") or UPDATE_CENTER_SQL_SYNC_VERSION),
+        )
         return {
             "sucesso": True, "modulo": module, "resultado": "ATUALIZADA",
             "mensagem": f"{'Campanhas Extras' if module == 'EXTRAS' else 'Clientes PEDS'} atualizados no PostgreSQL.",
