@@ -1049,47 +1049,55 @@ async def prod59823_refresh_related(
         else:
             # O cache CLIENTES_PED contém a base completa, não o escopo de um usuário.
             # Não substituir por DADOS, por uma lista vazia ou por visão individual.
+            # Antes da leitura, solicitar a atualização da origem do mesmo modo
+            # que a antiga Central fazia. Apenas uma escrita legada por clique.
+            legacy_error = ""
+            try:
+                await call_update_center_legacy(
+                    action="OPCACHE_ATUALIZAR",
+                    payload={
+                        "acao": "OPCACHE_ATUALIZAR",
+                        "acoes": [{
+                            "modulo": "CLIENTES_PED", "atualizar": True,
+                            "notificar": False,
+                            "observacao": "Atualização PEDS solicitada na HOME",
+                        }],
+                    },
+                    legacy_token=token,
+                )
+            except UpdateCenterBridgeError as exc:
+                legacy_error = str(exc)[:180]
+
+            # O worker legado pode já ter confirmado a nova fotografia no SQL.
+            verified, updated_row = await cache_get(modulo=module, settings=settings)
+            compare_fields = (
+                "clientes", "setores", "resumo", "vendasPorSetor",
+                "setoresMeta", "metaFamilias", "metaEmpresa", "resumoSetor",
+            )
+            if (
+                verified.get("snapshotCompleto") is True
+                and verified.get("escopoAcesso") == "GESTAO"
+                and isinstance(verified.get("clientes"), list)
+                and verified["clientes"]
+                and any(verified.get(field) != previous.get(field) for field in compare_fields)
+            ):
+                return {
+                    "sucesso": True, "modulo": module, "resultado": "ATUALIZADA",
+                    "mensagem": "Clientes PEDS atualizados e confirmados no PostgreSQL.",
+                    "atualizadoEm": str(updated_row.get("atualizado_em") or ""),
+                    "clientes": len(verified["clientes"]),
+                }
+            # Se o worker não persistiu a fotografia, buscar a fonte completa
+            # diretamente e compará-la antes de gravar. Nunca aceitar DADOS
+            # (parcial individual) como substituto da base de Clientes PEDS.
             try:
                 source = await _legacy_read(action="CLIENTES_PED", legacy_token=token)
-            except RuntimeError as direct_error:
-                # Compatibilidade: versões antigas podem disponibilizar PEDS
-                # apenas pela ação da Central. Executar uma única vez e validar
-                # o PostgreSQL, sem confundir resposta HTTP com dados novos.
-                try:
-                    await call_update_center_legacy(
-                        action="OPCACHE_ATUALIZAR",
-                        payload={
-                            "acao": "OPCACHE_ATUALIZAR",
-                            "acoes": [{
-                                "modulo": "CLIENTES_PED", "atualizar": True,
-                                "notificar": False,
-                                "observacao": "Atualização PEDS solicitada na HOME",
-                            }],
-                        },
-                        legacy_token=token,
-                    )
-                except UpdateCenterBridgeError as update_error:
-                    raise RuntimeError(
-                        "A fonte de Clientes PEDS não respondeu e a atualização legada falhou."
-                    ) from update_error
-                verified, updated_row = await cache_get(modulo=module, settings=settings)
-                if (
-                    verified.get("snapshotCompleto") is True
-                    and verified.get("escopoAcesso") == "GESTAO"
-                    and isinstance(verified.get("clientes"), list)
-                    and verified.get("clientes")
-                    and verified != previous
-                ):
-                    return {
-                        "sucesso": True, "modulo": module, "resultado": "ATUALIZADA",
-                        "mensagem": "Clientes PEDS atualizados e confirmados no PostgreSQL.",
-                        "atualizadoEm": str(updated_row.get("atualizado_em") or ""),
-                        "clientes": len(verified["clientes"]),
-                    }
+            except RuntimeError as exc:
                 raise RuntimeError(
-                    "A atualização legada não confirmou novos dados de Clientes PEDS "
-                    "no PostgreSQL. A fotografia anterior foi preservada."
-                ) from direct_error
+                    "A origem Clientes PEDS não retornou a fotografia completa "
+                    "e o PostgreSQL não confirmou uma atualização."
+                    + (" Falha na Central legada: " + legacy_error if legacy_error else "")
+                ) from exc
             incoming = next(
                 (candidate for candidate in (
                     source.get("dados"), source.get("payload"), source.get("resultado"), source
