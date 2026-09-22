@@ -411,7 +411,7 @@
             if(state.extrasPublicacaoPendente===true){
               setMessage('Publicando as Campanhas Extras atualizadas na HOME...','neutral');
               const published=await request('/admin/home-publication/publish',{
-                method:'POST',body:JSON.stringify({inserirHistorico:false})
+                method:'POST',body:JSON.stringify({inserirHistorico:false,somenteExtras:true})
               });
               if(published.atualizouHorario===true){
                 throw new Error('Publicação Extras inesperadamente alterou a parcial Mensal; confira a HOME.');
