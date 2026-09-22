@@ -374,26 +374,23 @@ async def home_publication_publish(
 
         # O horário é consequência da publicação de novas parciais,
         # jamais da solicitação de atualização ou de uma opção independente.
-        if partials_changed:
-            display_times = {
-                "mensal": {"iso": now_iso, "display": now_display},
-                "extras": {"iso": now_iso, "display": now_display},
-            }
-        else:
-            mensal_old = old_times.get("mensal") if isinstance(old_times.get("mensal"), dict) else {}
-            extras_old = old_times.get("extras") if isinstance(old_times.get("extras"), dict) else {}
-            mensal_iso = str(mensal_old.get("iso") or mensal_row.get("atualizado_em") or "")
-            extras_iso = str(extras_old.get("iso") or extras_row.get("atualizado_em") or "")
-            display_times = {
-                "mensal": {
-                    "iso": mensal_iso,
-                    "display": str(mensal_old.get("display") or _format_time(mensal_iso)),
-                },
-                "extras": {
-                    "iso": extras_iso,
-                    "display": str(extras_old.get("display") or _format_time(extras_iso)),
-                },
-            }
+        mensal_old = old_times.get("mensal") if isinstance(old_times.get("mensal"), dict) else {}
+        extras_old = old_times.get("extras") if isinstance(old_times.get("extras"), dict) else {}
+        mensal_iso = str(mensal_old.get("iso") or mensal_row.get("atualizado_em") or "")
+        extras_iso = str(extras_old.get("iso") or extras_row.get("atualizado_em") or "")
+        # Publicar a parcial Mensal não altera o horário próprio de Extras.
+        display_times = {
+            "mensal": {
+                "iso": now_iso if partials_changed else mensal_iso,
+                "display": now_display if partials_changed else str(
+                    mensal_old.get("display") or _format_time(mensal_iso)
+                ),
+            },
+            "extras": {
+                "iso": extras_iso,
+                "display": str(extras_old.get("display") or _format_time(extras_iso)),
+            },
+        }
 
         history = current.get("historico")
         history = list(history) if isinstance(history, list) else []
