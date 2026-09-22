@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import hashlib
 import json
 import time
 import uuid
@@ -269,6 +270,15 @@ def _partial_sales_changed(previous: dict[str, Any], candidate: dict[str, Any]) 
     )
 
 
+def _partial_signature(payload: dict[str, Any]) -> str:
+    values = {
+        key: _partial_numbers(payload, key)
+        for key in ("dadosVendedores", "dadosTelevendas")
+    }
+    serialized = json.dumps(values, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
 def _source_meta(row: dict[str, Any]) -> dict[str, Any]:
     raw = str(row.get("atualizado_em") or "")
     return {
@@ -291,7 +301,7 @@ async def home_publication_status(
         _read_publication(),
     )
 
-    _, mensal_row = mensal_result
+    mensal_payload, mensal_row = mensal_result
     _, extras_row = extras_result
     publication, publication_row = publication_result
     publication = publication or {}
@@ -330,6 +340,13 @@ async def home_publication_status(
         "fontes": {
             "mensal": _source_meta(mensal_row),
             "extras": _source_meta(extras_row),
+        },
+        "parciais": {
+            "fonteAssinatura": _partial_signature(mensal_payload),
+            "publicadaAssinatura": (
+                _partial_signature(publication["mensal"])
+                if isinstance(publication.get("mensal"), dict) else ""
+            ),
         },
         "snapshotAtualizadoEm": str((publication_row or {}).get("atualizado_em") or ""),
     }
