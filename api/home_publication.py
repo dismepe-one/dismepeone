@@ -231,6 +231,44 @@ async def _source_snapshot(module: str) -> tuple[dict[str, Any], dict[str, Any]]
         ) from exc
 
 
+def _partial_numbers(payload: dict[str, Any], key: str) -> list[str]:
+    # A parcial é comparada pelos valores de venda e identificadores estáveis,
+    # sem usar timestamps ou dias úteis que mudam sem novas vendas.
+    fields = (
+        "__COMPETENCIA", "competencia", "__COLABORADOR", "colab",
+        "__LAB", "lab", "__CODIGO_FOCO", "produto",
+        "__VENDA", "venda", "Venda", "Vendas", "Realizado",
+        "__VENDA_FOCO", "vendaFoco",
+    )
+    rows = payload.get(key)
+    if not isinstance(rows, list):
+        return []
+    return sorted(
+        json.dumps(
+            {field: row[field] for field in fields if field in row},
+            ensure_ascii=False, sort_keys=True, default=str,
+        )
+        for row in rows if isinstance(row, dict)
+    )
+
+
+def _partial_sales_changed(previous: dict[str, Any], candidate: dict[str, Any]) -> bool:
+    # Ambas as parciais precisam estar completas para publicar um novo horário.
+    keys = ("dadosVendedores", "dadosTelevendas")
+    if any(not _partial_numbers(candidate, key) for key in keys):
+        raise RuntimeError(
+            "As parciais de Vendedores e Televendas não estão completas; "
+            "o horário da HOME foi preservado."
+        )
+    older = previous.get("mensal")
+    if not isinstance(older, dict):
+        return True
+    return any(
+        _partial_numbers(older, key) != _partial_numbers(candidate, key)
+        for key in keys
+    )
+
+
 def _source_meta(row: dict[str, Any]) -> dict[str, Any]:
     raw = str(row.get("atualizado_em") or "")
     return {
@@ -329,11 +367,14 @@ async def home_publication_publish(
             pass
 
         extras_publicado = copy.deepcopy(extras_payload)
+        partials_changed = _partial_sales_changed(current, mensal_publicado)
 
         old_times = current.get("displayTimes")
         old_times = old_times if isinstance(old_times, dict) else {}
 
-        if body.atualizarHorario:
+        # O horário é consequência da publicação de novas parciais,
+        # jamais da solicitação de atualização ou de uma opção independente.
+        if partials_changed:
             display_times = {
                 "mensal": {"iso": now_iso, "display": now_display},
                 "extras": {"iso": now_iso, "display": now_display},
@@ -362,7 +403,7 @@ async def home_publication_publish(
             "publicadoEm": now_iso,
             "publicadoEmFormatado": now_display,
             "publicadoPor": username,
-            "horarioHomeAlterado": bool(body.atualizarHorario),
+            "horarioHomeAlterado": partials_changed,
             "fonteMensal": _source_meta(mensal_row),
             "fonteExtras": _source_meta(extras_row),
         }
@@ -376,7 +417,7 @@ async def home_publication_publish(
             "publicationId": publication_id,
             "publicadoEm": now_iso,
             "publicadoPor": username,
-            "atualizouHorario": bool(body.atualizarHorario),
+            "atualizouHorario": partials_changed,
             "inseriuHistorico": bool(body.inserirHistorico),
             "displayTimes": display_times,
             "fontes": {
@@ -402,12 +443,29 @@ async def home_publication_publish(
             timeout_seconds=45.0,
         )
 
+        # Um retorno de sucesso do gateway não prova que os valores chegaram à HOME.
+        confirmed, _confirmed_row = await _read_publication()
+        if (
+            not confirmed
+            or confirmed.get("publicationId") != publication_id
+            or confirmed.get("displayTimes") != display_times
+            or any(
+                _partial_numbers(confirmed.get("mensal") or {}, key)
+                != _partial_numbers(mensal_publicado, key)
+                for key in ("dadosVendedores", "dadosTelevendas")
+            )
+        ):
+            raise RuntimeError(
+                "O PostgreSQL não confirmou as parciais publicadas; "
+                "o horário da HOME não pode ser confirmado."
+            )
+
         await _audit(
             profile,
             action="PUBLICACAO_HOME_SUCESSO",
             identifier=publication_id,
             details={
-                "atualizarHorario": bool(body.atualizarHorario),
+                "atualizarHorario": partials_changed,
                 "inserirHistorico": bool(body.inserirHistorico),
                 "fonteMensal": _source_meta(mensal_row),
                 "fonteExtras": _source_meta(extras_row),
@@ -421,7 +479,7 @@ async def home_publication_publish(
             "publicationId": publication_id,
             "publicadoEm": now_iso,
             "publicadoEmFormatado": now_display,
-            "atualizouHorario": bool(body.atualizarHorario),
+            "atualizouHorario": partials_changed,
             "inseriuHistorico": bool(body.inserirHistorico),
             "displayTimes": display_times,
             "historico": history,
