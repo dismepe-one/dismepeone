@@ -1,0 +1,12 @@
+node_modules/
+.expo/
+android/
+ios/
+*.keystore
+*.jks
+*.p12
+google-services.json
+firebase-service-account*.json
+.env
+.env.*
+!.env.example
