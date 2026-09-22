@@ -49,8 +49,8 @@ function renderCenterLink(){
  if(existing?.isConnected)return;
  const buttons=document.querySelectorAll('button,[role="button"]');
  for(const button of buttons){
-   const title=normalize(button.textContent).replace(/\\s+/g,' ').trim();
-   if(!/^\\+?\\s*AVISO$/.test(title) || !inNotificationCenter(button))continue;
+   const title=normalize(button.textContent).replace(/\s+/g,' ').trim();
+   if(!/^\+?\s*AVISO$/.test(title) || !inNotificationCenter(button))continue;
    const link=document.createElement('a');
    link.id=EDITOR_LINK_ID;
    link.href='/notificacoes/admin';
