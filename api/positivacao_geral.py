@@ -2073,6 +2073,10 @@ async def _inat_enrich(data: dict[str, Any]) -> dict[str, Any]:
               if item.get('situacao') == 'aprovado'}
     rows: list[dict[str, Any]] = []
     for row in data['clientes']:
+        # Escopo somente do modulo Positivacoes: mostrar exclusivamente UF PE.
+        # Preservar a fotografia original e os historicos no banco de dados.
+        if _norm(row.get('uf')) != 'PE':
+            continue
         state = states.get(str(row['codigo']))
         row = {**row, 'inativo': bool(state),
                'situacaoInatividade': 'aprovado' if state else '',
