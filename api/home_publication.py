@@ -279,6 +279,128 @@ def _partial_signature(payload: dict[str, Any]) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
+def _history_current_rows(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+    channels: list[list[dict[str, Any]]] = []
+    for key in ("dadosVendedores", "dadosTelevendas"):
+        rows = payload.get(key)
+        channels.append(
+            [row for row in rows if isinstance(row, dict)]
+            if isinstance(rows, list) else []
+        )
+    comps = {
+        str(row.get("__COMPETENCIA") or row.get("competencia") or "").strip()
+        for rows in channels for row in rows
+    }
+    valid = [
+        value for value in comps
+        if len(value) == 7 and value[2] == "/" and value[:2].isdigit()
+        and value[3:].isdigit() and 1 <= int(value[:2]) <= 12
+    ]
+    if not valid:
+        raise RuntimeError("Não foi possível identificar a competência das novas parciais.")
+    comp = max(valid, key=lambda value: (int(value[3:]), int(value[:2])))
+    selected = [
+        [row for row in rows if str(row.get("__COMPETENCIA") or row.get("competencia") or "").strip() == comp]
+        for rows in channels
+    ]
+    if not selected[0] or not selected[1]:
+        raise RuntimeError("As novas parciais não contêm os dois canais da competência atual.")
+    return comp, selected[0], selected[1]
+
+
+def _history_sum(rows: list[dict[str, Any]], *fields: str) -> float:
+    total = 0.0
+    for row in rows:
+        for field in fields:
+            if row.get(field) is not None:
+                try:
+                    total += float(row[field])
+                except (ValueError, TypeError):
+                    pass
+                break
+    return round(total, 2)
+
+
+async def _ensure_monthly_publication_history(
+    *,
+    payload: dict[str, Any],
+    profile: dict[str, Any],
+    publication_id: str,
+    now: datetime,
+) -> None:
+    # Preserva as fotografias anteriores: nunca troca seus valores pelos atuais.
+    # Se a origem já criou a nova fotografia correta, não grava uma duplicata.
+    comp, vend, tlv = _history_current_rows(payload)
+    try:
+        existing, _row = await raw_cache_get(modulo="HISTORICO_MENSAL", settings=settings)
+    except CacheReadError as exc:
+        raise RuntimeError("O histórico Mensal não está disponível; publicação interrompida.") from exc
+    old_items = existing.get("atualizacoes")
+    if not isinstance(old_items, list):
+        raise RuntimeError("O histórico Mensal não possui uma lista válida de atualizações.")
+    items = [entry for entry in old_items if isinstance(entry, dict)]
+    items.sort(key=lambda entry: str(entry.get("dataHoraISO") or ""), reverse=True)
+
+    latest = items[0] if items else {}
+    latest_rows = {
+        "dadosVendedores": latest.get("dadosVendedores"),
+        "dadosTelevendas": latest.get("dadosTelevendas"),
+    }
+    current_rows = {"dadosVendedores": vend, "dadosTelevendas": tlv}
+    if (
+        str(latest.get("dataHoraISO") or "")[:10] == now.date().isoformat()
+        and str(latest.get("competencia") or "") == comp
+        and _partial_signature(latest_rows) == _partial_signature(current_rows)
+    ):
+        return
+
+    entry = {
+        "idAtualizacao": publication_id,
+        "competencia": comp,
+        "origem": "CAMPANHAS MENSAIS",
+        "dataHoraISO": now.isoformat(),
+        "dataHoraFormatado": now.strftime("%d/%m/%Y %H:%M:%S"),
+        "usuario": str(profile.get("usuario") or profile.get("sub") or ""),
+        "registrosVendedores": len(vend),
+        "registrosTelevendas": len(tlv),
+        "objetivoVendedores": _history_sum(vend, "__OBJETIVO", "objetivo", "Objetivo", "Meta"),
+        "vendaVendedores": _history_sum(vend, "__VENDA", "venda", "Venda", "Vendas"),
+        "objetivoTelevendas": _history_sum(tlv, "__OBJETIVO", "objetivo", "Objetivo", "Meta"),
+        "vendaTelevendas": _history_sum(tlv, "__VENDA", "venda", "Venda", "Vendas"),
+        "dadosVendedores": vend,
+        "dadosTelevendas": tlv,
+        "regrasPremiacao": [
+            row for row in payload.get("regrasPremiacao", [])
+            if isinstance(row, dict)
+            and str(row.get("competencia") or row.get("COMPETENCIA") or comp).strip() == comp
+        ] if isinstance(payload.get("regrasPremiacao"), list) else [],
+    }
+    updated = dict(existing)
+    updated["atualizacoes"] = [entry, *items][:3]
+    size = len(json.dumps(updated, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    await _edge_call(
+        "CACHE_SET",
+        {
+            "modulo": "HISTORICO_MENSAL",
+            "payload": updated,
+            "atualizado_por": entry["usuario"],
+            "nome": "Histórico Mensal após publicação das parciais",
+            "tamanho": size,
+            "versao": f"{BUILD}_HISTORY_PUBLICATION_V1",
+        },
+        timeout_seconds=65.0,
+    )
+    stored, _stored_row = await raw_cache_get(modulo="HISTORICO_MENSAL", settings=settings)
+    verified = stored.get("atualizacoes")
+    if (
+        not isinstance(verified, list)
+        or not verified
+        or verified[0].get("idAtualizacao") != publication_id
+        or _partial_signature(verified[0]) != _partial_signature(current_rows)
+    ):
+        raise RuntimeError("O PostgreSQL não confirmou a nova fotografia do histórico Mensal.")
+
+
 def _source_meta(row: dict[str, Any]) -> dict[str, Any]:
     raw = str(row.get("atualizado_em") or "")
     return {
@@ -421,7 +543,15 @@ async def home_publication_publish(
             "fonteMensal": _source_meta(mensal_row),
             "fonteExtras": _source_meta(extras_row),
         }
-        if body.inserirHistorico:
+        if body.inserirHistorico and partials_changed:
+            # O histórico Mensal é a fonte da lista de três atualizações.
+            # Ao publicar 22/09, preserva 21/09 e 18/09 sem reusar 17/09.
+            await _ensure_monthly_publication_history(
+                payload=mensal_publicado,
+                profile=profile,
+                publication_id=publication_id,
+                now=now,
+            )
             history = [history_entry, *history][:3]
         else:
             history = history[:3]
