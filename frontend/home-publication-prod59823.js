@@ -292,7 +292,21 @@
       const item=modules[i];
       setMessage(`Atualizando ${item.label} (${i+1}/${modules.length})...`,'neutral');
 
-      const result=await updateCenterDirect(item.modulo);
+      let result;
+       try{
+         result=await updateCenterDirect(item.modulo);
+       }catch(error){
+         // Ausência de mudança não é falha se fonte e HOME já estão iguais.
+         const message=String(error?.message||error||'');
+         if(/n[aã]o trouxe altera[cç][aã]o verific[aá]vel/i.test(message)){
+           const status=await request('/admin/home-publication/status?_sem_alteracao='+Date.now());
+           if(status?.parciais?.fonteAssinatura
+              &&status.parciais.fonteAssinatura===status.parciais.publicadaAssinatura){
+             return {novosNumeros:false};
+           }
+         }
+         throw error;
+       }
 
       const ok=result?.sucesso===true||result?.ok===true||result?.success===true;
       if(!ok){
