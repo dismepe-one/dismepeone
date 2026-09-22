@@ -149,7 +149,7 @@
     return next;
   }
 
-  function persistTimes(result){
+  function persistTimes(result, authoritative=false){
     if(!result || typeof result!=='object')return;
     const mensal=moduleTime(result,'MENSAL');
     const extras=moduleTime(result,'EXTRAS');
@@ -166,7 +166,7 @@
     }
 
     window.__v2BootstrapHorarios={
-      mensal:newerTime(mensal,current.mensal),
+      mensal:authoritative?String(mensal||'').trim():newerTime(mensal,current.mensal),
       extras:newerTime(extras,current.extras)
     };
 
@@ -197,7 +197,8 @@
       });
       if(!response.ok)return false;
       const payload=await response.json();
-      persistTimes(payload);
+      // O bootstrap usa a fotografia efetivamente publicada na HOME.
+      persistTimes(payload,true);
       return true;
     }catch(e){
       return false;
@@ -373,7 +374,8 @@
         ?await updateCenterStatusWithRetry(body)
         :await updateCenterApi(body);
       if(action==='OPCACHE_ATUALIZAR'){
-        persistTimes(result);
+        // Atualizar a base não equivale a publicar as parciais na HOME.
+        // Nunca adotar o horário retornado pelo OPCACHE como horário da HOME.
         scheduleTimeSync();
       }
       return result;
