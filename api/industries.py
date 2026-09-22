@@ -1849,11 +1849,13 @@ async def security_change_required_password(
 
 
 def _canonical_lab_labels(values: list[str]) -> list[str]:
+    # No cadastro e nas listas de Indústrias, Neo Química é uma única opção
+    # virtual. Os nomes de origem e vínculos já persistidos não são alterados.
     out: list[str] = []
     seen: set[str] = set()
     for value in values:
-        label = _clean_lab(value)
-        key = _lab_key(label)
+        label = _portal_lab_label(value)
+        key = _portal_lab_key(label)
         if label and key and key not in seen:
             seen.add(key)
             out.append(label.upper())
