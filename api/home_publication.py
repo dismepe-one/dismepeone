@@ -36,6 +36,7 @@ BUILD = "PROD5.9.8.23"
 class HomePublishRequest(BaseModel):
     atualizarHorario: bool = True
     inserirHistorico: bool = True
+    somenteExtras: bool = False
 
 
 class HomeDecisionRequest(BaseModel):
@@ -502,18 +503,30 @@ async def home_publication_publish(
         current, _current_row = current_result
         current = current or {}
 
-        mensal_publicado = copy.deepcopy(mensal_payload)
-        try:
-            mensal_publicado = await enrich_monthly_payload(mensal_publicado)
-        except Exception:
-            pass
-        try:
-            mensal_publicado = await enrich_herbamed_monthly_payload(mensal_publicado)
-        except Exception:
-            pass
+        if body.somenteExtras:
+            if not isinstance(current.get("mensal"), dict):
+                raise RuntimeError("A parcial Mensal ainda não foi publicada.")
+            mensal_publicado = copy.deepcopy(current["mensal"])
+            partials_changed = False
+        else:
+            mensal_publicado = copy.deepcopy(mensal_payload)
+            try:
+                mensal_publicado = await enrich_monthly_payload(mensal_publicado)
+            except Exception:
+                pass
+            try:
+                mensal_publicado = await enrich_herbamed_monthly_payload(mensal_publicado)
+            except Exception:
+                pass
+            partials_changed = _partial_sales_changed(current, mensal_publicado)
 
         extras_publicado = copy.deepcopy(extras_payload)
-        partials_changed = _partial_sales_changed(current, mensal_publicado)
+        previous_sources = current.get("fontes") if isinstance(current.get("fontes"), dict) else {}
+        monthly_source_meta = (
+            previous_sources.get("mensal")
+            if body.somenteExtras and isinstance(previous_sources.get("mensal"), dict)
+            else _source_meta(mensal_row)
+        )
         extras_old_payload = current.get("extras") if isinstance(current.get("extras"), dict) else {}
         extras_changed = any(
             extras_publicado.get(key) != extras_old_payload.get(key)
@@ -554,7 +567,7 @@ async def home_publication_publish(
             "publicadoEmFormatado": now_display,
             "publicadoPor": username,
             "horarioHomeAlterado": partials_changed,
-            "fonteMensal": _source_meta(mensal_row),
+            "fonteMensal": monthly_source_meta,
             "fonteExtras": _source_meta(extras_row),
         }
         if body.inserirHistorico and partials_changed:
@@ -580,7 +593,7 @@ async def home_publication_publish(
             "inseriuHistorico": bool(body.inserirHistorico),
             "displayTimes": display_times,
             "fontes": {
-                "mensal": _source_meta(mensal_row),
+                "mensal": monthly_source_meta,
                 "extras": _source_meta(extras_row),
             },
             "historico": history,
@@ -626,7 +639,7 @@ async def home_publication_publish(
             details={
                 "atualizarHorario": partials_changed,
                 "inserirHistorico": bool(body.inserirHistorico),
-                "fonteMensal": _source_meta(mensal_row),
+                "fonteMensal": monthly_source_meta,
                 "fonteExtras": _source_meta(extras_row),
                 "horariosExibidos": display_times,
                 "resultado": "SUCESSO",
