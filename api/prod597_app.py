@@ -1515,3 +1515,7 @@ async def prod597_update_center(
 # Positivação Geral: módulo separado, exclusivo para administradores.
 from .positivacao_geral import router as positivacao_geral_router
 app.include_router(positivacao_geral_router)
+
+# Central de Notificacoes: tela administrativa e API isoladas.
+from .notifications_admin import router as notifications_admin_router
+app.include_router(notifications_admin_router)
