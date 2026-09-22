@@ -8,6 +8,7 @@
   let permissionChecked=false;
   let canPublish=false;
   let modalOpen=false;
+  let publishing=false;
 
   const norm=value=>String(value||'')
     .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
@@ -114,6 +115,18 @@
       </div>`;
     document.body.appendChild(modal);
 
+    const done=document.createElement('div');
+    done.id='hp59823SuccessModal';
+    done.setAttribute('role','dialog');
+    done.setAttribute('aria-modal','true');
+    done.setAttribute('aria-labelledby','hp59823SuccessTitle');
+    done.style.cssText='display:none;position:fixed;inset:0;z-index:1000000;background:rgba(0,45,37,.72);padding:16px;align-items:center;justify-content:center;';
+    done.innerHTML='<div style="width:min(430px,100%);padding:25px;border-radius:18px;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.3);text-align:center;color:#17332c;"><div aria-hidden="true" style="font-size:36px;color:#047857;margin-bottom:8px;">✓</div><h2 id="hp59823SuccessTitle" style="font-size:20px;margin:0 0 10px;">Atualização concluída com sucesso!</h2><p id="hp59823SuccessDescription" style="font-size:13px;line-height:1.5;margin:0 0 19px;">As novas parciais de Vendedores e Televendas foram publicadas.</p><button id="hp59823SuccessClose" type="button" style="border:0;border-radius:10px;background:#047857;color:white;padding:11px 20px;font-weight:800;cursor:pointer;">Entendi</button></div>';
+    document.body.appendChild(done);
+    document.getElementById('hp59823SuccessClose')?.addEventListener('click',()=>{done.style.display='none';});
+    done.addEventListener('click',event=>{if(event.target===done)done.style.display='none';});
+    document.addEventListener('keydown',event=>{if(event.key==='Escape'&&done.style.display==='flex')done.style.display='none';});
+
     document.getElementById('hp59823Close')?.addEventListener('click',()=>cancelModal('FECHOU_MODAL'));
     document.getElementById('hp59823Cancel')?.addEventListener('click',()=>cancelModal('BOTAO_CANCELAR'));
     document.getElementById('hp59823Publish')?.addEventListener('click',publish);
@@ -177,7 +190,7 @@
   }
 
   async function cancelModal(reason){
-    if(!modalOpen)return;
+    if(!modalOpen||publishing)return;
     const atualizar=null;
     const historico=document.getElementById('hp59823History')?.checked;
     modalOpen=false;
@@ -251,11 +264,11 @@
   async function refreshSourceCaches(){
     const before=await request('/admin/home-publication/status?_before='+Date.now());
     const beforeMensal=String(before?.fontes?.mensal?.atualizadoEm||'');
-    const beforeExtras=String(before?.fontes?.extras?.atualizadoEm||'');
-
+ 
+    // A HOME publica as parciais Mensais. Campanhas Extras têm atualização
+    // e horário próprios; não bloqueiam a publicação dos vendedores.
     const modules=[
-      {modulo:'MENSAL',label:'Campanhas Mensais',syncKey:'mensalSync'},
-      {modulo:'EXTRAS',label:'Campanhas Extras',syncKey:'extrasSync'}
+      {modulo:'MENSAL',label:'Campanhas Mensais',syncKey:'mensalSync'}
     ];
 
     for(let i=0;i<modules.length;i++){
@@ -288,39 +301,37 @@
 
     const after=await request('/admin/home-publication/status?_after='+Date.now());
     const afterMensal=String(after?.fontes?.mensal?.atualizadoEm||'');
-    const afterExtras=String(after?.fontes?.extras?.atualizadoEm||'');
-
+ 
     if(!afterMensal||afterMensal===beforeMensal){
       throw new Error(
         'Campanhas Mensais nao foram regravadas no PostgreSQL. A HOME nao sera publicada.'
       );
     }
-    if(!afterExtras||afterExtras===beforeExtras){
-      throw new Error(
-        'Campanhas Extras nao foram regravadas no PostgreSQL. A HOME nao sera publicada.'
-      );
-    }
-
+ 
     return after;
   }
 
   async function publish(){
+    if(publishing)return;
+    publishing=true;
     const button=document.getElementById('hp59823Publish');
-    // O backend determina o horário com base nos valores efetivamente publicados.
     const inserirHistorico=!!document.getElementById('hp59823History')?.checked;
     if(button){
       button.disabled=true;
-      button.innerHTML='<i class="fa-solid fa-spinner fa-spin" style="margin-right:6px;"></i>Publicando...';
+      button.innerHTML='<i class="fa-solid fa-spinner fa-spin" style="margin-right:6px;"></i>Atualizando...';
     }
-    setMessage('Publicando na HOME as bases já disponíveis no PostgreSQL...','neutral');
+    setMessage('Atualizando as parciais de Vendedores e Televendas no PostgreSQL...','neutral');
     try{
-      // Publicação é independente de OPCACHE_ATUALIZAR: usa as bases já gravadas.
-      // Não reprocessar MENSAL nem exigir alteração de EXTRAS aqui.
+      // Atualizar primeiro, confirmar a gravação, e só depois publicar.
+      // Nunca mostrar conclusão quando a fonte ainda estiver desatualizada.
+      await refreshSourceCaches();
+      setMessage('Novas parciais confirmadas. Publicando na HOME...','neutral');
       const result=await request('/admin/home-publication/publish',{
         method:'POST',
         body:JSON.stringify({inserirHistorico})
       });
-      await applyFreshHome();
+      const applied=await applyFreshHome();
+      if(!applied)throw new Error('As parciais foram gravadas, mas a HOME não pôde ser recarregada. Confira a página.');
 
       // PROD5.9.8.23.20:
       // Mensal/Extras e o snapshot histórico já terminaram neste ponto.
@@ -337,20 +348,24 @@
 
       const status=await request('/admin/home-publication/status?_='+Date.now());
       renderStatus(status);
-      setMessage(
-        result.atualizouHorario
-          ?'Novas parciais publicadas e confirmadas; horário da HOME atualizado.'
-          :'Fotografia publicada sem mudança nas parciais; horário da HOME mantido.',
-        'ok'
-      );
-      setTimeout(()=>{
-        modalOpen=false;
-        const modal=document.getElementById('hp59823Modal');
-        if(modal)modal.style.display='none';
-      },900);
+      modalOpen=false;
+      const modal=document.getElementById('hp59823Modal');
+      if(modal)modal.style.display='none';
+      if(result.atualizouHorario){
+        document.getElementById('hp59823SuccessDescription').textContent=
+          'As novas parciais de Vendedores e Televendas foram gravadas e publicadas. O horário da HOME foi atualizado.';
+        const successModal=document.getElementById('hp59823SuccessModal');
+        if(successModal)successModal.style.display='flex';
+        document.getElementById('hp59823SuccessClose')?.focus();
+      }else{
+        setMessage('A base já contém os mesmos números. O horário da HOME foi mantido.','neutral');
+        modalOpen=true;
+        if(modal)modal.style.display='flex';
+      }
     }catch(e){
       setMessage(e.message||'Não foi possível publicar os números.','error');
     }finally{
+      publishing=false;
       if(button){
         button.disabled=false;
         button.innerHTML='<i class="fa-solid fa-arrow-up-from-bracket" style="margin-right:6px;"></i>Publicar';
