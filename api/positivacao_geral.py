@@ -2071,13 +2071,28 @@ async def _inat_enrich(data: dict[str, Any]) -> dict[str, Any]:
         return _INAT_OVERLAY
     states = {str(item['cliente_codigo']): item for item in records
               if item.get('situacao') == 'aprovado'}
+    # A base histórica é fixa; apenas compras confirmadas acrescentam clientes novos.
+    # O arquivo é um dado de referência versionado; nunca regrava o snapshot original.
+    ref = json.loads((ROOT / 'data' / 'positivacoes' / 'base_clientes_pe_3anos.json').read_text(encoding='utf-8'))
+    historical_codes = frozenset(str(value) for value in ref['codigos'])
+    if len(historical_codes) != 3312 or ref.get('quantidade') != 3312:
+        raise HTTPException(503, 'A base histórica PE não passou na conferência de integridade.')
+    def historical_code(value: Any) -> str:
+        digits = str(value or '').strip()
+        return (digits.lstrip('0') or '0') if digits.isdecimal() else digits
+
     rows: list[dict[str, Any]] = []
     for row in data['clientes']:
         # Escopo somente do modulo Positivacoes: mostrar exclusivamente UF PE.
         # Preservar a fotografia original e os historicos no banco de dados.
         if _norm(row.get('uf')) != 'PE':
             continue
+        code = historical_code(row['codigo'])
         state = states.get(str(row['codigo']))
+        # Fora da referência, somente um cliente positivado e ativo nesta
+        # competência entra no total. Não incluir clientes extras inativos.
+        if code not in historical_codes and (state or not row.get('origens')):
+            continue
         row = {**row, 'inativo': bool(state),
                'situacaoInatividade': 'aprovado' if state else '',
                'inatividadeAprovadaEm': state.get('decidido_em') if state else None,
@@ -2087,9 +2102,37 @@ async def _inat_enrich(data: dict[str, Any]) -> dict[str, Any]:
             row['statusAntesInatividade'] = row.get('status')
             row['status'] = 'Inativo'
         rows.append(row)
+    # Preservar a contagem dos 3.312 códigos mesmo quando um registro histórico
+    # não aparece no PDF atual. Não inventar nome, CNPJ ou carteira profissional.
+    present = {historical_code(row['codigo']) for row in rows if historical_code(row['codigo']) in historical_codes}
+    for code in sorted(historical_codes - present, key=int):
+        state = states.get(code)
+        rows.append({
+            'codigo': code, 'cliente': 'Cliente da base histórica (sem nome na carteira atual)',
+            'cnpj': '', 'cidade': '', 'uf': 'PE', 'vendedores': [], 'televendas': [],
+            'setores': [], 'origens': [], 'bloqueado': False, 'carteiraDiretoria': False,
+            'carteiraCompartilhada': False, 'positivacoesVendedor': [],
+            'positivacoesTelevendas': [], 'status': 'Inativo' if state else 'Não positivado',
+            'inativo': bool(state), 'situacaoInatividade': 'aprovado' if state else '',
+            'inatividadeAprovadaEm': state.get('decidido_em') if state else None,
+            'inatividadeMotivo': state.get('justificativa') if state else '',
+            'inatividadeObservacaoId': state.get('observacao_id') if state else None,
+            'semDetalhesCarteiraAtual': True,
+        })
     version = max((str(r.get('atualizado_em') or '') for r in records), default='0')
     result = {**data, 'clientes': rows, 'inatividadesVersao': version}
     totals = _inat_counts(rows)
+    # Referência histórica fixa + positivos extras únicos do período atual.
+    # Um cliente extra volta a ficar fora do total se não positivar no novo mês.
+    extras = sum(historical_code(row['codigo']) not in historical_codes
+                 for row in rows if not row.get('inativo'))
+    positives = sum(row.get('status') == 'Positivado' and not row.get('inativo') for row in rows)
+    totals['carteira'] = len(historical_codes) + extras
+    totals['positivados'] = positives
+    totals['naoPositivados'] = totals['carteira'] - positives
+    totals['percentual'] = round(100 * positives / totals['carteira'], 2) if totals['carteira'] else 0
+    totals['baseHistoricaPE'] = len(historical_codes)
+    totals['positivadosExtrasPE'] = extras
     totals['positivadosForaCarteira'] = data.get('indicadores', {}).get('positivadosForaCarteira', 0)
     totals['clientesVinculosMultiplos'] = sum(bool(r.get('carteiraCompartilhada'))
                                            for r in rows if not r.get('inativo'))
