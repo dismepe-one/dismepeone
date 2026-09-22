@@ -3,6 +3,22 @@
 if(window.__DISMEPE_NOTIFICATIONS_LAUNCHER__)return;
 window.__DISMEPE_NOTIFICATIONS_LAUNCHER__=true;
 let isAdmin=false;
+let verification=0;
+let hostObserver=null;
+function watchHost(){
+ const host=document.getElementById('homeCards');
+ if(!host || hostObserver)return;
+ hostObserver=new MutationObserver(()=>{
+   if(isAdmin){if(!document.getElementById('dismepeNotificationsAdminCard'))render();}
+   else scheduleVerify();
+ });
+ hostObserver.observe(host,{childList:true});
+}
+let retryTimer=null;
+function scheduleVerify(){
+ if(retryTimer)return;
+ retryTimer=setTimeout(()=>{retryTimer=null;verify();},350);
+}
 function normalize(s){return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();}
 function render(){
  const host=document.getElementById('homeCards');if(!host)return;
@@ -18,9 +34,46 @@ function render(){
  label.append(name,description);link.append(icon,label,arrow);host.append(link);
 }
 async function verify(){
- try{const response=await fetch('/auth/me',{credentials:'include',cache:'no-store'});const result=response.ok?await response.json():null;isAdmin=['ADMIN','ADMINISTRADOR'].includes(normalize(result?.usuario?.tipo));}
- catch(_){isAdmin=false;}render();
+ const current=++verification;
+ try{
+   const response=await originalFetch('/auth/me',{credentials:'include',cache:'no-store'});
+   const result=response.ok?await response.json():null;
+   if(current!==verification)return;
+   isAdmin=['ADMIN','ADMINISTRADOR'].includes(normalize(result?.usuario?.tipo));
+ }catch(_){if(current!==verification)return;isAdmin=false;}
+ render();watchHost();
 }
-function init(){verify();const host=document.getElementById('homeCards');if(host)new MutationObserver(()=>{if(isAdmin&&!document.getElementById('dismepeNotificationsAdminCard'))render();}).observe(host,{childList:true});window.addEventListener('pageshow',verify);document.addEventListener('visibilitychange',()=>{if(!document.hidden)verify();});}
+const originalFetch=window.fetch.bind(window);
+// O login do portal ocorre sem recarregar a HOME. Atualizar o atalho assim que o login terminar.
+window.fetch=async function(input,init){
+ const response=await originalFetch(input,init);
+ try{
+   const url=typeof input==='string'?input:String(input?.url||'');
+   if(response.ok && /\\/auth\\/login(?:\\?|$)/.test(url)){
+     const current=++verification;
+     response.clone().json().then(data=>{
+       if(current!==verification)return;
+       isAdmin=['ADMIN','ADMINISTRADOR'].includes(normalize(data?.usuario?.tipo));
+       render();watchHost();
+     }).catch(()=>verify());
+   }else if(/\\/auth\\/logout(?:\\?|$)/.test(url)){
+     ++verification;isAdmin=false;render();
+   }
+ }catch(_){}
+ return response;
+};
+function init(){
+ verify();watchHost();
+ // A grade pode ser montada somente depois do login.
+ if(!document.getElementById('homeCards')){
+   const discover=new MutationObserver(()=>{
+     if(document.getElementById('homeCards')){discover.disconnect();watchHost();render();}
+   });
+   discover.observe(document.body,{childList:true,subtree:true});
+ }
+ window.addEventListener('pageshow',verify);
+ document.addEventListener('focus',()=>{if(document.visibilityState==='visible')scheduleVerify();});
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)scheduleVerify();});
+}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
 })();
