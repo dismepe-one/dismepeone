@@ -20,6 +20,53 @@ function scheduleVerify(){
  retryTimer=setTimeout(()=>{retryTimer=null;verify();},350);
 }
 function normalize(s){return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();}
+
+/* A central original abre em um painel do portal. Manter + AVISO e GERENCIAR
+   intactos e oferecer ali o novo editor, sem reescrever o HTML legado. */
+const EDITOR_LINK_ID='dismepeNotificationsAdvancedEditor';
+let centerScanTimer=null;
+function scheduleCenterLink(){
+ if(centerScanTimer!==null)return;
+ centerScanTimer=setTimeout(()=>{centerScanTimer=null;renderCenterLink();},120);
+}
+function inNotificationCenter(element){
+ let parent=element.parentElement;
+ for(let i=0;parent && parent!==document.body && i<7;i++,parent=parent.parentElement){
+   const labels=parent.querySelectorAll('h1,h2,h3,h4,[role="heading"]');
+   for(const heading of labels){
+     if(normalize(heading.textContent).includes('CENTRAL DE NOTIFICACOES'))return true;
+   }
+   // Em algumas versões o título é um div estilizado, não um heading.
+   if(normalize(parent.textContent).includes('CENTRAL DE NOTIFICACOES') &&
+      parent.querySelectorAll('button').length>=2 &&
+      parent.textContent.length<2500)return true;
+ }
+ return false;
+}
+function renderCenterLink(){
+ const existing=document.getElementById(EDITOR_LINK_ID);
+ if(!isAdmin){existing?.remove();return;}
+ if(existing?.isConnected)return;
+ const buttons=document.querySelectorAll('button,[role="button"]');
+ for(const button of buttons){
+   const title=normalize(button.textContent).replace(/\\s+/g,' ').trim();
+   if(!/^\\+?\\s*AVISO$/.test(title) || !inNotificationCenter(button))continue;
+   const link=document.createElement('a');
+   link.id=EDITOR_LINK_ID;
+   link.href='/notificacoes/admin';
+   link.textContent='AVISO COM DESTINO →';
+   link.setAttribute('aria-label','Abrir o novo editor de notificações com destinatários e destino');
+   Object.assign(link.style,{
+     display:'inline-flex',alignItems:'center',justifyContent:'center',
+     padding:'10px 12px',margin:'6px 4px',borderRadius:'10px',
+     background:'#e9f6ed',color:'#08643d',fontWeight:'800',
+     fontSize:'12px',lineHeight:'1.3',textAlign:'center',
+     textDecoration:'none',whiteSpace:'normal'
+   });
+   button.insertAdjacentElement('afterend',link);
+   return;
+ }
+}
 function render(){
  const host=document.getElementById('homeCards');if(!host)return;
  const old=document.getElementById('dismepeNotificationsAdminCard');
@@ -41,7 +88,7 @@ async function verify(){
    if(current!==verification)return;
    isAdmin=['ADMIN','ADMINISTRADOR'].includes(normalize(result?.usuario?.tipo));
  }catch(_){if(current!==verification)return;isAdmin=false;}
- render();watchHost();
+ render();renderCenterLink();watchHost();
 }
 const originalFetch=window.fetch.bind(window);
 // O login do portal ocorre sem recarregar a HOME. Atualizar o atalho assim que o login terminar.
@@ -63,7 +110,9 @@ window.fetch=async function(input,init){
  return response;
 };
 function init(){
- verify();watchHost();
+ verify();watchHost();renderCenterLink();
+ const centerObserver=new MutationObserver(scheduleCenterLink);
+ centerObserver.observe(document.body,{childList:true,subtree:true});
  // A grade pode ser montada somente depois do login.
  if(!document.getElementById('homeCards')){
    const discover=new MutationObserver(()=>{
