@@ -1,0 +1,20 @@
+{
+  "name": "dismepe-one-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "check": "expo-doctor"
+  },
+  "dependencies": {
+    "expo": "~55.0.0",
+    "react": "19.2.0",
+    "react-native": "0.83.2",
+    "expo-notifications": "*",
+    "expo-device": "*",
+    "react-native-webview": "*"
+  },
+  "devDependencies": {}
+}
