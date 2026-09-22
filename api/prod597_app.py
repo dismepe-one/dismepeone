@@ -1094,6 +1094,44 @@ async def prod59823_refresh_related(
             try:
                 source = await _legacy_read(action="CLIENTES_PED", legacy_token=token)
             except RuntimeError as exc:
+                # A origem pode concluir a gravacao no worker depois da resposta
+                # da Central. Reconsultar apenas o SQL: nunca repetir a escrita
+                # legada nem confundir a fotografia antiga com uma nova.
+                for _attempt in range(5):
+                    await asyncio.sleep(2)
+                    late_payload, late_row = await cache_get(
+                        modulo=module, settings=settings,
+                    )
+                    late_valid = (
+                        late_payload.get("snapshotCompleto") is True
+                        and late_payload.get("escopoAcesso") == "GESTAO"
+                        and isinstance(late_payload.get("clientes"), list)
+                        and bool(late_payload["clientes"])
+                        and isinstance(late_payload.get("setores"), list)
+                        and isinstance(late_payload.get("resumo"), dict)
+                        and isinstance(late_payload.get("vendasPorSetor"), dict)
+                        and isinstance(late_payload.get("metaEmpresa"), dict)
+                    )
+                    late_new = (
+                        str(late_row.get("atualizado_em") or "")
+                        != str(previous_row.get("atualizado_em") or "")
+                    )
+                    if late_valid and late_new:
+                        changed = any(
+                            late_payload.get(field) != previous.get(field)
+                            for field in compare_fields
+                        )
+                        return {
+                            "sucesso": True,
+                            "modulo": module,
+                            "resultado": "ATUALIZADA" if changed else "SEM_ALTERACAO",
+                            "mensagem": (
+                                "Clientes PEDS atualizados e confirmados no PostgreSQL."
+                                if changed else "Clientes PEDS já estão atualizados."
+                            ),
+                            "atualizadoEm": str(late_row.get("atualizado_em") or ""),
+                            "clientes": len(late_payload["clientes"]),
+                        }
                 raise RuntimeError(
                     "A origem Clientes PEDS não retornou a fotografia completa "
                     "e o PostgreSQL não confirmou uma atualização."
