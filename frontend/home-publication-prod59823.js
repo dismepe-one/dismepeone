@@ -392,6 +392,20 @@
         setMessage('Buscando '+item.label+' na fonte e verificando o PostgreSQL...','neutral');
         try{
           const outcome=await refreshRelated(item.module);
+          if(item.module==='EXTRAS'){
+            const state=await request('/admin/home-publication/status?_extras='+Date.now());
+            if(state.extrasPublicacaoPendente===true){
+              setMessage('Publicando as Campanhas Extras atualizadas na HOME...','neutral');
+              const published=await request('/admin/home-publication/publish',{
+                method:'POST',body:JSON.stringify({inserirHistorico:false})
+              });
+              if(published.atualizouHorario===true){
+                throw new Error('Publicação Extras inesperadamente alterou a parcial Mensal; confira a HOME.');
+              }
+              const applied=await applyFreshHome();
+              if(!applied)throw new Error('Extras gravadas, mas a HOME não pôde ser recarregada.');
+            }
+          }
           results.push(item.label+': '+(outcome.resultado==='SEM_ALTERACAO'
             ?'base já atualizada, sem mudanças.'
             :'nova base confirmada no PostgreSQL.'));
