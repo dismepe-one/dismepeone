@@ -91,7 +91,8 @@ def _portal_response(*, authenticated: bool = False) -> HTMLResponse:
         f'<script src="/monthly-business-days-prod59822.js?v={BUILD}"></script>',
         f'<script src="/herbamed-auto-metrics-prod59822.js?v={BUILD}"></script>',
         '<script src="/positivacao-launcher.js?v=POS-GERAL-DEV4-CARD"></script>',
-        '<script src="/notificacoes/launcher.js?v=NOTIF-CENTRAL-V2"></script>',
+        '<script src="/notificacoes/launcher.js?v=NOTIF-CENTRAL-V3"></script>',
+        '<script src="/push/client.js?v=PUSH-ONE-1"></script>',
     ]
     missing = [tag for tag in tags if tag not in html]
     if missing:
@@ -100,6 +101,16 @@ def _portal_response(*, authenticated: bool = False) -> HTMLResponse:
         if pos < 0:
             raise RuntimeError("Fechamento </body> não encontrado no portal.")
         html = html[:pos] + "\n".join(missing) + "\n" + html[pos:]
+
+    # Manifesto inserido no HEAD para reconhecimento do PWA no iPhone e Android.
+    if 'href="/push/manifest.webmanifest"' not in html:
+        head_end = html.lower().find("</head>")
+        if head_end >= 0:
+            pwa_meta = ('<link rel="manifest" href="/push/manifest.webmanifest">'
+                        '<meta name="theme-color" content="#087b51">'
+                        '<meta name="apple-mobile-web-app-capable" content="yes">'
+                        '<meta name="apple-mobile-web-app-title" content="DISMEPE ONE">')
+            html = html[:head_end] + pwa_meta + html[head_end:]
 
     # PROD5.9.8.17: no F5, se o cookie 2.0 já foi validado pelo servidor,
     # não pintamos a tela de login enquanto a Home é restaurada.
