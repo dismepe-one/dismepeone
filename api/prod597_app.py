@@ -1523,3 +1523,7 @@ app.include_router(notifications_admin_router)
 # Web Push: API de dispositivos, Web App Manifest, Service Worker e destino autenticado.
 from .push_notifications import router as push_notifications_router
 app.include_router(push_notifications_router)
+
+# Passkeys: rotas isoladas, sem substituir a autenticação por senha existente.
+from .passkeys import router as passkeys_router
+app.include_router(passkeys_router)
