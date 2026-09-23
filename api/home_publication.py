@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 import jwt
-from fastapi import APIRouter, Cookie, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Cookie, HTTPException
 from pydantic import BaseModel
 
 from .cache_reads import CacheReadError, cache_get as raw_cache_get
@@ -20,6 +20,7 @@ from .config import get_settings
 from .herbamed_auto_metrics import enrich_herbamed_monthly_payload
 from .monthly_business_days import enrich_monthly_payload
 from .security import decode_session_token
+from .push_notifications import deliver_notice
 
 
 settings = get_settings()
@@ -37,6 +38,7 @@ class HomePublishRequest(BaseModel):
     atualizarHorario: bool = True
     inserirHistorico: bool = True
     somenteExtras: bool = False
+    notificarVendas: bool = False
 
 
 class HomeDecisionRequest(BaseModel):
@@ -482,12 +484,28 @@ async def home_publication_status(
     }
 
 
+_MONTHLY_PUBLISH_LOCK = asyncio.Lock()
+
+
 @router.post("/admin/home-publication/publish")
 async def home_publication_publish(
     body: HomePublishRequest,
+    background_tasks: BackgroundTasks,
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
+    async with _MONTHLY_PUBLISH_LOCK:
+        return await _home_publication_publish_locked(body, background_tasks, session)
+
+
+async def _home_publication_publish_locked(
+    body: HomePublishRequest, background_tasks: BackgroundTasks, session: str | None,
+):
     profile = _authorized(session)
+    if body.notificarVendas and (not body.inserirHistorico or body.somenteExtras):
+        raise HTTPException(
+            status_code=422,
+            detail="Para notificar Vendedores e Televendas, selecione salvar historico e publicar a base Mensal.",
+        )
     publication_id = str(uuid.uuid4())
     username = str(profile.get("usuario") or profile.get("sub") or "")
     now = _now_recife()
@@ -632,6 +650,61 @@ async def home_publication_publish(
                 "o horário da HOME não pode ser confirmado."
             )
 
+        # Somente depois da confirmacao dos numeros e do historico persistidos.
+        # A notificacao e opt-in, limitada a VENDEDOR e TELEVENDAS; extras e
+        # publicacoes sem mudanca nao criam avisos.
+        notice_requested = bool(
+            body.notificarVendas and body.inserirHistorico
+            and partials_changed and not body.somenteExtras
+        )
+        notice_id = ""
+        notice_error = ""
+        if notice_requested:
+            notice_id = "ONE-PUSH-" + uuid.UUID(publication_id).hex
+            notice = {
+                "id": notice_id, "tipo": "AVISO", "status": "ATIVO",
+                "titulo": "Campanha Mensal atualizada",
+                "mensagem": (
+                    "Novos numeros de Vendedores e Televendas foram publicados "
+                    "na HOME. Consulte sua parcial atualizada."
+                ),
+                "publico": {
+                    "todos": False, "perfis": ["VENDEDOR", "TELEVENDAS"],
+                    "setores": [], "usuarios": [],
+                },
+                "criadoEpoch": int(now.timestamp() * 1000),
+                "criadoEm": now.strftime("%d/%m/%Y %H:%M"),
+                "criadoPor": username, "publicarEm": now_iso, "expiraEm": "",
+                "importante": False, "exibirUmaVez": False,
+                "destino": {"modulo": "HOME", "tela": "INICIO", "fornecedor": ""},
+                "pushStatus": "AGENDADO",
+                "origem": "HOME_PUBLICATION_MENSAL",
+                "publicationId": publication_id,
+            }
+            try:
+                registered = await _edge_call(
+                    "NOTIFICACAO_UPSERT", {"notificacao": notice},
+                    timeout_seconds=20.0,
+                )
+                if str(registered.get("id") or "") != notice_id:
+                    raise RuntimeError("O banco nao confirmou o aviso da Campanha Mensal.")
+                background_tasks.add_task(deliver_notice, notice_id)
+            except Exception:
+                notice_error = (
+                    "A campanha e o historico foram publicados, mas nao foi "
+                    "possivel confirmar o envio do aviso automatico."
+                )
+                notice_id = ""
+            await _audit(
+                profile,
+                action=("NOTIFICACAO_MENSAL_REGISTRADA" if notice_id
+                        else "NOTIFICACAO_MENSAL_FALHOU"),
+                identifier=publication_id,
+                details={"notificacaoId": notice_id, "enviadaPara": [
+                    "VENDEDOR", "TELEVENDAS"], "resultado": (
+                    "AVISO_REGISTRADO" if notice_id else "AVISO_NAO_CONFIRMADO")},
+            )
+
         await _audit(
             profile,
             action="PUBLICACAO_HOME_SUCESSO",
@@ -656,6 +729,10 @@ async def home_publication_publish(
             "inseriuHistorico": bool(body.inserirHistorico),
             "displayTimes": display_times,
             "historico": history,
+            "notificacaoSolicitada": notice_requested,
+            "notificacaoRegistrada": bool(notice_id),
+            "notificacaoId": notice_id,
+            "avisoNotificacao": notice_error,
             "mensagem": "Novos números publicados na HOME.",
         }
 
