@@ -215,7 +215,34 @@ function setupLogout(){
   });
  },true);
 }
+function mergeInboxes(previous,extra){
+ if(!previous||previous.sucesso===false||!Array.isArray(previous.itens))return previous;
+ const old=previous.itens,ids=new Set(old.map(x=>String(x.id)));
+ const fresh=(extra.itens||[]).filter(x=>!ids.has(String(x.id)));
+ // Itens legados permanecem intactos; avisos novos usam o SQL existente.
+ const merged=[...old,...fresh].sort((a,b)=>Number(b.criadoEpoch||0)-Number(a.criadoEpoch||0));
+ return {...previous,itens:merged,naoLidas:merged.filter(x=>!x.lida).length};
+}
+function hookLegacyInbox(){
+ const original=window.postApi;
+ if(typeof original!=='function'||original.__dismepePushInboxWrapped)return;
+ const wrapped=async function(body){
+  const action=N(body?.acao||body?.action);
+  if(action==='V81_MARCAR_LIDA'&&VALID.test(String(body?.id||''))){
+    return api('/push/notification/'+encodeURIComponent(body.id)+'/read','POST');
+  }
+  const result=await original.apply(this,arguments);
+  if(action==='V81_LISTAR_NOTIFICACOES'){
+   try{return mergeInboxes(result,await api('/push/inbox'));}catch(_){return result;}
+  }
+  if(action==='LOGIN'||action==='DADOS')queueMicrotask(onAuthenticated);
+  return result;
+ };
+ wrapped.__dismepePushInboxWrapped=true;
+ window.postApi=wrapped;
+}
 function init(){
+ hookLegacyInbox();
  if('serviceWorker'in navigator)getRegistration().catch(()=>{});
  const head=document.head;
  if(!document.querySelector('link[rel="manifest"]')){
@@ -223,7 +250,9 @@ function init(){
  }
  wireLegacyClick();setupLogout();
  const obs=new MutationObserver(()=>{
+  hookLegacyInbox();
   const p=$('v81NotificationPanel');if(p&&me&&!$(ID))mountControls();
+  if(me&&pendingNotice()&&!pendingRunning)queueMicrotask(applyPending);
  });
  obs.observe(document.body,{childList:true});
  window.addEventListener('pageshow',onAuthenticated);
