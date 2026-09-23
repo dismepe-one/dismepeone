@@ -207,6 +207,23 @@ async def industries_route_guard(request: Request, call_next):
     await start_stock_sync()
     await start_general_sales_sync()
     profile = _profile_from_cookie(request)
+    # Scripts do portal principal nao pertencem ao documento publico de login.
+    # Recursos do service worker, manifesto e identidade visual continuam publicos.
+    protected_scripts = {
+        "/industries-router.js", "/industries-admin.js",
+        "/monthly-business-days-prod59822.js",
+        "/herbamed-auto-metrics-prod59822.js",
+        "/positivacao-launcher.js", "/update-center-prod4.js",
+        "/monthly-retention-prod44.js",
+        "/notificacoes/launcher.js", "/notificacoes/log.js",
+        "/push/client.js",
+    }
+    if request.url.path in protected_scripts and not profile:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Entre na sua conta para acessar este recurso."},
+            headers={"Cache-Control": "no-store"},
+        )
     if profile and (is_industry_profile(profile) or is_buyer_profile(profile)):
         path = request.url.path
         if path in {"/", "/portal-v2-homolog.html"}:
