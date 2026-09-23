@@ -86,6 +86,13 @@ $('loginForm').addEventListener('submit',async event=>{
    const detail=data.detail;
    throw new Error(typeof detail==='string'?detail:(detail?.mensagem||detail?.codigo||data.erro||'Não foi possível entrar.'));
   }
+  // Compatibilidade com a restauracao da sessao 2.0 do portal legado.
+  // Apenas identificador e horario local: nunca salvar senha ou token aqui.
+  try{
+   localStorage.setItem('DISMEPE_V2_SESSION_HINT',JSON.stringify({
+    at:Date.now(),usuario:String(data.usuario?.usuario||usuario)
+   }));
+  }catch(_){}
   // O servidor gravou o cookie HttpOnly; somente agora carregar o portal protegido.
   window.location.replace('/');
  }catch(e){
