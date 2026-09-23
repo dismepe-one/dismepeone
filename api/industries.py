@@ -1185,6 +1185,32 @@ def scope_industry_bootstrap(payload: dict[str, Any], profile: dict[str, Any], c
     }
 
 
+
+async def _revoke_industry_passkeys(usuario: str) -> None:
+    """Revoga chaves anteriores ao redefinir a senha de uma conta INDUSTRIA.
+
+    O token interno permanece no backend e a resposta não expõe chaves públicas.
+    """
+    endpoint = settings.supabase_url.rstrip("/") + "/functions/v1/dismepe-passkeys"
+    headers = {
+        "apikey": settings.supabase_publishable_key,
+        "x-dismepe-token": settings.edge_token,
+        "content-type": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            resp = await client.post(
+                endpoint,
+                json={"acao": "CREDENTIAL_REVOKE_ALL", "usuario": usuario},
+                headers=headers,
+            )
+            result = resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(503, "Nao foi possivel revogar as chaves biometricas antigas. A senha nao sera alterada por este fluxo.") from exc
+    if not resp.is_success or not isinstance(result, dict) or result.get("sucesso") is not True:
+        raise HTTPException(503, "Nao foi possivel revogar as chaves biometricas antigas. Tente novamente antes de alterar a senha.")
+
+
 async def _edge_admin_write(action: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Uma única escrita por ação. Não repete automaticamente gravações."""
     endpoint = settings.supabase_url.rstrip("/") + "/functions/v1/dismepe-admin"
@@ -1663,6 +1689,10 @@ async def admin_security_password_reset_individual(
                        != {key: value for key, value in original.items() if key != flag}):
                 raise HTTPException(409, "O cadastro nao confirmou a troca obrigatoria sem alterar outras permissoes.")
         temporary = _temporary_password(14)
+        if normalizar(role) == ROLE_INDUSTRY:
+            # Antes da redefinicao, invalida passkeys antigas; a troca
+            # obrigatoria ja foi marcada no banco e bloqueia login biometrico.
+            await _revoke_industry_passkeys(login)
         await _reset_single_password_in_auth(
             usuario=login,
             tipo=role,
@@ -3269,6 +3299,19 @@ async def industries_change_password(
     first_access = industry_must_change_password(profile)
     if payload.novaSenha == payload.senhaAtual:
         raise HTTPException(status_code=400, detail="A nova senha deve ser diferente da senha atual.")
+    if normalizar(profile.get("tipo")) == ROLE_INDUSTRY:
+        # Valida a senha ANTES de revogar as chaves, evitando revogacao
+        # por quem possua apenas uma sessao roubada e desconheca a senha.
+        from .supabase_edge import login_via_edge, InvalidCredentials, UpstreamUnavailable
+        try:
+            checked = await login_via_edge(usuario=usuario, senha=payload.senhaAtual, settings=settings)
+        except InvalidCredentials as exc:
+            raise HTTPException(400, "A senha atual esta incorreta.") from exc
+        except UpstreamUnavailable as exc:
+            raise HTTPException(503, "Nao foi possivel confirmar a senha. Tente novamente.") from exc
+        if normalizar(checked.get("usuario")) != normalizar(usuario):
+            raise HTTPException(403, "A identidade nao foi confirmada.")
+        await _revoke_industry_passkeys(usuario)
     try:
         await _edge_admin_write(
             "USUARIO_SENHA_SET",
