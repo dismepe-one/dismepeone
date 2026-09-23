@@ -13,8 +13,8 @@ from urllib.parse import urlparse
 
 import httpx
 import jwt
-from fastapi import APIRouter, Cookie, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .config import get_settings
@@ -111,13 +111,13 @@ class Revoke(BaseModel):
 
 
 @router.get("/config")
-async def config(response: Response, user: dict = __import__("fastapi").Depends(principal)):
+async def config(response: Response, user: dict = Depends(principal)):
     no_store(response)
     return {"sucesso": True, "publicKey": VAPID_PUBLIC, "enabled": bool(VAPID_PRIVATE and VAPID_PUBLIC and VAPID_SUBJECT)}
 
 
 @router.post("/devices")
-async def register(payload: Register, response: Response, user: dict = __import__("fastapi").Depends(principal)):
+async def register(payload: Register, response: Response, user: dict = Depends(principal)):
     no_store(response)
     sub = payload.inscricao
     keys = sub.keys
@@ -131,13 +131,13 @@ async def register(payload: Register, response: Response, user: dict = __import_
 
 
 @router.get("/devices")
-async def devices(response: Response, user: dict = __import__("fastapi").Depends(principal)):
+async def devices(response: Response, user: dict = Depends(principal)):
     no_store(response)
     return await edge("MY_DEVICES", usuario=user_id(user))
 
 
 @router.post("/devices/revoke")
-async def revoke(payload: Revoke, response: Response, user: dict = __import__("fastapi").Depends(principal)):
+async def revoke(payload: Revoke, response: Response, user: dict = Depends(principal)):
     no_store(response)
     if not payload.id and not payload.endpoint:
         raise HTTPException(422, "Informe o dispositivo.")
@@ -146,7 +146,7 @@ async def revoke(payload: Revoke, response: Response, user: dict = __import__("f
 
 
 @router.get("/notification/{notice_id}/destination")
-async def destination(notice_id: str, response: Response, user: dict = __import__("fastapi").Depends(principal)):
+async def destination(notice_id: str, response: Response, user: dict = Depends(principal)):
     no_store(response)
     return await edge("DESTINATION", usuario=user_id(user), id=notice_id)
 
@@ -159,9 +159,10 @@ def vapid_pem():
     if len(raw) != 32:
         raise RuntimeError("Chave VAPID inválida.")
     priv = ec.derive_private_key(int.from_bytes(raw, "big"), ec.SECP256R1())
-    return priv.private_bytes(serialization.Encoding.PEM,
-                              serialization.PrivateFormat.PKCS8,
-                              serialization.NoEncryption())
+    der = priv.private_bytes(serialization.Encoding.DER,
+                             serialization.PrivateFormat.PKCS8,
+                             serialization.NoEncryption())
+    return base64.urlsafe_b64encode(der).decode('ascii')
 
 
 def _deliver(subscription: dict, notice_id: str):
@@ -225,6 +226,12 @@ async def service_worker():
     return FileResponse(ROOT / "frontend" / "push-sw.js", media_type="application/javascript",
                         headers={"Cache-Control": "no-store", "Service-Worker-Allowed": "/",
                                  "X-Content-Type-Options": "nosniff"})
+
+
+@router.get("/icon.svg", include_in_schema=False)
+async def icon():
+    return FileResponse(ROOT / "frontend" / "push-icon.svg", media_type="image/svg+xml",
+                        headers={"Cache-Control": "public, max-age=86400"})
 
 
 @router.get("/manifest.webmanifest", include_in_schema=False)
