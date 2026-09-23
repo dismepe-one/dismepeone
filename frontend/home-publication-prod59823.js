@@ -438,7 +438,10 @@
           }else{
             results.push('Campanhas Mensais: parciais já atualizadas; horário mantido.');
           }
-        }catch(e){errors.push('Campanhas Mensais: '+String(e.message||e));}
+        }catch(e){
+          const message=String(e.message||e).replace(/^(?:Campanhas Mensais:\s*)+/i,'').trim();
+          errors.push('Campanhas Mensais: '+message);
+        }
       }
       for(const item of [
         {enabled:extras,module:'EXTRAS',label:'Campanhas Extras'},
