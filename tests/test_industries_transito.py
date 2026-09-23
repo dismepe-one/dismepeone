@@ -18,7 +18,7 @@ def _zip(*xmls):
 
 def _invoice(cnpj, emitter, *, nature="Venda", type_nf="1"):
     return (f'<nfeProc><NFe><infNFe Id="NFeTEST{cnpj}">'
-            f'<ide><natOp>{nature}</natOp><dhEmi>2026-09-22T08:00:00-03:00</dhEmi>'
+            f'<ide><nNF>123456</nNF><natOp>{nature}</natOp><dhEmi>2026-09-22T08:00:00-03:00</dhEmi>'
             f'<tpNF>{type_nf}</tpNF><finNFe>1</finNFe></ide>'
             f'<emit><CNPJ>{cnpj}</CNPJ><xNome>{emitter}</xNome></emit>'
             '<det nItem="1"><prod><cEAN>7891234567895</cEAN>'
@@ -34,7 +34,7 @@ def test_import_emitter_mapping_and_five_public_columns():
     assert [r["laboratorio"] for r in rows] == ["GLOBO", "GEOLAB"]
     geolab = transit._scope(rows, "GEOLAB", today=date(2026, 10, 7))
     assert geolab == [{
-        "dataEmissao": "2026-09-22", "previsaoChegada": "2026-10-07", "atrasado": False,
+        "dataEmissao": "2026-09-22", "numeroNFe": "123456", "previsaoChegada": "2026-10-07", "atrasado": False,
         "emitente": "GEOLAB INDUSTRIA FARMACEUTICA S/A",
         "ean": "7891234567895", "produto": "Produto de teste", "quantidade": "12.0000",
     }]
@@ -90,7 +90,7 @@ def test_overdue_starts_only_after_due_date():
 def test_excel_export_matches_six_visible_columns_and_preserves_ean():
     from openpyxl import load_workbook
     rows = [{
-        "dataEmissao": "2026-09-01", "previsaoChegada": "2026-09-16",
+        "dataEmissao": "2026-09-01", "numeroNFe": "123456", "previsaoChegada": "2026-09-16",
         "atrasado": True, "emitente": "GEOLAB", "ean": "0789001234567",
         "produto": "PRODUTO TESTE", "quantidade": "12.5000",
     }]
@@ -98,19 +98,40 @@ def test_excel_export_matches_six_visible_columns_and_preserves_ean():
     book = load_workbook(io.BytesIO(spreadsheet))
     sheet = book.active
     assert [cell.value for cell in sheet[1]] == [
-        "DATA DE EMISSÃO", "PREVISÃO DE CHEGADA", "EMITENTE",
-        "EAN", "PRODUTO", "QUANTIDADE",
+        "DATA DE EMISSÃO", "Nº NF-e", "PREVISÃO DE CHEGADA",
+        "EMITENTE", "EAN", "PRODUTO", "QUANTIDADE",
     ]
-    assert sheet.max_column == 6
+    assert sheet.max_column == 7
     assert sheet["A2"].value == date(2026, 9, 1)
-    assert sheet["B2"].value == date(2026, 9, 16)
-    assert sheet["D2"].value == "0789001234567"
-    assert sheet["F2"].value == 12.5
-    assert sheet["B2"].fill.fgColor.rgb.endswith("BF1F27")
-    assert sheet["B2"].font.color.rgb.endswith("FFFFFF")
+    assert sheet["B2"].value == "123456"
+    assert sheet["C2"].value == date(2026, 9, 16)
+    assert sheet["E2"].value == "0789001234567"
+    assert sheet["G2"].value == 12.5
+    assert sheet["C2"].fill.fgColor.rgb.endswith("BF1F27")
+    assert sheet["C2"].font.color.rgb.endswith("FFFFFF")
 
 
 def test_excel_text_from_xml_cannot_run_formulas():
     assert transit._excel_text("=HYPERLINK(\"https://example.com\")").startswith("'=")
     assert transit._excel_text("+3+3") == "'+3+3"
     assert transit._excel_text("0789") == "0789"
+
+
+def test_nfe_number_from_previous_snapshot_key():
+    # Chave completa de 44 dígitos: UF + AAMM + CNPJ + modelo + série
+    # + número NF-e + tipo + código numérico + DV.
+    key = ("26" + "2609" + "03485572000104" + "55" + "001"
+           + "000012345" + "1" + "12345678" + "1")
+    assert len(key) == 44
+    assert transit._invoice_number_from_key("NFe" + key + ":1") == "12345"
+    assert transit._invoice_number_from_key("NFeTEST03485572000104:1") == ""
+    old = [{"dataEmissao": "2026-09-22", "chaveItem": "NFe" + key + ":1",
+            "laboratorio": "GEOLAB", "emitente": "GEOLAB", "ean": "789",
+            "produto": "EXEMPLO", "quantidade": "4"}]
+    assert transit._scope(old, "GEOLAB", today=date(2026, 9, 23))[0]["numeroNFe"] == "12345"
+
+
+def test_number_visible_on_imported_xml():
+    rows, _ = transit._decode_zip(_zip(_invoice("03485572000104", "GEOLAB")))
+    assert rows[0]["numeroNFe"] == "123456"
+    assert transit._scope(rows, "GEOLAB", today=date(2026, 9, 23))[0]["numeroNFe"] == "123456"

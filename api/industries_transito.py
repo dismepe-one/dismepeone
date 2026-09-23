@@ -107,6 +107,9 @@ def _decode_zip(blob: bytes) -> tuple[list[dict], dict]:
             day = emitted[:10]
             datetime.strptime(day, "%Y-%m-%d")
             key = str(nfe.attrib.get("Id") or "").strip() or entry.filename
+            invoice_number = _tag(ide, "nNF")
+            if not re.fullmatch(r"\d{1,9}", invoice_number):
+                invoice_number = _invoice_number_from_key(key)
             for item in nfe.findall("{*}det"):
                 prod = item.find("{*}prod")
                 if prod is None:
@@ -121,6 +124,7 @@ def _decode_zip(blob: bytes) -> tuple[list[dict], dict]:
                     continue
                 rows.append({
                     "dataEmissao": day,
+                    "numeroNFe": invoice_number,
                     "emitente": _tag(emit, "xNome")[:180],
                     "ean": _tag(prod, "cEAN")[:20],
                     "produto": _tag(prod, "xProd")[:260],
@@ -168,6 +172,15 @@ def _expected_delivery(emission: str) -> date:
     return due
 
 
+
+def _invoice_number_from_key(chave_item: str) -> str:
+    """Recupera NF-e de snapshots anteriores somente se a chave possuir 44 dígitos."""
+    match = re.fullmatch(r"NFe(\d{44})(?::\d+)?", str(chave_item or "").strip())
+    if not match:
+        return ""
+    return str(int(match.group(1)[25:34]))
+
+
 def _scope(rows: list[dict], selected: str, *, today: date | None = None) -> list[dict]:
     key = _portal_lab_key(selected)
     filtered = rows if selected == ALL_LABS_VALUE else [
@@ -182,6 +195,7 @@ def _scope(rows: list[dict], selected: str, *, today: date | None = None) -> lis
         # Nunca devolver identificadores internos ou linhas de outros laboratórios.
         output.append({
             "dataEmissao": row.get("dataEmissao", ""),
+            "numeroNFe": str(row.get("numeroNFe") or _invoice_number_from_key(row.get("chaveItem", ""))),
             "previsaoChegada": due.isoformat(),
             "atrasado": reference_day > due,
             "emitente": row.get("emitente", ""),
@@ -222,11 +236,11 @@ def _excel_text(value: object) -> str:
 
 
 def _build_transit_excel(rows: list[dict]) -> bytes:
-    """Planilha da mesma carteira e das seis colunas mostradas na tela."""
+    """Planilha da mesma carteira e das sete colunas mostradas na tela."""
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Trânsito"
-    sheet.append(("DATA DE EMISSÃO", "PREVISÃO DE CHEGADA", "EMITENTE", "EAN", "PRODUTO", "QUANTIDADE"))
+    sheet.append(("DATA DE EMISSÃO", "Nº NF-e", "PREVISÃO DE CHEGADA", "EMITENTE", "EAN", "PRODUTO", "QUANTIDADE"))
     green = PatternFill("solid", fgColor="11694D")
     overdue_fill = PatternFill("solid", fgColor="BF1F27")
     white = Font(name="Aptos", size=10, color="FFFFFF", bold=True)
@@ -239,24 +253,26 @@ def _build_transit_excel(rows: list[dict]) -> bytes:
         emission = date.fromisoformat(str(item["dataEmissao"]))
         due = date.fromisoformat(str(item["previsaoChegada"]))
         quantity = Decimal(str(item["quantidade"]))
-        sheet.append((emission, due, _excel_text(item["emitente"]),
-                      _excel_text(item["ean"]), _excel_text(item["produto"]), float(quantity)))
+        sheet.append((emission, _excel_text(item.get("numeroNFe")), due,
+                      _excel_text(item["emitente"]), _excel_text(item["ean"]),
+                      _excel_text(item["produto"]), float(quantity)))
         line = sheet.max_row
         sheet.cell(line, 1).number_format = "DD/MM/YYYY"
-        sheet.cell(line, 2).number_format = "DD/MM/YYYY"
-        sheet.cell(line, 4).number_format = "@"
-        sheet.cell(line, 6).number_format = "#,##0.####"
+        sheet.cell(line, 2).number_format = "@"
+        sheet.cell(line, 3).number_format = "DD/MM/YYYY"
+        sheet.cell(line, 5).number_format = "@"
+        sheet.cell(line, 7).number_format = "#,##0.####"
         if item.get("atrasado"):
-            cell = sheet.cell(line, 2)
+            cell = sheet.cell(line, 3)
             cell.fill = overdue_fill
             cell.font = white
             cell.comment = None
-        for col in (1, 2, 6):
+        for col in (1, 3, 7):
             sheet.cell(line, col).alignment = Alignment(vertical="center")
-    for column, width in {"A": 20, "B": 24, "C": 42, "D": 20, "E": 62, "F": 17}.items():
+    for column, width in {"A": 20, "B": 16, "C": 24, "D": 42, "E": 20, "F": 62, "G": 17}.items():
         sheet.column_dimensions[column].width = width
     sheet.freeze_panes = "A2"
-    sheet.auto_filter.ref = f"A1:F{sheet.max_row}"
+    sheet.auto_filter.ref = f"A1:G{sheet.max_row}"
     data = io.BytesIO()
     workbook.save(data)
     return data.getvalue()
@@ -283,7 +299,7 @@ async def transit_excel(
     if needle:
         records = [r for r in records if any(
             needle in str(r.get(column) or "").casefold()
-            for column in ("emitente", "ean", "produto")
+            for column in ("numeroNFe", "emitente", "ean", "produto")
         )]
     excel = _build_transit_excel(records)
     return StreamingResponse(
