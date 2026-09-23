@@ -247,9 +247,19 @@
       await sleep(1200);
     }while(true);
     if(!payload)return false;
+    // O aplicador 2.0 e interno ao portal (nao e window.v2ApplyBootstrapData).
+    // Usar o carregador real, que aplica dadosVendedores/dadosTelevendas e
+    // redesenha a parcial. A leitura isolada nao atualizava esses arrays.
+    if(typeof window.v2LoadBootstrapFast!=='function')return false;
+    let applied;
     try{
-      if(typeof window.v2ApplyBootstrapData==='function')window.v2ApplyBootstrapData(payload);
-    }catch(e){}
+      applied=await window.v2LoadBootstrapFast({force:true});
+    }catch(e){return false;}
+    if(!applied?.sucesso)return false;
+    if(expectedMonthlyISO){
+      const actual=String(applied.horarioMensalISO||'');
+      if(!actual||Date.parse(actual)!==Date.parse(expectedMonthlyISO))return false;
+    }
     try{
       if(typeof window.v102SaveDataCache==='function')window.v102SaveDataCache(payload);
     }catch(e){}
