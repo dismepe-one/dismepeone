@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
@@ -927,6 +928,129 @@ async def prod5989_audit_log(
         )
         raise HTTPException(status_code=502, detail=str(message))
 
+    # Uma unica linha temporal: logs existentes e avisos publicados compartilham
+    # as mesmas colunas, filtros e ordenacao do LOG. Nao alteramos o banco.
+    local_tz = ZoneInfo("America/Recife")
+
+    def event_epoch(row: dict, *, notification: bool = False) -> int:
+        value = row.get("criadoEpoch") if notification else row.get("epoch_ms")
+        try:
+            number = int(value)
+            if number > 0:
+                return number if number >= 100000000000 else number * 1000
+        except (TypeError, ValueError, OverflowError):
+            pass
+        if not notification:
+            raw = row.get("data_hora")
+            if isinstance(raw, str) and raw.strip():
+                try:
+                    parsed = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+                    if parsed.tzinfo is not None:
+                        return int(parsed.timestamp() * 1000)
+                except ValueError:
+                    pass
+        # Jamais usar a hora da consulta como se fosse a hora do evento.
+        return 0
+
+    def event_display(epoch: int, original: str = "") -> str:
+        if epoch > 0:
+            try:
+                return datetime.fromtimestamp(epoch / 1000, local_tz).strftime("%d/%m/%Y %H:%M:%S")
+            except (ValueError, OverflowError, OSError):
+                pass
+        # O texto legado sem timestamp permanece explicito, sem inventar horario.
+        return original.strip() if original.strip() else "Data/hora nao registrada"
+
+    legacy = []
+    for row in data.get("registros", []):
+        if not isinstance(row, dict):
+            continue
+        item = dict(row)
+        epoch = event_epoch(item)
+        item["epoch_ms"] = epoch
+        item["dataHora"] = event_display(epoch, str(item.get("dataHora") or ""))
+        legacy.append(item)
+
+    notices = []
+    aviso_notificacoes = ""
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(20.0), follow_redirects=True
+        ) as client:
+            notice_response = await client.post(
+                endpoint,
+                json={"acao": "NOTIFICACOES_ADMIN_LIST"},
+                headers={
+                    "apikey": settings.supabase_publishable_key,
+                    "x-dismepe-token": settings.edge_token,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "Cache-Control": "no-store",
+                },
+            )
+        notice_data = notice_response.json()
+        if (not 200 <= notice_response.status_code < 300
+                or not isinstance(notice_data, dict)
+                or notice_data.get("sucesso") is not True
+                or not isinstance(notice_data.get("notificacoes"), list)):
+            raise ValueError("Resposta invalida da consulta de notificacoes.")
+        existing_ids = {str(item.get("identificador") or "") for item in legacy}
+        for notice in notice_data["notificacoes"]:
+            if not isinstance(notice, dict):
+                continue
+            notice_id = str(notice.get("id") or "")
+            if not notice_id.startswith("ONE-PUSH-") or notice_id in existing_ids:
+                continue
+            epoch = event_epoch(notice, notification=True)
+            public = notice.get("publico") if isinstance(notice.get("publico"), dict) else {}
+            destination = notice.get("destino") if isinstance(notice.get("destino"), dict) else {}
+            audience = (
+                "Todos os usuarios" if public.get("todos") is True
+                else ", ".join(str(x) for x in (public.get("usuarios") or [])
+                               if isinstance(x, str))
+                or ", ".join(str(x) for x in (public.get("perfis") or [])
+                             if isinstance(x, str))
+                or "Destinatarios nao informados"
+            )
+            target = " / ".join(str(destination.get(key)) for key in
+                                ("modulo", "tela", "fornecedor") if destination.get(key))
+            details = " | ".join(part for part in (
+                str(notice.get("mensagem") or ""),
+                "Destinatarios: " + audience,
+                "Destino: " + target if target else "",
+            ) if part)
+            notices.append({
+                "id": notice_id,
+                "dataHora": event_display(epoch, str(notice.get("criadoEm") or "")),
+                "epoch_ms": epoch,
+                "usuario": str(notice.get("criadoPor") or ""),
+                "nome": str(notice.get("criadoPor") or ""),
+                "cargo": "",
+                "modulo": "Notificacoes",
+                "acao": "PUBLICOU AVISO",
+                "entidade": str(notice.get("titulo") or "Notificacao"),
+                "identificador": notice_id,
+                "detalhes": details,
+            })
+    except (httpx.HTTPError, ValueError, TypeError, KeyError):
+        # Falha na fonte adicional nao apaga o LOG tradicional.
+        aviso_notificacoes = "Avisos indisponiveis nesta consulta; registros anteriores preservados."
+
+    combined = legacy + notices
+    combined.sort(key=lambda row: int(row.get("epoch_ms") or 0), reverse=True)
+    today = datetime.now(local_tz).date()
+    data["registros"] = combined
+    data["resumo"] = {
+        "total": len(combined),
+        "hoje": sum(1 for row in combined if row.get("epoch_ms") and
+                    datetime.fromtimestamp(row["epoch_ms"] / 1000, local_tz).date() == today),
+        "usuarios": len({str(row.get("usuario") or "").strip()
+                         for row in combined if str(row.get("usuario") or "").strip()}),
+        "modulos": len({str(row.get("modulo") or "").strip()
+                        for row in combined if str(row.get("modulo") or "").strip()}),
+    }
+    if aviso_notificacoes:
+        data["avisoNotificacoes"] = aviso_notificacoes
     data["transporte"] = "FASTAPI_AUDIT_SQL_DIRECT"
     data["limiteAplicado"] = 300
     return data
