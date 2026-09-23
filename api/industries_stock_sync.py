@@ -1193,7 +1193,7 @@ def _sync_stock_once_blocking(force: bool = False) -> dict[str, Any]:
     )
 
 
-def _launch_stock_worker(force: bool = False) -> dict[str, Any]:
+def _launch_stock_worker(force: bool = False, scheduled: bool = False) -> dict[str, Any]:
     now_iso = datetime.now(timezone.utc).isoformat()
     if _worker_is_running():
         return _state_update(
@@ -1208,6 +1208,8 @@ def _launch_stock_worker(force: bool = False) -> dict[str, Any]:
     command = [sys.executable, "-m", "api.industries_stock_worker"]
     if force:
         command.append("--force")
+    if scheduled:
+        command.append("--scheduled")
 
     process = subprocess.Popen(
         command,
@@ -1229,12 +1231,12 @@ def _launch_stock_worker(force: bool = False) -> dict[str, Any]:
     )
 
 
-async def sync_stock_once(force: bool = False) -> dict[str, Any]:
+async def sync_stock_once(force: bool = False, scheduled: bool = False) -> dict[str, Any]:
     global _SYNC_LOCK
     if _SYNC_LOCK is None:
         _SYNC_LOCK = asyncio.Lock()
     async with _SYNC_LOCK:
-        return await asyncio.to_thread(_launch_stock_worker, force)
+        return await asyncio.to_thread(_launch_stock_worker, force, scheduled)
 
 
 async def _sync_loop() -> None:
@@ -1269,7 +1271,7 @@ async def _sync_loop() -> None:
 
         if due:
             try:
-                await sync_stock_once(force=False)
+                await sync_stock_once(force=False, scheduled=True)
             except asyncio.CancelledError:
                 raise
             except Exception:
