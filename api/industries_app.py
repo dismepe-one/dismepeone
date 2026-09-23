@@ -94,6 +94,7 @@ def _portal_response(*, authenticated: bool = False) -> HTMLResponse:
         '<script src="/notificacoes/launcher.js?v=NOTIF-HOME-STABLE-1"></script>',
         '<script src="/notificacoes/log.js?v=NOTIF-LOG-IND-1"></script>',
         '<script src="/push/client.js?v=PUSH-ANDROID-2"></script>',
+        '<script src="/passkeys/client.js?v=PASSKEY-PILOT-1"></script>',
     ]
     missing = [tag for tag in tags if tag not in html]
     if missing:
@@ -161,6 +162,7 @@ async def industries_route_guard(request: Request, call_next):
         allowed = (
             path.startswith("/industrias")
             or path.startswith("/push/")
+            or path.startswith("/passkeys/")
             or path in {"/auth/me", "/auth/logout", "/health"}
             or (path == "/admin/security/change-required-password"
                 and request.method == "POST"
