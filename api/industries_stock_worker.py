@@ -15,6 +15,7 @@ from .industries_stock_sync import (
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--scheduled", action="store_true")
     args = parser.parse_args()
 
     started_monotonic = time.monotonic()
@@ -31,6 +32,9 @@ def main() -> int:
 
     try:
         result = _sync_stock_once_blocking(force=bool(args.force))
+        if args.scheduled and result.get("lastStatus") == "IMPORTED":
+            from .industries_stock_notice import notify_stock_worker
+            notify_stock_worker(str(result.get("lastSha256") or ""))
         duration = round(time.monotonic() - started_monotonic, 2)
         _state_update(lastDurationSeconds=duration, workerPid=None)
         print(
