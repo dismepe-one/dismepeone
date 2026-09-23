@@ -151,6 +151,18 @@ async def destination(notice_id: str, response: Response, user: dict = Depends(p
     return await edge("DESTINATION", usuario=user_id(user), id=notice_id)
 
 
+@router.get("/inbox")
+async def inbox(response: Response, user: dict = Depends(principal)):
+    no_store(response)
+    return await edge("MY_NOTICES", usuario=user_id(user))
+
+
+@router.post("/notification/{notice_id}/read")
+async def mark_read(notice_id: str, response: Response, user: dict = Depends(principal)):
+    no_store(response)
+    return await edge("READ_NOTICE", usuario=user_id(user), id=notice_id)
+
+
 @lru_cache(maxsize=1)
 def vapid_pem():
     from cryptography.hazmat.primitives.asymmetric import ec
