@@ -249,6 +249,13 @@ async def icon():
                         headers={"Cache-Control": "public, max-age=86400"})
 
 
+@router.get("/app-icon-192.png", include_in_schema=False)
+async def app_icon_192():
+    return FileResponse(ROOT / "frontend" / "app-icon-192.png", media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=86400",
+                                 "X-Content-Type-Options": "nosniff"})
+
+
 @router.get("/manifest.webmanifest", include_in_schema=False)
 async def manifest():
     return FileResponse(ROOT / "frontend" / "push-manifest.webmanifest",

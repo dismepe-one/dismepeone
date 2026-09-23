@@ -133,6 +133,13 @@ def _portal_response(*, authenticated: bool = False) -> HTMLResponse:
                         '<meta name="apple-mobile-web-app-title" content="DISMEPE ONE">')
             html = html[:head_end] + pwa_meta + html[head_end:]
 
+    # Identidade visual exclusiva do icone instalado no iOS e Android.
+    icon_tags = ('<link rel="icon" type="image/png" sizes="192x192" href="/push/app-icon-192.png?v=DISMEPE-ICON-1">'
+                 '<link rel="apple-touch-icon" sizes="192x192" href="/push/app-icon-192.png?v=DISMEPE-ICON-1">')
+    head_end = html.lower().find("</head>")
+    if head_end >= 0 and 'rel="apple-touch-icon"' not in html:
+        html = html[:head_end] + icon_tags + html[head_end:]
+
     # PROD5.9.8.17: no F5, se o cookie 2.0 já foi validado pelo servidor,
     # não pintamos a tela de login enquanto a Home é restaurada.
     if authenticated:
