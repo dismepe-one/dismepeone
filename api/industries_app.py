@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from functools import lru_cache
+import base64
+import re
 
 from fastapi import Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, FileResponse
@@ -28,6 +31,7 @@ from .herbamed_auto_metrics import enrich_herbamed_monthly_payload
 BUILD = "2.0.0-phase2i2-prod5.9.4-publicado"
 ROOT = Path(__file__).resolve().parents[1]
 PORTAL_FILE = ROOT / "frontend" / "portal-v2-homolog.html"
+PUBLIC_LOGIN_FILE = ROOT / "frontend" / "login-public.html"
 ROUTER_SCRIPT = ROOT / "frontend" / "industries-router.js"
 ADMIN_SCRIPT = ROOT / "frontend" / "industries-admin.js"
 BUSINESS_DAYS_SCRIPT = ROOT / "frontend" / "monthly-business-days-prod59822.js"
@@ -149,6 +153,39 @@ def _portal_response(*, authenticated: bool = False) -> HTMLResponse:
     )
 
 
+def _public_login_response() -> FileResponse:
+    # Nunca entregar o HTML dos modulos ou scripts internos a visitantes anonimos.
+    return FileResponse(
+        PUBLIC_LOGIN_FILE, media_type="text/html",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                 "Pragma": "no-cache", "Expires": "0",
+                 "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@lru_cache(maxsize=1)
+def _public_brand_image() -> bytes:
+    # A unica imagem publica e o logotipo ja existente no proprio layout.
+    # Outros elementos/dados do portal nunca sao expostos por esta rota.
+    html = PORTAL_FILE.read_text(encoding="utf-8")
+    match = re.search(
+        r'<img\s+class="v36-login-logo"\s+src="data:image/png;base64,([^"\s]+)"',
+        html,
+    )
+    if match is None:
+        raise RuntimeError("Logotipo publico da tela de login nao encontrado.")
+    return base64.b64decode(match.group(1), validate=True)
+
+
+@app.get("/login/logo.png", include_in_schema=False)
+async def public_login_brand():
+    return Response(
+        content=_public_brand_image(), media_type="image/png",
+        headers={"Cache-Control": "public, max-age=3600",
+                 "X-Content-Type-Options": "nosniff"},
+    )
+
+
 def _profile_from_cookie(request: Request) -> dict | None:
     session = request.cookies.get(settings.cookie_name)
     if not session:
@@ -200,7 +237,7 @@ async def industries_root(request: Request):
     profile = _profile_from_cookie(request)
     if profile and (is_industry_profile(profile) or is_buyer_profile(profile)):
         return RedirectResponse(url="/industrias", status_code=303)
-    return _portal_response(authenticated=bool(profile))
+    return _portal_response(authenticated=True) if profile else _public_login_response()
 
 
 @app.get("/portal-v2-homolog.html", include_in_schema=False)
@@ -208,7 +245,7 @@ async def industries_root_alias(request: Request):
     profile = _profile_from_cookie(request)
     if profile and (is_industry_profile(profile) or is_buyer_profile(profile)):
         return RedirectResponse(url="/industrias", status_code=303)
-    return _portal_response(authenticated=bool(profile))
+    return _portal_response(authenticated=True) if profile else _public_login_response()
 
 
 @app.get("/industries-router.js", include_in_schema=False)
