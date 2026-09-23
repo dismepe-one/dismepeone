@@ -1484,28 +1484,64 @@ def _priscielle_client_allowed(row: dict[str, Any], setor: str) -> bool:
                for owner in row.get("vendedores", []))
 
 
+
+def _supplier_key(data: dict[str, Any], fornecedor: str) -> str:
+    if not fornecedor.strip():
+        return ""
+    key = _norm(fornecedor)
+    if not key or key not in {_norm(x) for x in data.get("fornecedores", [])}:
+        raise HTTPException(400, "Fornecedor indisponível na base publicada.")
+    return key
+
+
+def _supplier_view(row: dict[str, Any], key: str) -> dict[str, Any]:
+    provider = (row.get("porFornecedor") or {}).get(key) or {}
+    origins = list(provider.get("origens") or [])
+    names = []
+    for origin in origins:
+        if origin == "Vendedor" and provider.get("positivacoesVendedor"):
+            names.append("Vendedor: " + ", ".join(provider["positivacoesVendedor"]))
+        elif origin == "Televendas" and provider.get("positivacoesTelevendas"):
+            names.append("Televendas: " + ", ".join(provider["positivacoesTelevendas"]))
+        elif origin == "Diretoria/Supervisão":
+            names.append("Diretoria")
+        else:
+            names.append(origin)
+    inactive = bool(row.get("inativo"))
+    view = {**row,
+            "status": "Inativo" if inactive else "Positivado" if origins else "Não positivado",
+            "origens": origins, "origensDaVenda": origins, "origensDetalhadas": names,
+            "positivacoesVendedor": list(provider.get("positivacoesVendedor") or []),
+            "positivacoesTelevendas": list(provider.get("positivacoesTelevendas") or [])}
+    if "creditoIndividual" in row:
+        view["creditoIndividual"] = (not inactive and bool(
+            provider.get("positivacoesVendedor") or provider.get("positivacoesTelevendas")))
+    return view
+
+
 def _selected(data: dict[str, Any], status: str, setor: str, search: str,
-              nao_bloqueados: bool = False) -> list[dict[str, Any]]:
+              nao_bloqueados: bool = False, fornecedor: str = "") -> list[dict[str, Any]]:
     if status not in {"todos", "positivados", "nao-positivados", "bloqueados", "inativos"}:
         raise HTTPException(400, "Filtro inválido.")
+    supplier_key = _supplier_key(data, fornecedor)
     is_tv = setor.startswith("TV:")
     is_directorate = setor == "DIR:CARTEIRA"
     person = _norm(setor[3:] if is_tv else setor)
     norm_search = _norm(search)
     result = []
-    for c in data["clientes"]:
-        if not _priscielle_client_allowed(c, setor):
+    for original in data["clientes"]:
+        if not _priscielle_client_allowed(original, setor):
             continue
         if is_directorate:
-            if c.get("carteiraDiretoria") is not True:
+            if original.get("carteiraDiretoria") is not True:
                 continue
         elif person:
-            wallet = c["televendas"] if is_tv else c["setores"]
+            wallet = original["televendas"] if is_tv else original["setores"]
             if all(_norm(x) != person for x in wallet):
                 continue
-            # A carteira e positivada pela venda de qualquer canal nesse cliente.
-            # O credito individual permanece separado em positivacoesVendedor/
-            # positivacoesTelevendas, sem sobrescrever o status global.
+            # A positivação do cliente é global à carteira, não crédito de
+            # quem não realizou a venda; fornecedores usam a mesma regra.
+        c = _supplier_view(original, supplier_key) if supplier_key else original
         if status == "inativos" and not c.get("inativo"):
             continue
         if status not in {"todos", "inativos"} and c.get("inativo"):
@@ -1536,7 +1572,7 @@ def _enforced_sector(sector: str, context: dict[str, Any]) -> str:
 
 
 def _origins_for_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
-    keys = ("Vendedor", "Televendas", "Diretoria/Supervisão", "Vendedor + Televendas")
+    keys = ("Vendedor", "Televendas", "Diretoria/Supervisão", "Vendedor + Televendas", "OL")
     result = {key: 0 for key in keys}
     for row in rows:
         if row.get("inativo"):
@@ -1547,6 +1583,8 @@ def _origins_for_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
                 result[name] += 1
         if "Vendedor" in origin and "Televendas" in origin:
             result["Vendedor + Televendas"] += 1
+        if "OL" in origin:
+            result["OL"] += 1
     return result
 
 
@@ -1591,6 +1629,16 @@ def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, An
                 detalhes.append("Vendedor: " + ", ".join(source["positivacoesVendedor"]))
             else:
                 detalhes.append("Diretoria" if origin == "Diretoria/Supervisão" else origin)
+        supplier_rows = {}
+        for supplier_key, provider in (source.get("porFornecedor") or {}).items():
+            credited_key = "positivacoesVendedor" if owner_seller else "positivacoesTelevendas"
+            credited = ([person] if any(_norm(x) == _norm(person)
+                         for x in provider.get(credited_key, [])) else [])
+            supplier_rows[supplier_key] = {
+                "nome": provider.get("nome", ""), "origens": list(provider.get("origens") or []),
+                "positivacoesVendedor": credited if owner_seller else [],
+                "positivacoesTelevendas": credited if not owner_seller else [],
+            }
         rows.append({
             "codigo": original["codigo"], "cliente": original["cliente"],
             "cnpj": original.get("cnpj", ""), "cidade": original.get("cidade", ""),
@@ -1610,6 +1658,7 @@ def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, An
             "carteiraCompartilhada": bool(source.get("carteiraCompartilhada")),
             "positivacoesVendedor": [person] if owner_seller and direct else [],
             "positivacoesTelevendas": [person] if not owner_seller and direct else [],
+            "porFornecedor": supplier_rows,
         })
     active_rows = [row for row in rows if not row["inativo"]]
     count = len(active_rows)
@@ -1639,6 +1688,7 @@ def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, An
             "persistencia": data.get("persistencia", "POSTGRESQL"),
             "inatividadesVersao": data.get("inatividadesVersao", "0"),
             "clientes": rows, "setores": sectors, "carteirasTelevendas": teles,
+            "fornecedores": data.get("fornecedores", []),
             "origens": origins, "indicadores": totals,
              "creditoIndividual": direct_count, "geralEmpresa": general,
             "movimentacao": {"novos": 0, "removidos": 0,
