@@ -202,9 +202,11 @@ function pendingNotice(){
   return VALID.test(id||'')?id:null;
  }catch(_){return null;}
 }
-let pendingRunning=false;
+let pendingRunning=false, pendingRefusedKey='';
 async function applyPending(){
- const id=pendingNotice();if(!id||pendingRunning)return;
+ const id=pendingNotice();
+ const pendingKey=String(me?.usuario||'')+'|'+String(id||'');
+ if(!id||pendingRunning||pendingRefusedKey===pendingKey)return;
  pendingRunning=true;
  try{
   const r=await fetch('/auth/me',{credentials:'include',cache:'no-store'});
@@ -219,7 +221,8 @@ async function applyPending(){
   }
   if(!ready)return;
   const ok=await navigateNotice(id);
-  if(ok){const url=new URL(location.href);url.searchParams.delete('dismepe_notice');history.replaceState(history.state,'',url.pathname+url.search+url.hash);}
+  if(ok){pendingRefusedKey='';const url=new URL(location.href);url.searchParams.delete('dismepe_notice');history.replaceState(history.state,'',url.pathname+url.search+url.hash);}
+  else pendingRefusedKey=pendingKey;
  }finally{pendingRunning=false;}
 }
 async function onAuthenticated(){
