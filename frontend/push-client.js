@@ -114,21 +114,11 @@ async function loadDevices(){
 }
 function makeButton(label,fn){const b=document.createElement('button');b.type='button';b.textContent=label;b.addEventListener('click',fn);return b;}
 function mountControls(){
- let panel=$('v81NotificationPanel')||$('industryNotificationPushArea');
+ // Portal Indústrias: os controles Push pertencem exclusivamente ao painel do sino no cabeçalho.
+ // Remove um possível botão flutuante deixado pelo script antigo, sem alterar as inscrições.
+ $('dismepeIndustryPushWidget')?.remove();
  const industry=location.pathname.startsWith('/industrias');
- if(!panel && industry && me){
-   let widget=$('dismepeIndustryPushWidget');
-   if(!widget){
-     widget=document.createElement('aside');widget.id='dismepeIndustryPushWidget';
-     widget.style.cssText='position:fixed;right:14px;bottom:18px;z-index:9900;max-width:min(365px,calc(100vw - 28px));border:1px solid #b4d7c0;border-radius:14px;background:#fff;box-shadow:0 5px 26px #0002;color:#193329;font:13px system-ui,sans-serif';
-     const toggle=document.createElement('button');toggle.type='button';toggle.textContent='🔔 Notificações Push';
-     toggle.style.cssText='border:0;padding:12px 18px;font:inherit;font-weight:800;background:#087b51;color:white;border-radius:12px;width:100%';
-     toggle.addEventListener('click',()=>{const body=$('dismepeIndustryPushBody');if(body)body.hidden=!body.hidden;});
-     const body=document.createElement('div');body.id='dismepeIndustryPushBody';body.hidden=true;
-     widget.append(toggle,body);document.body.append(widget);
-   }
-   panel=$('dismepeIndustryPushBody');
- }
+ const panel=industry?$('industryNotificationPushArea'):$('v81NotificationPanel');
  if(!panel||!me){$(ID)?.remove();return;}
  let root=$(ID);
  if(root&&root.parentElement===panel)return;
@@ -321,7 +311,8 @@ function init(){
  wireLegacyClick();setupLogout();
  const obs=new MutationObserver(()=>{
   hookLegacyInbox();
-  const p=$('v81NotificationPanel');if(p&&me&&!$(ID))mountControls();
+  const p=location.pathname.startsWith('/industrias')?$('industryNotificationPushArea'):$('v81NotificationPanel');
+  if(p&&me&&(!$(ID)||$(ID).parentElement!==p))mountControls();
   if(me&&pendingNotice()&&!pendingRunning)queueMicrotask(applyPending);
  });
  obs.observe(document.body,{childList:true});
