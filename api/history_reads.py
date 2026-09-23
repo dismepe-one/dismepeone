@@ -500,7 +500,27 @@ async def history_list(
             items.append(public)
 
     items.sort(key=_date_key, reverse=True)
-    items = items[:3]
+    if normalized == "mensal":
+        # A listagem oficial mostra um unico retrato por dia de Recife,
+        # mesmo quando gravacoes legadas anteriores trouxerem duplicatas.
+        recent_days: set[str] = set()
+        distinct: list[dict[str, Any]] = []
+        for item in items:
+            epoch = _date_key(item)
+            if not epoch:
+                continue
+            day = datetime.fromtimestamp(
+                epoch, ZoneInfo("America/Recife")
+            ).date().isoformat()
+            if day in recent_days:
+                continue
+            recent_days.add(day)
+            distinct.append(item)
+            if len(distinct) == 3:
+                break
+        items = distinct
+    else:
+        items = items[:3]
 
     return {
         "sucesso": True,
