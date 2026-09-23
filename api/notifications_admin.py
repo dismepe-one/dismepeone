@@ -25,6 +25,7 @@ MODULES = {
     "VENDEDORES": {"PARCIAL"},
     "TELEVENDAS": {"PARCIAL"},
     "POSITIVACOES": {"GERAL"},
+    "INDUSTRIAS": {"INICIO", "MAPA"},
 }
 
 
@@ -135,13 +136,13 @@ async def notification_history(profile: dict = Depends(_admin)):
     except AccessReadError as exc:
         raise HTTPException(status_code=503, detail="Histórico indisponível.") from exc
     rows = [
-        {"id": item.get("id"), "titulo": item.get("titulo"), "criadoEm": item.get("criadoEm"),
+        {"id": item.get("id"), "titulo": item.get("titulo"), "mensagem": item.get("mensagem"), "criadoEm": item.get("criadoEm"),
          "criadoPor": item.get("criadoPor"), "destino": item.get("destino"),
          "publico": item.get("publico"), "push": item.get("pushStatus") or "AGENDADO"}
         for item in data.get("notificacoes", [])
         if isinstance(item, dict) and str(item.get("id") or "").startswith("ONE-PUSH-")
     ]
-    return {"notificacoes": rows[:40]}
+    return {"notificacoes": rows[:120]}
 
 
 @router.post("/notificacoes/api/enviar")
@@ -151,7 +152,7 @@ async def send_notification(payload: NotificationRequest, background_tasks: Back
     if len(titulo) < 3 or len(mensagem) < 3:
         raise HTTPException(status_code=422, detail="Preencha título e mensagem.")
     modo = normalizar(payload.modo)
-    if modo not in {"TODOS", "CARGOS", "USUARIOS"}:
+    if modo not in {"TODOS", "CARGOS", "USUARIOS", "INDUSTRIAS"}:
         raise HTTPException(status_code=422, detail="Destinatários inválidos.")
     modulo = normalizar(payload.destino.modulo)
     tela = normalizar(payload.destino.tela)
@@ -176,6 +177,15 @@ async def send_notification(payload: NotificationRequest, background_tasks: Back
         if not wanted or not wanted.issubset(role_names.keys()):
             raise HTTPException(status_code=422, detail="Selecione cargos válidos.")
         chosen_roles = sorted({role_names[name] for name in wanted})
+    elif modo == "INDUSTRIAS":
+        if not any(normalizar(row.get("tipo")) == "INDUSTRIA" for row in users):
+            raise HTTPException(status_code=422, detail="Nenhuma conta de indústria ativa localizada.")
+        chosen_roles = ["INDUSTRIA"]
+
+    if modo == "INDUSTRIAS" and modulo not in {"HOME", "INDUSTRIAS"}:
+        raise HTTPException(status_code=422, detail="Selecione HOME ou Indústrias para avisos coletivos da indústria.")
+    if modulo == "INDUSTRIAS" and modo == "TODOS":
+        raise HTTPException(status_code=422, detail="O destino Indústrias não pode ser enviado a todos os usuários do sistema.")
 
     # O módulo de gestão corporativa não pode ser divulgado para contas comuns.
     if modulo == "POSITIVACOES":
