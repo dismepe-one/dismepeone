@@ -50,6 +50,7 @@ PDF_NAME = "Comparativo Venda_Cliente por Vendedor.pdf"
 SHEET_NAME = "Positivacoes"
 MODULE = "POSITIVACAO_GERAL_V1"
 CONFIG_MODULE = "POSITIVACAO_META_V1"
+_SHEET_PARSER_VERSION = "fornecedor-operador-ol-v1"
 _BUILD = "POS-GERAL-DEV10-7-SINO-INATIVIDADE"
 _TTL = 600.0
 _CACHE: dict[str, Any] | None = None
@@ -788,6 +789,7 @@ def _parse_pdf(raw: bytes, tel_names: dict[str, str]) -> tuple[dict[str, dict[st
     return clients, stats
 
 
+
 def _parse_sales(raw: bytes) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     sales: dict[str, dict[str, Any]] = {}
     info: dict[str, Any] = {}
@@ -797,9 +799,18 @@ def _parse_sales(raw: bytes) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]
         rows = _read_sheet(raw, tab)
         if not rows:
             raise RuntimeError(f"A aba {tab} está vazia ou indisponível.")
-        header = [_norm(x) for x in rows[0][:6]]
+        all_headers = [_norm(x) for x in rows[0]]
+        header = all_headers[:6]
         if header != required and not (len(header) >= 6 and header[2] in {"COD CLIENTE", "CODIGO CLIENTE"} and header[3] == "POSITIVACAO"):
             raise RuntimeError(f"Cabeçalhos inesperados na aba {tab}; importação cancelada.")
+        if all_headers.count("FORNECEDOR") != 1:
+            raise RuntimeError(f"A aba {tab} precisa conter uma única coluna FORNECEDOR.")
+        supplier_index = all_headers.index("FORNECEDOR")
+        operator_index = None
+        if tab in {"vendedores", "televendas"}:
+            if all_headers.count("OPERADOR PEDIDO") != 1:
+                raise RuntimeError(f"A aba {tab} precisa conter uma única coluna OPERADOR PEDIDO.")
+            operator_index = all_headers.index("OPERADOR PEDIDO")
         total = 0
         for values in rows[1:]:
             if len(values) < 4 or str(values[3] or "").strip() not in {"1", "1.0"}:
@@ -807,13 +818,18 @@ def _parse_sales(raw: bytes) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]
             code = _code(values[2])
             if not code:
                 continue
+            supplier = str(values[supplier_index] if len(values) > supplier_index else "").strip()
+            supplier_key = _norm(supplier)
+            if not supplier_key:
+                raise RuntimeError(f"A aba {tab} contém positivação sem FORNECEDOR; publicação cancelada.")
             total += 1
             row = sales.setdefault(code, {"codigo": code, "origens": [], "nomesComerciais": [],
-                                          "atoresPorOrigem": {}, "cnpj": "", "cliente": ""})
-            # A aba de diretoria tem prioridade sobre o texto 'Pedidos Por':
-            # impede publicar inadvertidamente essas linhas como Vendedor.
+                                          "atoresPorOrigem": {}, "fornecedores": {}, "cnpj": "", "cliente": ""})
             order_origin = _norm(values[5] if len(values) > 5 else "")
+            by_ol = (operator_index is not None and
+                     _norm(values[operator_index] if len(values) > operator_index else "") in {"RUNNING", "PDVLINK"})
             normalized_origin = ("Diretoria/Supervisão" if tab == "diretoria e sup"
+                                 else "OL" if by_ol
                                  else "Televendas" if tab == "televendas" or "TELEVENDAS" in order_origin
                                  else "Vendedor")
             if normalized_origin not in row["origens"]:
@@ -821,12 +837,19 @@ def _parse_sales(raw: bytes) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]
             actor = str(values[0] or "").strip()
             if actor and actor not in row["nomesComerciais"]:
                 row["nomesComerciais"].append(actor)
-            # Diretoria/Supervisão continua no consolidado, nunca como crédito
-            # individual de vendedor ou televendas.
-            if actor and tab in {"vendedores", "televendas"}:
-                by_origin = row["atoresPorOrigem"].setdefault(normalized_origin, [])
-                if actor not in by_origin:
-                    by_origin.append(actor)
+            # RUNNING / PDVLINK são vendas do OL, sem crédito individual.
+            if actor and not by_ol and tab in {"vendedores", "televendas"}:
+                credited = row["atoresPorOrigem"].setdefault(normalized_origin, [])
+                if actor not in credited:
+                    credited.append(actor)
+            provider = row["fornecedores"].setdefault(supplier_key, {
+                "nome": supplier, "origens": [], "atoresPorOrigem": {}})
+            if normalized_origin not in provider["origens"]:
+                provider["origens"].append(normalized_origin)
+            if actor and not by_ol and tab in {"vendedores", "televendas"}:
+                provider_credit = provider["atoresPorOrigem"].setdefault(normalized_origin, [])
+                if actor not in provider_credit:
+                    provider_credit.append(actor)
             document = re.sub(r"\D", "", str(values[4] if len(values) > 4 else ""))
             if 12 <= len(document) <= 14:
                 document = document.zfill(14)
