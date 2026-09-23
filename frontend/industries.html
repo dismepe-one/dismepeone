@@ -82,6 +82,15 @@ footer{background:linear-gradient(135deg,var(--head-a),var(--head-b) 50%,var(--h
     text-align:center !important;
   }
 }
+
+/* Campo pesquisável restrito a usuários internos com visão de todos os laboratórios. */
+.lab-search-wrap{position:relative;min-width:0;width:min(320px,74vw)}
+.lab-search-input{width:100%;min-width:0;height:39px;padding:0 12px;border:1px solid var(--border);border-radius:10px;background:#fff;color:#17332c;font-size:11px;font-weight:800;outline:0}
+.lab-search-input:focus{border-color:#079b72;box-shadow:0 0 0 3px rgba(7,155,114,.13)}
+.lab-search-results{position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:75;background:#fff;border:1px solid #cadbd3;border-radius:10px;box-shadow:0 12px 28px rgba(0,63,54,.19);max-height:235px;overflow-y:auto;padding:4px}
+.lab-search-option{display:block;width:100%;border:0;background:#fff;color:#17332c;text-align:left;padding:10px;border-radius:7px;font-size:11px;cursor:pointer;overflow-wrap:anywhere}
+.lab-search-option:hover,.lab-search-option.active{background:#e8f4ee;color:#005548}
+.lab-search-empty{font-size:11px;color:#60746f;padding:10px}
 </style>
 
 <style id="transito-prazo-v1">
@@ -139,7 +148,7 @@ main.transito-wide{max-width:none;width:100%;min-width:0;padding-left:clamp(10px
 <main>
   <section class="hero">
     <div><div class="eyebrow">DISMEPE ONE INDÚSTRIAS</div><h1>Olá, <span id="heroName">representante</span> 👋</h1><p>Dados comerciais restritos ao laboratório autorizado para o seu usuário.</p></div>
-    <div class="filters"><div class="field"><label>Laboratório</label><select id="labSelect"></select></div><div class="field"><label>Competência</label><select id="compSelect"><option value="">—</option></select></div></div>
+    <div class="filters"><div class="field"><label id="labSelectLabel" for="labSelect">Laboratório</label><select id="labSelect"></select><div id="labSearchWrap" class="lab-search-wrap hidden"><input id="labSearchInput" class="lab-search-input" type="text" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="labSearchResults" aria-expanded="false" placeholder="Digite o nome do laboratório"><div id="labSearchResults" class="lab-search-results hidden" role="listbox" aria-label="Laboratórios encontrados"></div></div></div><div class="field"><label>Competência</label><select id="compSelect"><option value="">—</option></select></div></div>
   </section>
   <section class="kpis">
     <div class="card kpi"><div class="icon"><i class="fa-solid fa-bullseye"></i></div><div id="kMetric1Label" class="label">Objetivo</div><div id="kMetric1" class="value">—</div><div id="kMetric1Sub" class="sub">—</div></div>
@@ -186,6 +195,78 @@ function isInternalIndustryAccess(u){return String(u?.tipo||'').trim().toUpperCa
 function isBuyer(u){return String(u?.tipo||'').trim().toUpperCase()==='COMPRADOR'&&u?.permissoes?.INDUSTRIA_PORTAL_INTERNO===true}
 const ALL_LABS='__TODOS__';
 async function loadIndustryLabs(){const r=await api('/industrias/laboratorios?ts='+Date.now());return Array.isArray(r?.laboratorios)?r.laboratorios:[]}
+
+function setupInternalLabSearch(){
+  const select=document.getElementById('labSelect');
+  const wrap=document.getElementById('labSearchWrap');
+  const input=document.getElementById('labSearchInput');
+  const results=document.getElementById('labSearchResults');
+  const label=document.getElementById('labSelectLabel');
+  if(!select||!wrap||!input||!results||!label)return;
+  const choices=Array.from(select.options).filter(o=>o.value).map(o=>({value:o.value,label:o.textContent.trim()}));
+  const normalize=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('pt-BR');
+  const selectedLabel=()=>choices.find(o=>o.value===select.value)?.label||'';
+  let shown=[],active=-1;
+  const close=()=>{results.classList.add('hidden');results.replaceChildren();input.setAttribute('aria-expanded','false');input.removeAttribute('aria-activedescendant');shown=[];active=-1};
+  const highlight=index=>{
+    active=index;
+    Array.from(results.querySelectorAll('[role="option"]')).forEach((button,i)=>{
+      const current=i===index;
+      button.classList.toggle('active',current);
+      button.setAttribute('aria-selected',String(current));
+      if(current){input.setAttribute('aria-activedescendant',button.id);button.scrollIntoView({block:'nearest'});}
+    });
+  };
+  const choose=choice=>{
+    if(!choice)return;
+    const changed=select.value!==choice.value;
+    select.value=choice.value;
+    input.value=choice.label;
+    close();
+    if(changed)select.dispatchEvent(new Event('change',{bubbles:true}));
+  };
+  const show=()=>{
+    const query=normalize(input.value.trim());
+    results.replaceChildren();shown=[];active=-1;
+    input.removeAttribute('aria-activedescendant');
+    if(!query){close();return;}
+    shown=choices.filter(o=>normalize(o.label).includes(query)).slice(0,8);
+    if(!shown.length){
+      const empty=document.createElement('div');
+      empty.className='lab-search-empty';empty.textContent='Nenhum laboratório encontrado.';
+      results.append(empty);
+    }else shown.forEach((choice,i)=>{
+      const option=document.createElement('button');
+      option.type='button';option.id='labSearchOption-'+i;option.className='lab-search-option';
+      option.setAttribute('role','option');option.setAttribute('aria-selected','false');
+      option.textContent=choice.label;
+      option.addEventListener('pointerdown',event=>event.preventDefault());
+      option.addEventListener('click',()=>choose(choice));
+      results.append(option);
+    });
+    results.classList.remove('hidden');input.setAttribute('aria-expanded','true');
+  };
+  input.addEventListener('focus',()=>input.select());
+  input.addEventListener('input',show);
+  input.addEventListener('keydown',event=>{
+    if(event.key==='Escape'){close();input.value=selectedLabel();return;}
+    if(event.key==='ArrowDown'||event.key==='ArrowUp'){
+      if(results.classList.contains('hidden'))show();
+      if(shown.length){event.preventDefault();highlight(active<0?(event.key==='ArrowDown'?0:shown.length-1):(active+(event.key==='ArrowDown'?1:shown.length-1))%shown.length);}
+    }
+    if(event.key==='Enter'&&!results.classList.contains('hidden')){
+      event.preventDefault();
+      if(shown.length)choose(shown[active>=0?active:0]);
+    }
+  });
+  input.addEventListener('blur',()=>{close();input.value=selectedLabel();});
+  select.addEventListener('change',()=>{input.value=selectedLabel();close();});
+  select.classList.add('hidden');
+  wrap.classList.remove('hidden');
+  label.htmlFor='labSearchInput';
+  input.value=selectedLabel();
+}
+
 function showPwd(){document.getElementById('passwordGate').classList.remove('hidden')}
 function hidePwd(){document.getElementById('passwordGate').classList.add('hidden')}
 async function init(){
@@ -218,6 +299,7 @@ async function init(){
     const allOption=buyer?`<option value="${ALL_LABS}">TODOS OS LABORATÓRIOS</option>`:'';
     sel.innerHTML=allOption+(labs.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')||(!buyer?'<option value="">Nenhum laboratório disponível</option>':''));
     if(buyer)sel.value=ALL_LABS;
+    if(internal)setupInternalLabSearch();
     if(sel.value){await loadData();await loadStock()}
   }catch(e){location.replace('/')}
 }
