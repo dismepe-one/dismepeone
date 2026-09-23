@@ -81,11 +81,14 @@ async function loadDevices(){
      if(!window.confirm('Desativar este dispositivo?'))return;
      btn.disabled=true;
      try{
-      // Se for a inscrição deste navegador, remover também do PushManager.
+      // Revoga no SQL e, se este for o aparelho atual, cancela a inscrição do navegador.
       const sub=await currentSubscription().catch(()=>null);
-      if(sub)await api('/push/devices/revoke','POST',{id:d.id});
-      else await api('/push/devices/revoke','POST',{id:d.id});
-      // O endpoint só é exposto no navegador atual; outra inscrição é revogada apenas no servidor.
+      await api('/push/devices/revoke','POST',{id:d.id});
+      if(sub&&window.crypto?.subtle&&d.endpoint_hash){
+       const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(sub.endpoint));
+       const currentHash=[...new Uint8Array(digest)].map(x=>x.toString(16).padStart(2,'0')).join('');
+       if(currentHash===d.endpoint_hash)await sub.unsubscribe();
+      }
       await loadDevices();
       flash('Dispositivo desativado.');
      }catch(e){flash(e.message,true);}finally{btn.disabled=false;}
