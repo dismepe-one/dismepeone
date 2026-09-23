@@ -1519,3 +1519,7 @@ app.include_router(positivacao_geral_router)
 # Central de Notificacoes: tela administrativa e API isoladas.
 from .notifications_admin import router as notifications_admin_router
 app.include_router(notifications_admin_router)
+
+# Web Push: API de dispositivos, Web App Manifest, Service Worker e destino autenticado.
+from .push_notifications import router as push_notifications_router
+app.include_router(push_notifications_router)
