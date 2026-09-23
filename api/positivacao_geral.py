@@ -975,7 +975,7 @@ def _consolidate(clients: dict[str, dict[str, Any]], sales: dict[str, dict[str, 
     for tele_sector in tele_sectors:
         tele_sector["percentual"] = (round(100 * tele_sector["positivados"] / tele_sector["total"], 2)
                                       if tele_sector["total"] else 0)
-    origins = {"Vendedor": 0, "Televendas": 0, "Diretoria/Supervisão": 0, "Vendedor + Televendas": 0}
+    origins = {"Vendedor": 0, "Televendas": 0, "Diretoria/Supervisão": 0, "Vendedor + Televendas": 0, "OL": 0}
     for row in output:
         o = set(row["origens"])
         if "Vendedor" in o:
@@ -986,6 +986,8 @@ def _consolidate(clients: dict[str, dict[str, Any]], sales: dict[str, dict[str, 
             origins["Diretoria/Supervisão"] += 1
         if {"Vendedor", "Televendas"}.issubset(o):
             origins["Vendedor + Televendas"] += 1
+        if "OL" in o:
+            origins["OL"] += 1
     return {
         "schema": MODULE, "competencia": datetime.now(TZ).strftime("%m/%Y"),
         "clientes": output, "setores": sectors, "carteirasTelevendas": tele_sectors, "origens": origins,
@@ -1700,17 +1702,45 @@ def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, An
 
 @router.get("/positivacoes/api/resumo-filtro")
 async def positivacao_filtered_summary(
-    setor: str = "", nao_bloqueados: bool = Query(False),
+    setor: str = "", nao_bloqueados: bool = Query(False), fornecedor: str = "",
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     context = await _viewer_context(session)
     setor = _enforced_sector(setor, context)
     data = _visible_data(await _get_data(context["profile"]), context)
-    if not setor:
+    if not setor and not fornecedor and not nao_bloqueados:
         return _safe_json_response({"indicadores": data["indicadores"],
                                     "origens": data["origens"], "setores": data["setores"],
                                     "carteirasTelevendas": data.get("carteirasTelevendas", []),
                                     "carteirasDiretoria": data.get("carteirasDiretoria", [])})
+    if not setor:
+        customers = _selected(data, "todos", "", "", nao_bloqueados, fornecedor)
+        active = [r for r in customers if not r.get("inativo")]
+        total = len(active)
+        positive = sum(r["status"] == "Positivado" for r in active)
+        summary = {"carteira": total, "positivados": positive,
+                   "naoPositivados": total-positive,
+                   "percentual": round(100*positive/total, 2) if total else 0,
+                   "bloqueados": sum(bool(r["bloqueado"]) for r in active),
+                   "inativos": len(customers)-total}
+        def grouped(group: list[dict[str, Any]], key: str, prefix: str = "") -> list[dict[str, Any]]:
+            output = []
+            for item in group:
+                person = str(item[key])
+                wallet = _selected(data, "todos", prefix+person, "", nao_bloqueados, fornecedor)
+                live = [r for r in wallet if not r.get("inativo")]
+                counted = sum(r["status"] == "Positivado" for r in live)
+                count = len(live)
+                output.append({**item, "total": count, "positivados": counted,
+                               "naoPositivados": count-counted,
+                               "bloqueados": sum(bool(r["bloqueado"]) for r in live),
+                               "percentual": round(100*counted/count, 2) if count else 0})
+            return output
+        return _safe_json_response({"indicadores": summary, "origens": _origins_for_rows(customers),
+                                    "setores": grouped(data["setores"], "setor"),
+                                    "carteirasTelevendas": grouped(data.get("carteirasTelevendas", []),
+                                                                  "televendas", "TV:"),
+                                    "carteirasDiretoria": []})
     is_tv = setor.startswith("TV:")
     is_directorate = setor == "DIR:CARTEIRA"
     person = _norm("Diretoria" if is_directorate else setor[3:] if is_tv else setor)
@@ -1720,7 +1750,7 @@ async def positivacao_filtered_summary(
     matched = next((x for x in group if _norm(x[key]) == person), None)
     if matched is None:
         raise HTTPException(400, "Profissional indisponivel na fotografia atual.")
-    customers = _selected(data, "todos", setor, "", nao_bloqueados)
+    customers = _selected(data, "todos", setor, "", nao_bloqueados, fornecedor)
     live = [x for x in customers if not x.get("inativo")]
     total = len(live)
     positive = sum(x["status"] == "Positivado" for x in live)
@@ -1740,7 +1770,7 @@ async def positivacao_filtered_summary(
 
 @router.get("/positivacoes/api/clientes")
 async def positivacao_clients(
-    status: str = "todos", setor: str = "", busca: str = "", pagina: int = Query(1, ge=1),
+    status: str = "todos", setor: str = "", busca: str = "", fornecedor: str = "", pagina: int = Query(1, ge=1),
     tamanho: int = Query(50, ge=1, le=100),
     nao_bloqueados: bool = Query(False),
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
@@ -1748,7 +1778,7 @@ async def positivacao_clients(
     context = await _viewer_context(session)
     setor = _enforced_sector(setor, context)
     data = _visible_data(await _get_data(context["profile"]), context)
-    rows = _selected(data, status, setor, busca, nao_bloqueados)
+    rows = _selected(data, status, setor, busca, nao_bloqueados, fornecedor)
     start = (pagina-1)*tamanho
     return _safe_json_response({"total": len(rows), "pagina": pagina, "tamanho": tamanho,
                                 "clientes": rows[start:start+tamanho], "atualizadoEm": data["atualizadoEm"]})
@@ -2455,7 +2485,7 @@ def _export_fields(row: dict[str, Any]) -> list[str]:
 @router.get("/positivacoes/api/exportar/{kind}")
 async def positivacao_export(
     kind: str, status: str = "todos", setor: str = "", busca: str = "",
-    nao_bloqueados: bool = Query(False),
+    nao_bloqueados: bool = Query(False), fornecedor: str = "",
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     context = await _viewer_context(session)
@@ -2474,9 +2504,9 @@ async def positivacao_export(
     key = "televendas" if is_tv else "setor"
     if not person or not any(_norm(g.get(key)) == person for g in groups):
         raise HTTPException(400, "Selecione uma carteira individual valida antes de exportar.")
-    rows = _selected(data, status, setor, busca, nao_bloqueados)
+    rows = _selected(data, status, setor, busca, nao_bloqueados, fornecedor)
     # Exportacao da carteira sempre inclui um anexo de inativos, mesmo com filtro ativo.
-    inativos = _selected(data, "inativos", setor, busca, nao_bloqueados)
+    inativos = _selected(data, "inativos", setor, busca, nao_bloqueados, fornecedor)
     presentes = {row["codigo"] for row in rows}
     rows.extend(row for row in inativos if row["codigo"] not in presentes)
     # Uma unica leitura em blocos dos comentarios dos clientes AUTORIZADOS.
