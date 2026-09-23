@@ -214,6 +214,35 @@ def scope_clientes_ped(
     candidates = _profile_candidates(profile)
     sector_profile = normalizar(profile.get("setor") or "")
 
+    # A usuária PATRICIA GOMES pertence somente à dupla com MARCOS FELIPE
+    # FERREIRA LIMA em Clientes PEDS. O nome da televendas, isoladamente,
+    # aparece também em outra carteira e não autoriza essa segunda carteira.
+    patricia_marcos_only = (
+        is_televendas
+        and normalizar(profile.get("usuario") or "") == "PATRICIA"
+        and normalizar(profile.get("vendedor") or profile.get("nome") or "") == "PATRICIA GOMES"
+    )
+
+    def marcos_patricia_pair(row: Any) -> bool:
+        return (
+            isinstance(row, dict)
+            and normalizar(row.get("vendedor") or "") in {
+                "MARCOS FELIPE FERREIRA LIMA", "MARCOS FELIPE LIMA"
+            }
+            and normalizar(row.get("televendas") or "") == "PATRICIA GOMES"
+        )
+
+    # Resolver códigos a partir da matriz OFICIAL de metas, não apenas
+    # de uma coincidência de nome em outra carteira do snapshot.
+    patricia_pair_codes = (
+        {
+            normalizar(row.get("codigoSetor") or "")
+            for row in (result.get("setoresMeta") or [])
+            if marcos_patricia_pair(row) and normalizar(row.get("codigoSetor") or "")
+        }
+        if patricia_marcos_only else set()
+    )
+
     clientes_all = (
         result.get("clientes")
         if isinstance(result.get("clientes"), list)
@@ -223,6 +252,16 @@ def scope_clientes_ped(
     def allowed_client(row: Any) -> bool:
         if not isinstance(row, dict):
             return False
+
+        if patricia_marcos_only:
+            # Nunca usar o OR genérico por nome/setor para essa usuária.
+            # Sem a dupla na matriz oficial, negar acesso ao invés de
+            # atribuir outra carteira com o mesmo nome de televendas.
+            return (
+                bool(patricia_pair_codes)
+                and _client_sector_code(row) in patricia_pair_codes
+                and marcos_patricia_pair(row)
+            )
 
         if sector_profile:
             if (
@@ -260,6 +299,13 @@ def scope_clientes_ped(
             return False
         code = normalizar(row.get("codigoSetor") or "")
         name = normalizar(row.get("setor") or "")
+        if patricia_marcos_only:
+            return (
+                bool(code)
+                and code in patricia_pair_codes
+                and code in allowed_codes
+                and marcos_patricia_pair(row)
+            )
         if code and code in allowed_codes:
             return True
         if sector_profile and sector_profile in {code, name}:
