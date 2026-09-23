@@ -137,7 +137,7 @@ async def notification_history(profile: dict = Depends(_admin)):
     rows = [
         {"id": item.get("id"), "titulo": item.get("titulo"), "criadoEm": item.get("criadoEm"),
          "criadoPor": item.get("criadoPor"), "destino": item.get("destino"),
-         "publico": item.get("publico"), "push": "PENDENTE_DE_CONFIGURACAO"}
+         "publico": item.get("publico"), "push": item.get("pushStatus") or "AGENDADO"}
         for item in data.get("notificacoes", [])
         if isinstance(item, dict) and str(item.get("id") or "").startswith("ONE-PUSH-")
     ]
@@ -201,7 +201,7 @@ async def send_notification(payload: NotificationRequest, background_tasks: Back
         "criadoPor": str(profile.get("nome") or profile.get("usuario") or "Admin"),
         "publicarEm": now.isoformat(), "expiraEm": "",
         "importante": False, "exibirUmaVez": False,
-        "destino": dest, "pushStatus": "PENDENTE_DE_CONFIGURACAO",
+        "destino": dest, "pushStatus": "AGENDADO",
     }
     try:
         result = await admin_edge(action="NOTIFICACAO_UPSERT", data={"notificacao": notice}, settings=settings)
