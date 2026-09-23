@@ -2395,7 +2395,7 @@ async def industries_page(
         '<script src="/industrias/globo-positivacoes.js?v=GLOBO_POS_V1"></script>\n'
         '<script src="/industrias/notificacoes.js?v=INDUSTRY-BELL-HEADER-2"></script>\n'
         '<script src="/push/client.js?v=PUSH-INDUSTRY-HEADER-2"></script>\n'
-        '<script src="/passkeys/client.js?v=PASSKEY-PILOT-1"></script>\n</body>',
+        '</body>',
         1,
     )
     return HTMLResponse(
