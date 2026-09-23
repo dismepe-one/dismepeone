@@ -2363,8 +2363,8 @@ async def industries_page(
     html = html.replace(
         "</body>",
         '<script src="/industrias/globo-positivacoes.js?v=GLOBO_POS_V1"></script>\n'
-        '<script src="/industrias/notificacoes.js?v=INDUSTRY-BELL-1"></script>\n'
-        '<script src="/push/client.js?v=PUSH-ONE-3"></script>\n</body>',
+        '<script src="/industrias/notificacoes.js?v=INDUSTRY-BELL-HEADER-2"></script>\n'
+        '<script src="/push/client.js?v=PUSH-INDUSTRY-HEADER-2"></script>\n</body>',
         1,
     )
     return HTMLResponse(
