@@ -83,6 +83,23 @@ def _remove_routes(*paths: str) -> None:
 
 def _portal_response(*, authenticated: bool = False) -> HTMLResponse:
     html = PORTAL_FILE.read_text(encoding="utf-8")
+    # Marcacao HTML reconhecivel pelo gerenciador de senhas do navegador.
+    # Somente o navegador/dispositivo decide se oferece salvar credenciais.
+    html = html.replace(
+        '<form onsubmit="event.preventDefault(); login();" class="v36-login-form" autocomplete="on">',
+        '<form id="dismepeone-login-form" onsubmit="event.preventDefault(); login();" class="v36-login-form" autocomplete="on">',
+        1,
+    )
+    html = html.replace(
+        '<input id="loginUsuario" autocomplete="username"',
+        '<input id="loginUsuario" name="username" autocomplete="username"',
+        1,
+    )
+    html = html.replace(
+        '<input id="loginSenha" type="password" autocomplete="current-password"',
+        '<input id="loginSenha" name="password" type="password" autocomplete="current-password"',
+        1,
+    )
     tags = [
         f'<script src="/update-center-prod4.js?v={BUILD}"></script>',
         f'<script src="/monthly-retention-prod44.js?v={BUILD}"></script>',
@@ -94,7 +111,6 @@ def _portal_response(*, authenticated: bool = False) -> HTMLResponse:
         '<script src="/notificacoes/launcher.js?v=NOTIF-HOME-STABLE-1"></script>',
         '<script src="/notificacoes/log.js?v=NOTIF-LOG-IND-1"></script>',
         '<script src="/push/client.js?v=PUSH-ANDROID-2"></script>',
-        '<script src="/passkeys/client.js?v=PASSKEY-PILOT-1"></script>',
     ]
     missing = [tag for tag in tags if tag not in html]
     if missing:
@@ -162,7 +178,6 @@ async def industries_route_guard(request: Request, call_next):
         allowed = (
             path.startswith("/industrias")
             or path.startswith("/push/")
-            or path.startswith("/passkeys/")
             or path in {"/auth/me", "/auth/logout", "/health"}
             or (path == "/admin/security/change-required-password"
                 and request.method == "POST"
