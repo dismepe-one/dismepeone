@@ -1,0 +1,28 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/health",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    {
+      "name": "DISMEPE_SUPABASE_PUBLISHABLE_KEY",
+      "description": "Supabase project publishable/anon key (from Supabase dashboard > Project Settings > API)",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "DISMEPE_EDGE_TOKEN",
+      "description": "Supabase Edge Function auth token used by the login edge function",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "DISMEPE_AUTH_PEPPER",
+      "description": "Secret pepper mixed into password hashing for the auth edge function",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "DISMEPE_JWT_SECRET",
+      "description": "JWT signing secret for session tokens (minimum 32 characters)",
+      "requiredAtBoot": false,
+      "generatedForDevelopment": true
+    }
+  ]
+}
