@@ -5,8 +5,10 @@ self.addEventListener('push',event=>{
   let data={};try{data=event.data?.json()||{};}catch(_){}
   const id=/^ONE-PUSH-[a-f0-9]{32}$/.test(String(data.id||''))?String(data.id):'';
   if(!id)return;
-  event.waitUntil(self.registration.showNotification('DISMEPE ONE',{
-    body:'Você recebeu uma nova notificação. Toque para conferir.',
+  const title=String(data.title||'DISMEPE ONE').slice(0,120);
+  const body=String(data.body||'Você recebeu uma nova notificação.').slice(0,250);
+  event.waitUntil(self.registration.showNotification(title,{
+    body,
     tag:'dismepe-'+id,renotify:false,
     icon:'/push/icon.svg',badge:'/push/icon.svg',
     data:{id,url:'/?dismepe_notice='+encodeURIComponent(id)}
