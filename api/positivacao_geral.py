@@ -870,6 +870,10 @@ def _consolidate(clients: dict[str, dict[str, Any]], sales: dict[str, dict[str, 
     by_televendas: dict[str, dict[str, Any]] = {}
     changes = Counter()
     matched_codes: set[str] = set()
+    supplier_names: dict[str, str] = {}
+    for sale in sales.values():
+        for supplier_key, supplier_sale in sale.get("fornecedores", {}).items():
+            supplier_names.setdefault(supplier_key, supplier_sale["nome"])
     for code, original in clients.items():
         entry = sales.get(code)
         if entry:
@@ -905,6 +909,22 @@ def _consolidate(clients: dict[str, dict[str, Any]], sales: dict[str, dict[str, 
         seller_positive = sorted(set(actors) & credited_sellers)
         tele_positive = sorted(set(teleactors) & credited_tele)
         status = "Positivado" if origins else "Não positivado"
+        by_supplier = {}
+        for supplier_key, supplier_sale in (entry or {}).get("fornecedores", {}).items():
+            provider_credited = supplier_sale.get("atoresPorOrigem", {})
+            provider_sellers = sorted(set(actors) & {
+                sellers[_norm(name)] for name in provider_credited.get("Vendedor", [])
+                if _norm(name) in sellers
+            })
+            provider_teles = sorted(set(teleactors) & {
+                televendas[_norm(name)] for name in provider_credited.get("Televendas", [])
+                if _norm(name) in televendas
+            })
+            by_supplier[supplier_key] = {
+                "nome": supplier_sale["nome"], "origens": list(supplier_sale["origens"]),
+                "positivacoesVendedor": provider_sellers,
+                "positivacoesTelevendas": provider_teles,
+            }
         # Carteira da Diretoria = cabeçalhos DIRETORIA/DIRETORIA I/
         # DIRETORIA INATIVO do PDF. Não confundir com a origem da venda
         # "Diretoria/Supervisão" da planilha; não criar crédito de vendedor.
@@ -920,6 +940,7 @@ def _consolidate(clients: dict[str, dict[str, Any]], sales: dict[str, dict[str, 
             "setores": actors, "bloqueado": blocked, "origens": origins,
             "status": status, "carteiraCompartilhada": len(original["vinculos"]) > 1,
             "positivacoesVendedor": seller_positive, "positivacoesTelevendas": tele_positive,
+            "porFornecedor": by_supplier,
         }
         output.append(row)
         for setor in actors:
@@ -968,6 +989,7 @@ def _consolidate(clients: dict[str, dict[str, Any]], sales: dict[str, dict[str, 
     return {
         "schema": MODULE, "competencia": datetime.now(TZ).strftime("%m/%Y"),
         "clientes": output, "setores": sectors, "carteirasTelevendas": tele_sectors, "origens": origins,
+        "fornecedores": [supplier_names[key] for key in sorted(supplier_names)],
         "indicadores": {"carteira": total, "positivados": pos, "naoPositivados": total-pos,
                         "percentual": round(100 * pos / total, 2) if total else 0,
                         "bloqueados": blocked_total, "carteirasHabilitadas": len(sectors),
@@ -1064,11 +1086,13 @@ def _sync_blocking(sellers: dict[str, str], televendas: dict[str, str], previous
     fingerprint = {"pdfId": pdf["id"], "pdfModified": pdf.get("modifiedTime", ""),
                    "sheetId": sheet["id"], "sheetModified": sheet.get("modifiedTime", ""),
                     "usuariosHash": users_hash, "regraCarteiras": "usuarios-ativos-v2",
-                    "versaoLeitorPdf": _PDF_PARSER_VERSION}
+                    "versaoLeitorPdf": _PDF_PARSER_VERSION,
+                     "versaoLeitorPlanilha": _SHEET_PARSER_VERSION}
     old_sources = (previous or {}).get("fontes") or {}
     if (previous and old_sources.get("usuariosHash") == users_hash
             and old_sources.get("regraCarteiras") == "usuarios-ativos-v2"
             and old_sources.get("versaoLeitorPdf") == _PDF_PARSER_VERSION
+            and old_sources.get("versaoLeitorPlanilha") == _SHEET_PARSER_VERSION
             and _same_sources(previous, pdf, sheet)):
         return previous
     modified = datetime.fromisoformat(str(sheet.get("modifiedTime") or "").replace("Z", "+00:00")).astimezone(TZ)
@@ -1352,7 +1376,9 @@ async def positivacao_panel(force: bool = Query(False), session: str | None = Co
     if force and not _pos_cap(context, "POS_GERAL_ATUALIZAR"):
         raise HTTPException(403, "Você não possui permissão para publicar a base.")
     data = await _snapshot_fast()
-    if _pos_cap(context, "POS_GERAL_ATUALIZAR") and (force or (data is None and not _DB_ERROR)):
+    if _pos_cap(context, "POS_GERAL_ATUALIZAR") and (force or (data is None and not _DB_ERROR)
+            or (data is not None and (data.get("fontes") or {}).get("versaoLeitorPlanilha") != _SHEET_PARSER_VERSION
+                and not _DB_ERROR)):
         _start_sync(profile, force=force)
     state = _sync_status() if _pos_cap(context, "POS_GERAL_ATUALIZAR") else {"emAndamento": False, "erro": ""}
     if data is None:
@@ -1398,7 +1424,8 @@ async def _manual_check_and_refresh(profile: dict[str, Any]) -> None:
                 # conteúdo, IDs de clientes ou credenciais.
                 print(f"[POS_WORKER] comparacao pdf_igual={same_pdf} "
                       f"planilha_igual={same_sheet} snapshot_valido=True", flush=True)
-            if same_pdf and same_sheet and old.get("versaoLeitorPdf") == _PDF_PARSER_VERSION:
+            if (same_pdf and same_sheet and old.get("versaoLeitorPdf") == _PDF_PARSER_VERSION
+                    and old.get("versaoLeitorPlanilha") == _SHEET_PARSER_VERSION):
                 _SYNC_ERROR = ""
                 _worker_stage("CONCLUIDO", "SEM_ALTERACAO")
                 return
