@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#075b49">
+<meta name="robots" content="noindex,nofollow">
+<link rel="manifest" href="/push/manifest.webmanifest">
+<title>Entrar | DISMEPE ONE</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+body{min-height:100dvh;display:grid;place-items:center;padding:16px;background:radial-gradient(circle at 15% 18%,rgba(7,91,73,.09),transparent 31%),radial-gradient(circle at 86% 82%,rgba(243,107,33,.06),transparent 28%),linear-gradient(135deg,#f6f8f7 0%,#e8edeb 100%);color:#172d27}
+main{width:min(92vw,430px);display:flex;flex-direction:column;align-items:center}
+.logo{display:block;width:300px;max-width:78vw;height:auto;max-height:135px;object-fit:contain;margin:0 auto 11px;filter:drop-shadow(0 8px 18px rgba(0,45,38,.10))}
+.card{width:100%;background:rgba(255,255,255,.98);border:1px solid #d7e0dd;border-radius:22px;padding:25px 28px 18px;box-shadow:0 20px 55px rgba(20,42,37,.14)}
+.heading{text-align:center;margin-bottom:19px}
+.lock{width:43px;height:43px;margin:0 auto 9px;border-radius:13px;display:grid;place-items:center;background:#e8f2ef;color:#075b49;font-size:18px;font-weight:700}
+h1{margin:0;font-size:21px;font-weight:800;letter-spacing:-.025em}
+.heading p{margin:6px 0 0;color:#71807b;font-size:12px}
+.field{margin-bottom:13px}
+.field label{display:block;margin-bottom:6px;color:#29463f;font-size:11px;font-weight:700}
+.field input{width:100%;height:45px;padding:0 12px;border:1px solid #cddad6;border-radius:11px;background:#fff;color:#20332e;font-size:13px;outline:none}
+.field input:focus{border-color:#267462;box-shadow:0 0 0 3px rgba(38,116,98,.09)}
+.password-wrap{position:relative}
+.password-wrap input{padding-right:49px}
+.eye{position:absolute;right:6px;top:5px;min-width:37px;height:35px;border:0;background:transparent;color:#74847f;cursor:pointer;border-radius:8px;font-size:11px}
+.primary,.secondary{width:100%;min-height:44px;border-radius:11px;font-size:12px;font-weight:800;cursor:pointer}
+.primary{border:0;background:#075b49;color:#fff;box-shadow:0 8px 18px rgba(7,91,73,.18)}
+.primary:disabled{opacity:.65;cursor:wait}
+.secondary{margin-top:9px;border:1px solid #cadbd6;background:#f7faf9;color:#174f42}
+.protected{display:flex;justify-content:center;gap:5px;margin-top:14px;color:#82908c;font-size:9px}
+.error{display:none;margin:-7px 0 12px;padding:9px 11px;border:1px solid #efcaca;border-radius:9px;background:#fff5f5;color:#a33a3a;font-size:11px;line-height:1.35}
+.error.visible{display:block}
+dialog{width:min(92vw,410px);border:1px solid #d8e4e0;border-radius:20px;padding:25px;text-align:center;box-shadow:0 24px 70px rgba(0,0,0,.22);color:#173b32}
+dialog::backdrop{background:rgba(20,34,30,.38);backdrop-filter:blur(4px)}
+dialog p{font-size:13px;line-height:1.55;color:#62716c}
+@media(max-width:640px){.logo{width:245px;max-width:82vw}.card{padding:22px 18px 17px;border-radius:19px}h1{font-size:19px}}
+</style>
+</head>
+<body>
+<main>
+<img class="logo" src="/login/logo.png" alt="DISMEPE ONE" width="300">
+<section class="card">
+<div class="heading"><div class="lock" aria-hidden="true">🔒</div><h1>Acesso ao sistema</h1><p>Entre com seu usuário e senha para continuar.</p></div>
+<div id="loginError" class="error" role="alert" aria-live="polite"></div>
+<form id="loginForm" autocomplete="on">
+<div class="field"><label for="loginUsuario">Usuário</label><input id="loginUsuario" name="username" autocomplete="username" placeholder="Digite seu usuário" required maxlength="160"></div>
+<div class="field"><label for="loginSenha">Senha</label><div class="password-wrap"><input id="loginSenha" name="password" type="password" autocomplete="current-password" placeholder="Digite sua senha" required><button class="eye" id="showPassword" type="button" aria-label="Mostrar senha">Mostrar</button></div></div>
+<button id="loginButton" type="submit" class="primary">Entrar</button>
+<button id="createUser" type="button" class="secondary">Criar usuário</button>
+</form>
+<div class="protected">Acesso restrito • DISMEPE</div>
+</section>
+</main>
+<dialog id="createUserDialog"><h2>Criação de usuário</h2><p>Não é possível criar um usuário diretamente por este painel. Para solicitar a criação de um novo usuário, procure o <strong>Setor Comercial da DISMEPE</strong>.</p><button type="button" class="primary" id="closeDialog">Entendi</button></dialog>
+<script>
+(function(){
+'use strict';
+const $=id=>document.getElementById(id);
+let running=false;
+function error(message){const box=$('loginError');box.textContent=message;box.classList.add('visible');}
+$('showPassword').addEventListener('click',()=>{
+ const input=$('loginSenha'),visible=input.type==='password';
+ input.type=visible?'text':'password';
+ $('showPassword').textContent=visible?'Ocultar':'Mostrar';
+ $('showPassword').setAttribute('aria-label',visible?'Ocultar senha':'Mostrar senha');
+});
+$('createUser').addEventListener('click',()=>$('createUserDialog').showModal());
+$('closeDialog').addEventListener('click',()=>$('createUserDialog').close());
+$('loginForm').addEventListener('submit',async event=>{
+ event.preventDefault();
+ if(running)return;
+ const usuario=$('loginUsuario').value.trim(),senha=$('loginSenha').value;
+ if(!usuario||!senha){error('Informe usuário e senha.');return;}
+ running=true;$('loginButton').disabled=true;$('loginButton').textContent='ENTRANDO...';
+ $('loginError').classList.remove('visible');
+ try{
+  const response=await fetch('/auth/login',{
+   method:'POST',credentials:'include',cache:'no-store',
+   headers:{'Content-Type':'application/json','Accept':'application/json'},
+   body:JSON.stringify({usuario,senha})
+  });
+  let data={};try{data=await response.json();}catch(_){}
+  if(!response.ok||data.sucesso!==true){
+   const detail=data.detail;
+   throw new Error(typeof detail==='string'?detail:(detail?.mensagem||detail?.codigo||data.erro||'Não foi possível entrar.'));
+  }
+  // O servidor gravou o cookie HttpOnly; somente agora carregar o portal protegido.
+  window.location.replace('/');
+ }catch(e){
+  error(e?.message||'Não foi possível entrar. Confira sua conexão e tente novamente.');
+  running=false;$('loginButton').disabled=false;$('loginButton').textContent='Entrar';
+ }
+});
+})();
+</script>
+</body>
+</html>
