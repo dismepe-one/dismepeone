@@ -96,7 +96,21 @@ async function loadDevices(){
 }
 function makeButton(label,fn){const b=document.createElement('button');b.type='button';b.textContent=label;b.addEventListener('click',fn);return b;}
 function mountControls(){
- const panel=$('v81NotificationPanel');
+ let panel=$('v81NotificationPanel');
+ const industry=location.pathname.startsWith('/industrias');
+ if(!panel && industry && me){
+   let widget=$('dismepeIndustryPushWidget');
+   if(!widget){
+     widget=document.createElement('aside');widget.id='dismepeIndustryPushWidget';
+     widget.style.cssText='position:fixed;right:14px;bottom:18px;z-index:9900;max-width:min(365px,calc(100vw - 28px));border:1px solid #b4d7c0;border-radius:14px;background:#fff;box-shadow:0 5px 26px #0002;color:#193329;font:13px system-ui,sans-serif';
+     const toggle=document.createElement('button');toggle.type='button';toggle.textContent='🔔 Notificações Push';
+     toggle.style.cssText='border:0;padding:12px 18px;font:inherit;font-weight:800;background:#087b51;color:white;border-radius:12px;width:100%';
+     toggle.addEventListener('click',()=>{const body=$('dismepeIndustryPushBody');if(body)body.hidden=!body.hidden;});
+     const body=document.createElement('div');body.id='dismepeIndustryPushBody';body.hidden=true;
+     widget.append(toggle,body);document.body.append(widget);
+   }
+   panel=$('dismepeIndustryPushBody');
+ }
  if(!panel||!me){$(ID)?.remove();return;}
  let root=$(ID);
  if(root&&root.parentElement===panel)return;
@@ -139,15 +153,27 @@ async function navigateNotice(id){
  }catch(_){}
  window.v81ClosePanel?.();
  const mod=N(dest.modulo),screen=N(dest.tela);
- if(mod==='HOME'){window.openHome?.();return true;}
+ if(mod==='HOME'){
+  if(['INDUSTRIA','COMPRADOR'].includes(N(me?.tipo))){window.location.assign('/industrias');return true;}
+  if(typeof window.openHome!=='function')return false;
+  window.openHome();return true;
+ }
  if(mod==='TELEVENDAS'||mod==='VENDEDORES'){
   const permission=mod==='TELEVENDAS'?'TELEVENDAS':'VENDEDORES';
-  if(!window.panelIsAdmin?.()&&!window.panelHasPerm?.(permission)){window.alert('Seu perfil não possui acesso ao destino.');return false;}
+  if(!admin&&!window.panelHasPerm?.(permission)){window.alert('Seu perfil não possui acesso ao destino.');return false;}
   window.switchChannel?.(mod==='TELEVENDAS'?'televendas':'vendedor');
   if(mod==='TELEVENDAS'&&dest.fornecedor){
    const select=$('filterLab');if(!select){window.alert('Filtro de fornecedor não está disponível.');return false;}
    const wanted=N(dest.fornecedor);
-   const option=[...select.options].find(o=>N(o.value)===wanted||N(o.textContent)===wanted);
+   const find=()=>[...select.options].find(o=>N(o.value)===wanted||N(o.textContent)===wanted);
+   let option=find();
+   if(!option){
+     option=await new Promise(resolve=>{
+       const monitor=new MutationObserver(()=>{const found=find();if(found){monitor.disconnect();clearTimeout(timeout);resolve(found);}});
+       monitor.observe(select,{childList:true,subtree:true});
+       const timeout=setTimeout(()=>{monitor.disconnect();resolve(null);},8000);
+     });
+   }
    if(option){select.value=option.value;select.dispatchEvent(new Event('change',{bubbles:true}));}
    else{window.alert('Fornecedor '+dest.fornecedor+' não encontrado nesta parcial.');}
   }
@@ -155,7 +181,7 @@ async function navigateNotice(id){
  }
  if(mod==='CAMPANHAS'&&screen==='EXTRAS'){await window.openCampanhasExtras?.();return true;}
  if(mod==='CAMPANHAS'&&screen==='MENSAIS'){await window.openMonthlyCampaignManager?.();return true;}
- if(mod==='POSITIVACOES'&&window.panelIsAdmin?.()){window.location.assign('/positivacoes');return true;}
+ if(mod==='POSITIVACOES'&&admin){window.location.assign('/positivacoes');return true;}
  window.alert('O destino solicitado não está disponível para seu perfil.');
  return false;
 }
@@ -180,6 +206,15 @@ async function applyPending(){
  try{
   const r=await fetch('/auth/me',{credentials:'include',cache:'no-store'});
   if(!r.ok)return; // Mantém o link enquanto o usuário faz login.
+  // Aguarda a restauração visual da sessão; o /auth/me pode responder antes de a HOME estar pronta.
+  let ready=false;
+  for(let tries=0;tries<24;tries++){
+   ready=!!(document.body.classList.contains('v51-auth-ready')||window.__v2Authenticated===true||
+     document.body.classList.contains('home-active'));
+   if(ready)break;
+   await new Promise(resolve=>setTimeout(resolve,500));
+  }
+  if(!ready)return;
   const ok=await navigateNotice(id);
   if(ok){const url=new URL(location.href);url.searchParams.delete('dismepe_notice');history.replaceState(history.state,'',url.pathname+url.search+url.hash);}
  }finally{pendingRunning=false;}
