@@ -100,14 +100,7 @@ async function init(){
   }
   await load();
   if(interval===null)interval=setInterval(()=>{if(document.visibilityState==='visible')load();},60000);
-  const params=new URLSearchParams(location.search);
-  const id=params.get('dismepe_notice');
-  if(NOTICE.test(String(id||''))){
-   // O próprio cliente Push aguarda a sessão e trata a navegação na abertura do PWA.
-   setTimeout(()=>{window.dismepeOpenPushNotice?.(id)?.then?.(ok=>{
-    if(ok){params.delete('dismepe_notice');history.replaceState(history.state,'',location.pathname+(params.toString()?'?'+params.toString():''));load();}
-   });},1200);
-  }
+  // O cliente Push abre o destino de links recebidos com sessão autenticada.
  }catch(e){$('industryBellButton')?.remove();$('industryNotificationPanel')?.remove();}
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
