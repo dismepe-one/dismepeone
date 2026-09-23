@@ -64,7 +64,10 @@ def b64(value: bytes) -> str:
 
 def require_official(request: Request):
     # O RP não deve aceitar onrender.com, subdomínios, IPs ou origens externas.
-    if request.url.hostname != RP_ID or request.url.scheme != "https":
+    # O Render termina TLS no proxy; request.url.scheme pode ser "http"
+    # internamente mesmo que o navegador tenha utilizado HTTPS.
+    # Host canônico + Origin HTTPS nos POSTs fixam a identidade WebAuthn.
+    if request.url.hostname != RP_ID:
         raise HTTPException(403, "Abra o endereço oficial https://dismepeone.com.br.")
     if request.method != "GET" and request.headers.get("origin") != ORIGIN:
         raise HTTPException(403, "Origem da solicitação não autorizada.")
