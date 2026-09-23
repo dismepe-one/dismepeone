@@ -18,7 +18,7 @@ from xml.sax.saxutils import escape as xml_escape
 import httpx
 import jwt
 from fastapi import APIRouter, Cookie, HTTPException, Query, Response
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .cache_reads import CacheReadError, cache_get
@@ -2340,6 +2340,13 @@ async def industries_labs(
     }
 
 
+@router.get("/industrias/notificacoes.js", include_in_schema=False)
+async def industry_notifications_script(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
+    await _industry_profile(session, require_password_changed=False)
+    return FileResponse(ROOT / "frontend" / "industries-notifications.js", media_type="application/javascript",
+                        headers={"Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff"})
+
+
 @router.get("/industrias", include_in_schema=False)
 async def industries_page(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
@@ -2356,7 +2363,8 @@ async def industries_page(
     html = html.replace(
         "</body>",
         '<script src="/industrias/globo-positivacoes.js?v=GLOBO_POS_V1"></script>\n'
-        '<script src="/push/client.js?v=PUSH-ONE-2"></script>\n</body>',
+        '<script src="/industrias/notificacoes.js?v=INDUSTRY-BELL-1"></script>\n'
+        '<script src="/push/client.js?v=PUSH-ONE-3"></script>\n</body>',
         1,
     )
     return HTMLResponse(
