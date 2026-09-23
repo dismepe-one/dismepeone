@@ -223,12 +223,30 @@
     }catch(e){}
   }
 
-  async function applyFreshHome(){
-    const response=await fetch('/data/bootstrap?_home_publication='+Date.now(),{
-      credentials:'same-origin',cache:'no-store',headers:{'Accept':'application/json'}
-    });
-    if(!response.ok)return false;
-    const payload=await response.json();
+  async function applyFreshHome(expectedMonthlyISO=''){
+    // A fonte de /data/bootstrap deve conter a versao mensal recem-publicada
+    // antes de atualizar a interface ou mostrar a mensagem de sucesso.
+    const deadline=Date.now()+30000;
+    let payload=null;
+    do{
+      const response=await fetch('/data/bootstrap?_home_publication='+Date.now(),{
+        credentials:'same-origin',cache:'no-store',headers:{'Accept':'application/json'}
+      });
+      if(response.ok){
+        const candidate=await response.json();
+        const actual=String(candidate?.horarioMensalISO||'').trim();
+        if(!expectedMonthlyISO||(
+          actual&&Date.parse(actual)===Date.parse(expectedMonthlyISO)
+        )){
+          payload=candidate;
+          break;
+        }
+      }
+      if(Date.now()>=deadline)break;
+      setMessage('Conferindo se os novos numeros ja estao disponiveis na HOME...','neutral');
+      await sleep(1200);
+    }while(true);
+    if(!payload)return false;
     try{
       if(typeof window.v2ApplyBootstrapData==='function')window.v2ApplyBootstrapData(payload);
     }catch(e){}
@@ -276,82 +294,80 @@
     });
   }
 
+  // O legado pode concluir a escrita antes de o snapshot PostgreSQL ficar visivel.
+  // Uma unica requisicao de atualizacao; as demais chamadas sao somente leituras.
+  const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  async function waitForMonthlyPersistence(publishedSignature,timeoutMs){
+    const deadline=Date.now()+timeoutMs;
+    let lastError=null;
+    while(true){
+      try{
+        const status=await request('/admin/home-publication/status?_sync='+Date.now());
+        const source=String(status?.parciais?.fonteAssinatura||'');
+        const published=String(status?.parciais?.publicadaAssinatura||'');
+        if(source&&published&&source!==publishedSignature&&source!==published){
+          return {novosNumeros:true,status};
+        }
+        if(source&&source===publishedSignature&&published&&source!==published){
+          // Ja havia uma fotografia mensal confirmada, ainda nao publicada.
+          return {novosNumeros:true,status};
+        }
+      }catch(e){lastError=e;}
+      if(Date.now()>=deadline)break;
+      setMessage('Aguardando a confirmacao dos novos numeros mensais no PostgreSQL...','neutral');
+      await sleep(Math.min(2000,Math.max(250,deadline-Date.now())));
+    }
+    return {novosNumeros:false,lastError};
+  }
+
   async function refreshSourceCaches(){
     const before=await request('/admin/home-publication/status?_before='+Date.now());
-    const beforeMensal=String(before?.fontes?.mensal?.atualizadoEm||'');
     const previousSignature=String(before?.parciais?.fonteAssinatura||'');
     const publishedSignature=String(before?.parciais?.publicadaAssinatura||'');
     if(!previousSignature||!publishedSignature){
-      throw new Error('Não foi possível confirmar os números atuais das parciais no banco.');
+      throw new Error('Nao foi possivel confirmar os numeros atuais das parciais no banco.');
     }
     if(previousSignature!==publishedSignature){
-      // A Central já gravou números novos; publicar sem executar outra atualização.
+      // Nova base persistida previamente: concluir sua publicacao sem repetir escrita.
       return {novosNumeros:true};
     }
 
-    // A HOME publica as parciais Mensais. Campanhas Extras têm atualização
-    // e horário próprios; não bloqueiam a publicação dos vendedores.
-    const modules=[
-      {modulo:'MENSAL',label:'Campanhas Mensais',syncKey:'mensalSync'}
-    ];
-
-    for(let i=0;i<modules.length;i++){
-      const item=modules[i];
-      setMessage(`Atualizando ${item.label} (${i+1}/${modules.length})...`,'neutral');
-
-      let result;
-       try{
-         result=await updateCenterDirect(item.modulo);
-       }catch(error){
-         // Ausência de mudança não é falha se fonte e HOME já estão iguais.
-         const message=String(error?.message||error||'');
-         if(/n[aã]o trouxe altera[cç][aã]o verific[aá]vel/i.test(message)){
-           const status=await request('/admin/home-publication/status?_sem_alteracao='+Date.now());
-           if(status?.parciais?.fonteAssinatura
-              &&status.parciais.fonteAssinatura===status.parciais.publicadaAssinatura){
-             return {novosNumeros:false};
-           }
-         }
-         throw error;
-       }
-
-      const ok=result?.sucesso===true||result?.ok===true||result?.success===true;
-      if(!ok){
-        throw new Error(
-          result?.erro||
-          result?.error||
-          `Nao foi possivel atualizar ${item.label}.`
-        );
-      }
-
-      const sync=String(result?.[item.syncKey]||'').trim().toUpperCase();
-      const erros=Array.isArray(result?.erros)
-        ?result.erros.map(x=>String(x||'').trim()).filter(Boolean)
-        :[];
-
-      if(sync.includes('ERRO')||erros.length){
-        throw new Error(
-          erros.join(' | ')||
-          `A atualizacao de ${item.label} nao foi confirmada no PostgreSQL.`
-        );
-      }
+    setMessage('Atualizando Campanhas Mensais (uma unica solicitacao)...','neutral');
+    let result=null,updateError=null;
+    try{
+      result=await updateCenterDirect('MENSAL');
+    }catch(error){
+      updateError=error;
     }
 
-    const after=await request('/admin/home-publication/status?_after='+Date.now());
-    const afterMensal=String(after?.fontes?.mensal?.atualizadoEm||'');
- 
-    const latestSignature=String(after?.parciais?.fonteAssinatura||'');
-    if(!afterMensal||afterMensal===beforeMensal||!latestSignature
-      ||latestSignature===previousSignature||latestSignature===publishedSignature){
-      if(latestSignature&&latestSignature===previousSignature&&latestSignature===publishedSignature){
-        return {novosNumeros:false};
-      }
-      throw new Error(
-        'A atualização não foi confirmada: a fonte Mensal não apresentou novos números válidos. '
-        +'A parcial anterior e o horário da HOME foram preservados.'
-      );
+    // Em especial: "Leitura DADOS do legado indisponivel" pode ocorrer
+    // depois que a Central ja iniciou a gravacao. Confirmar a fonte antes
+    // de considerar a operacao perdida; jamais enviar OPCACHE_ATUALIZAR de novo.
+    let state=await waitForMonthlyPersistence(publishedSignature,
+      updateError?70000:25000);
+    if(state.novosNumeros)return state;
+    if(updateError){
+      throw new Error('A atualizacao mensal nao foi confirmada no PostgreSQL. '
+        +'A fotografia anterior foi preservada. Detalhe: '
+        +String(updateError.message||updateError));
     }
-    return {novosNumeros:true};
+    const errors=Array.isArray(result?.erros)
+      ?result.erros.map(x=>String(x||'').trim()).filter(Boolean):[];
+    const sync=String(result?.mensalSync||'').toUpperCase();
+    if(result?.sucesso===false||result?.ok===false||sync.includes('ERRO')||errors.length){
+      throw new Error('A atualizacao mensal nao foi confirmada no PostgreSQL. '
+        +'A fotografia anterior foi preservada. Detalhe: '
+        +(errors.join(' | ')||result?.erro||result?.error||sync||'Falha na fonte legada.'));
+    }
+    // Nenhum numero novo: nao gerar horario, historico ou notificacao.
+    const finalStatus=await request('/admin/home-publication/status?_final='+Date.now());
+    const source=String(finalStatus?.parciais?.fonteAssinatura||'');
+    const published=String(finalStatus?.parciais?.publicadaAssinatura||'');
+    if(source&&source!==published)return {novosNumeros:true,status:finalStatus};
+    if(source&&source===publishedSignature&&source===published){
+      return {novosNumeros:false,status:finalStatus};
+    }
+    throw new Error('Nao foi possivel confirmar a base Mensal no PostgreSQL; nenhuma publicacao foi anunciada.');
   }
 
   async function refreshRelated(moduleName){
@@ -397,8 +413,9 @@
             if(publication.notificacaoSolicitada&&!publication.notificacaoRegistrada){
               errors.push('Notificação automática: '+(publication.avisoNotificacao||'O aviso não foi confirmado no banco.'));
             }
-            const applied=await applyFreshHome();
-            if(!applied)throw new Error('A parcial foi publicada, mas a HOME não pôde ser recarregada.');
+            const expectedMonthlyISO=String(publication?.displayTimes?.mensal?.iso||'');
+            const applied=await applyFreshHome(expectedMonthlyISO);
+            if(!applied)throw new Error('A publicacao foi gravada, mas a HOME ainda nao confirmou os novos numeros. Nao foi exibido sucesso indevido.');
             monthlyPublished=!!publication.atualizouHorario;
             results.push(monthlyPublished
               ?'Campanhas Mensais: novos números publicados.'
