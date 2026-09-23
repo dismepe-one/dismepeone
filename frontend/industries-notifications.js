@@ -19,17 +19,17 @@ async function request(path,method='GET'){
 }
 function shell(){
  if($('industryBellButton'))return;
- const header=document.querySelector('.topbar .right');
+ const header=document.querySelector('.topbar .session');
  if(!header)return;
  const button=document.createElement('button');
  button.type='button';button.id='industryBellButton';button.className='icon-btn';
  button.title='Notificações';button.setAttribute('aria-label','Abrir notificações');
- button.style.cssText='position:relative;flex-shrink:0;min-width:42px;min-height:42px;font-size:20px;';
- button.textContent='🔔';
+ button.style.cssText='position:relative;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;';
+ const bellIcon=make(button,'i',undefined,'font-size:15px;');bellIcon.className='fa-solid fa-bell';bellIcon.setAttribute('aria-hidden','true');
  const badge=make(button,'span','0','position:absolute;top:-6px;right:-6px;min-width:19px;height:19px;border-radius:12px;background:#ec600f;color:white;font-size:11px;font-weight:900;padding:1px 4px;display:none;');
  badge.id='industryBellBadge';
- const logout=header.querySelector('button[onclick="logout()"]');
- header.insertBefore(button,logout||null);
+ const password=header.querySelector('button[onclick="openPasswordChange()"]');
+ header.insertBefore(button,password||header.querySelector('button[onclick="logout()"]')||null);
  const pane=make(document.body,'section',undefined,'position:fixed;top:max(82px,env(safe-area-inset-top));right:12px;width:min(440px,calc(100vw - 24px));max-height:76dvh;overflow:auto;z-index:2147482000;background:white;border:1px solid #d6e6dc;box-shadow:0 15px 45px #0b302955;border-radius:16px;padding:15px;color:#163b2c;display:none;');
  pane.id='industryNotificationPanel';pane.setAttribute('role','dialog');pane.setAttribute('aria-label','Central de Notificações de Indústrias');
  const bar=make(pane,'div',undefined,'display:flex;align-items:center;justify-content:space-between;gap:10px');
@@ -39,7 +39,7 @@ function shell(){
  close.addEventListener('click',()=>toggle(false));
  const push=make(pane,'div',undefined,'margin-top:12px;');push.id='industryNotificationPushArea';
  const line=make(pane,'div',undefined,'margin-top:12px;');line.id='industryNotificationList';
- button.addEventListener('click',()=>{toggle(!open);if(open)load();});
+ button.addEventListener('click',()=>{toggle(!open);if(open){window.dismepeMountPushControls?.();load();}});
  document.addEventListener('click',ev=>{if(open&&!pane.contains(ev.target)&&!button.contains(ev.target))toggle(false);});
 }
 function toggle(value){
