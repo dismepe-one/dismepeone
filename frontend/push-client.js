@@ -142,6 +142,7 @@ function mountControls(){
  if(list&&list.parentElement===panel)panel.insertBefore(root,list);
  else panel.append(root);
 }
+window.dismepeMountPushControls=mountControls;
 function noticeIdFromClick(target){
  const item=target?.closest?.('.v81-note[onclick]');
  const match=item?.getAttribute('onclick')?.match(/v81OpenNotification\(['"]([^'"]+)['"]\)/);
