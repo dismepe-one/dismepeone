@@ -84,6 +84,11 @@ footer{background:linear-gradient(135deg,var(--head-a),var(--head-b) 50%,var(--h
 }
 </style>
 
+<style id="transito-prazo-v1">
+#view-transito td.transito-due{white-space:nowrap;font-weight:700}
+#view-transito td.transito-due-late{background:#bf1f27!important;color:#fff!important}
+#view-transito td.transito-due-late .transito-late-label{display:block;margin-top:4px;color:#fff;font-size:10px;font-weight:800;letter-spacing:.035em}
+</style>
 </head>
 <body>
 <header>
@@ -128,7 +133,7 @@ footer{background:linear-gradient(135deg,var(--head-a),var(--head-b) 50%,var(--h
         <div class="panel-title"><h2>Trânsito</h2><p id="transitoSummary" aria-live="polite">Consulte os itens do laboratório selecionado.</p></div>
         <div class="actions"><input class="search" id="transitoSearch" type="search" placeholder="Buscar emitente, EAN ou produto" aria-label="Buscar no Trânsito" oninput="renderIndustryTransit()"><label id="transitoUploadAction" class="btn secondary hidden" style="cursor:pointer" for="transitoZipInput"><i class="fa-solid fa-file-zipper"></i>&nbsp; Importar ZIP</label><input id="transitoZipInput" type="file" accept=".zip,application/zip" class="hidden" aria-label="Importar ZIP de notas fiscais"></div>
       </div>
-      <div class="table-wrap"><table><thead><tr><th>DATA DE EMISSÃO</th><th>EMITENTE</th><th>EAN</th><th>PRODUTO</th><th class="rightnum">QUANTIDADE</th></tr></thead><tbody id="transitoBody"><tr><td colspan="5" style="text-align:center;padding:24px">Abra a aba para carregar os registros.</td></tr></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>DATA DE EMISSÃO</th><th>PREVISÃO DE CHEGADA</th><th>EMITENTE</th><th>EAN</th><th>PRODUTO</th><th class="rightnum">QUANTIDADE</th></tr></thead><tbody id="transitoBody"><tr><td colspan="6" style="text-align:center;padding:24px">Abra a aba para carregar os registros.</td></tr></tbody></table></div>
     </div>
   </section>
   <section id="view-campanhas" class="panel view hidden"><div class="card table-card"><div class="table-top"><div class="panel-title"><h2>Métricas da Campanha</h2><p>Métricas do DISMEPE ONE atual, filtradas pelo laboratório e competência selecionados.</p><div class="campaign-source">Somente as regras autorizadas para este laboratório são enviadas ao navegador.</div></div></div><div class="table-wrap"><table><thead><tr><th>Métrica</th><th>Canal</th><th>Condição</th><th>Premiação</th></tr></thead><tbody id="campaignBody"></tbody></table></div></div></section>
@@ -369,11 +374,12 @@ function renderIndustryTransit(){
   const term=String(document.getElementById('transitoSearch')?.value||'').trim().toLocaleLowerCase('pt-BR');
   const filtered=term?rows.filter(r=>[r.emitente,r.ean,r.produto].some(v=>String(v||'').toLocaleLowerCase('pt-BR').includes(term))):rows;
   const summary=document.getElementById('transitoSummary'),body=document.getElementById('transitoBody');
-  if(summary)summary.textContent=num(filtered.length)+' de '+num(rows.length)+' itens'+(transitData?.importado?'':' · Aguardando importação dos XMLs.');
+  const late=filtered.filter(r=>r.atrasado).length;
+  if(summary)summary.textContent=num(filtered.length)+' de '+num(rows.length)+' itens'+(late?' · '+num(late)+' itens com prazo vencido':'')+(transitData?.importado?'':' · Aguardando importação dos XMLs.');
   if(!body)return;
   const formatDate=d=>/^\d{4}-\d{2}-\d{2}$/.test(String(d||''))?d.slice(8,10)+'/'+d.slice(5,7)+'/'+d.slice(0,4):'—';
   const formatQty=v=>Number.isFinite(Number(v))?Number(v).toLocaleString('pt-BR',{maximumFractionDigits:4}):'—';
-  body.innerHTML=filtered.length?filtered.map(r=>'<tr><td>'+esc(formatDate(r.dataEmissao))+'</td><td>'+esc(r.emitente)+'</td><td>'+esc(r.ean||'—')+'</td><td>'+esc(r.produto)+'</td><td class="rightnum">'+esc(formatQty(r.quantidade))+'</td></tr>').join(''):'<tr><td colspan="5" style="text-align:center;color:#71807b;padding:24px">'+(term?'Nenhum item corresponde à busca.':'Nenhum item importado para este laboratório.')+'</td></tr>';
+  body.innerHTML=filtered.length?filtered.map(r=>'<tr><td>'+esc(formatDate(r.dataEmissao))+'</td><td class="transito-due'+(r.atrasado?' transito-due-late':'')+'">'+esc(formatDate(r.previsaoChegada))+(r.atrasado?'<span class="transito-late-label">ATRASO DE MERCADORIA</span>':'')+'</td><td>'+esc(r.emitente)+'</td><td>'+esc(r.ean||'—')+'</td><td>'+esc(r.produto)+'</td><td class="rightnum">'+esc(formatQty(r.quantidade))+'</td></tr>').join(''):'<tr><td colspan="6" style="text-align:center;color:#71807b;padding:24px">'+(term?'Nenhum item corresponde à busca.':'Nenhum item importado para este laboratório.')+'</td></tr>';
 }
 async function loadIndustryTransit(){
   const lab=document.getElementById('labSelect')?.value;
@@ -381,7 +387,7 @@ async function loadIndustryTransit(){
   if(!lab)return;
   const summary=document.getElementById('transitoSummary'),body=document.getElementById('transitoBody');
   if(summary)summary.textContent='Carregando itens em trânsito...';
-  if(body)body.innerHTML='<tr><td colspan="5" style="text-align:center;padding:24px">Carregando...</td></tr>';
+  if(body)body.innerHTML='<tr><td colspan="6" style="text-align:center;padding:24px">Carregando...</td></tr>';
   try{
     const data=await api('/industrias/transito?laboratorio='+encodeURIComponent(lab));
     if(request!==transitRequest||lab!==document.getElementById('labSelect')?.value)return;
@@ -390,7 +396,7 @@ async function loadIndustryTransit(){
     if(request!==transitRequest)return;
     transitData=null;
     if(summary)summary.textContent='Não foi possível consultar Trânsito.';
-    if(body)body.innerHTML='<tr><td colspan="5" style="text-align:center;padding:24px">'+esc(e.message||'Falha ao carregar a base.')+'</td></tr>';
+    if(body)body.innerHTML='<tr><td colspan="6" style="text-align:center;padding:24px">'+esc(e.message||'Falha ao carregar a base.')+'</td></tr>';
   }
 }
 document.getElementById('transitoZipInput')?.addEventListener('change',async function(){

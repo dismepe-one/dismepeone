@@ -5,7 +5,9 @@ import io
 import json
 import re
 import zipfile
-from datetime import datetime
+from datetime import date, datetime, timedelta
+from functools import lru_cache
+from zoneinfo import ZoneInfo
 from decimal import Decimal, InvalidOperation
 from xml.etree import ElementTree as ET
 
@@ -132,14 +134,60 @@ def _decode_zip(blob: bytes) -> tuple[list[dict], dict]:
     return rows, {"arquivos": len(names), "itens": len(rows), "arquivosInvalidos": errors,
                   "naoVinculados": len(unmapped), "operacoesIgnoradas": ignored}
 
-def _scope(rows: list[dict], selected: str) -> list[dict]:
+
+@lru_cache(maxsize=24)
+def _national_holidays(year: int) -> frozenset[date]:
+    """Feriados nacionais brasileiros e Sexta-feira Santa; não inclui pontos facultativos ou feriados locais."""
+    # Computus gregoriano, para posicionar a Sexta-feira Santa a cada ano.
+    a, b, c = year % 19, year // 100, year % 100
+    d, e = b // 4, b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = c // 4, c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31
+    day = (h + l - 7 * m + 114) % 31 + 1
+    good_friday = date(year, month, day) - timedelta(days=2)
+    return frozenset({
+        date(year, 1, 1), date(year, 4, 21), date(year, 5, 1),
+        date(year, 9, 7), date(year, 10, 12), date(year, 11, 2),
+        date(year, 11, 15), date(year, 11, 20), date(year, 12, 25),
+        good_friday,
+    })
+
+
+def _expected_delivery(emission: str) -> date:
+    """Quinze dias corridos a partir da emissão, prorrogados até o próximo dia útil."""
+    due = date.fromisoformat(emission) + timedelta(days=15)
+    while due.weekday() >= 5 or due in _national_holidays(due.year):
+        due += timedelta(days=1)
+    return due
+
+
+def _scope(rows: list[dict], selected: str, *, today: date | None = None) -> list[dict]:
     key = _portal_lab_key(selected)
     filtered = rows if selected == ALL_LABS_VALUE else [
         row for row in rows if _portal_lab_key(row.get("laboratorio")) == key
     ]
-    # A API nunca envia o identificador interno da NF-e ou outros laboratórios.
-    return [{k: row.get(k, "") for k in ("dataEmissao", "emitente", "ean", "produto", "quantidade")}
-            for row in filtered]
+    # Data atual de Pernambuco, não o fuso UTC do servidor. O prazo só vence no
+    # dia seguinte à previsão; a situação é recalculada a cada consulta.
+    reference_day = today if today is not None else datetime.now(ZoneInfo("America/Recife")).date()
+    output: list[dict] = []
+    for row in filtered:
+        due = _expected_delivery(row["dataEmissao"])
+        # Nunca devolver identificadores internos ou linhas de outros laboratórios.
+        output.append({
+            "dataEmissao": row.get("dataEmissao", ""),
+            "previsaoChegada": due.isoformat(),
+            "atrasado": reference_day > due,
+            "emitente": row.get("emitente", ""),
+            "ean": row.get("ean", ""),
+            "produto": row.get("produto", ""),
+            "quantidade": row.get("quantidade", ""),
+        })
+    return output
 
 @router.get("/industrias/transito")
 async def transit_list(
