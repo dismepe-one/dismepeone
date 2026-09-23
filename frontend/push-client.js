@@ -6,6 +6,8 @@ const $=id=>document.getElementById(id);
 const N=x=>String(x??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();
 const VALID=/^ONE-PUSH-[a-f0-9]{32}$/;
 const ID='dismepePushControls';
+const PUSH_WELCOME_ID='dismepePushFirstAccess';
+let pushWelcomeRunning=false,pushWelcomeShown=false;
 let me=null,admin=false,busy=false,loginEpoch=0,swPromise=null;
 const canPush=()=>('serviceWorker'in navigator && 'PushManager'in window && 'Notification'in window && !!window.isSecureContext);
 const mobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -13,7 +15,7 @@ const standalone=window.matchMedia?.('(display-mode: standalone)')?.matches||nav
 const canonicalOrigin='https://dismepeone.com.br';
 const alternateOrigin=/\\.onrender\\.com$/i.test(location.hostname);
 function binary(key){const b64=key.replace(/-/g,'+').replace(/_/g,'/');const raw=atob(b64+'='.repeat((4-b64.length%4)%4));return Uint8Array.from(raw,c=>c.charCodeAt(0));}
-function flash(msg,err=false){const el=$('dismepePushStatus');if(el){el.textContent=msg;el.style.color=err?'#a12525':'#176947';}}
+function flash(msg,err=false){for(const id of ['dismepePushStatus','dismepePushWelcomeStatus']){const el=$(id);if(el){el.textContent=msg;el.style.color=err?'#a12525':'#176947';}}}
 async function api(path,method='GET',data){
  const res=await fetch(path,{method,credentials:'include',cache:'no-store',
   headers:{'Accept':'application/json',...(data?{'Content-Type':'application/json'}:{})},
@@ -53,6 +55,7 @@ async function enable(){
   await api('/push/devices','POST',{inscricao:sub.toJSON(),descricao:mobile?'Celular DISMEPE ONE':'Navegador DISMEPE ONE',plataforma:navigator.platform||''});
   flash('Notificações Push ativadas neste dispositivo.');
   await loadDevices();
+  return true;
  }catch(e){
   const raw=String(e?.message||'');
   const serviceError=stage==='servico-push'&&(/registration failed|push service error|aborterror/i.test(raw)||e?.name==='AbortError');
@@ -60,6 +63,7 @@ async function enable(){
    ? 'O Chrome não conseguiu registrar este celular no serviço de notificações. Confira as atualizações do Chrome e dos Serviços do Google Play, permita notificações para o Chrome e tente novamente usando outra rede (Wi-Fi ou dados móveis). Se houver VPN ou DNS privado, teste temporariamente sem eles. Nenhum cadastro Push foi concluído neste aparelho.'
    : raw||'Não foi possível ativar Push.';
   flash(detail,true);
+  return false;
  }
  finally{busy=false;}
 }
@@ -142,6 +146,66 @@ function mountControls(){
  else panel.append(root);
 }
 window.dismepeMountPushControls=mountControls;
+
+/* Convite único por instalação/navegador. A autorização nativa só é solicitada após o toque do usuário. */
+async function promptPushOnFirstAccess(){
+ if(pushWelcomeRunning||pushWelcomeShown||!me||alternateOrigin||!mobile||!document.body)return;
+ const ios=/iPhone|iPad|iPod/i.test(navigator.userAgent);
+ const installFirst=ios&&!standalone;
+ if(!installFirst&&!canPush())return;
+ const storageKey='DISMEPE_PUSH_FIRST_ACCESS_V1_'+(installFirst?'IOS_SAFARI':'DEVICE');
+ try{if(localStorage.getItem(storageKey)==='seen')return;}catch(_){}
+ if(!installFirst&&Notification.permission==='denied')return;
+ pushWelcomeRunning=true;
+ try{
+  // Quem já autorizou e cadastrou o dispositivo não recebe convite novamente.
+  if(!installFirst&&Notification.permission==='granted'){
+   const existing=await currentSubscription().catch(()=>null);
+   if(existing){try{localStorage.setItem(storageKey,'seen');}catch(_){}return;}
+  }
+  await new Promise(resolve=>setTimeout(resolve,900));
+  if(!me||document.visibilityState==='hidden'||$(PUSH_WELCOME_ID))return;
+  pushWelcomeShown=true;
+  try{localStorage.setItem(storageKey,'seen');}catch(_){}
+  const shade=document.createElement('div');shade.id=PUSH_WELCOME_ID;
+  shade.style.cssText='position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(15,37,30,.55);';
+  const card=document.createElement('section');
+  card.setAttribute('role','dialog');card.setAttribute('aria-modal','true');card.setAttribute('aria-labelledby','dismepePushWelcomeTitle');
+  card.style.cssText='width:min(100%,410px);max-height:90dvh;overflow:auto;border-radius:18px;background:#fff;color:#173b32;padding:22px;box-shadow:0 20px 64px rgba(0,0,0,.22);font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;';
+  const heading=document.createElement('h2');heading.id='dismepePushWelcomeTitle';
+  heading.textContent=installFirst?'Receba notificações no iPhone':'Ativar notificações neste aparelho?';
+  heading.style.cssText='font-size:19px;line-height:1.3;margin:0 0 10px;color:#075b49;';
+  const description=document.createElement('p');
+  description.textContent=installFirst
+   ? 'Para receber avisos mesmo com o aplicativo fechado, abra o menu Compartilhar do Safari, escolha Adicionar à Tela de Início e entre pelo novo ícone. Ao abrir o aplicativo instalado, você poderá ativar as notificações.'
+   : 'O DISMEPE ONE pode enviar avisos mesmo quando o aplicativo estiver fechado ou sua sessão tiver expirado. Deseja ativar as notificações neste aparelho?';
+  description.style.cssText='font-size:14px;line-height:1.5;margin:0 0 16px;';
+  const status=document.createElement('p');status.id='dismepePushWelcomeStatus';
+  status.setAttribute('role','status');status.style.cssText='font-size:12px;line-height:1.4;margin:0 0 10px;';
+  const actions=document.createElement('div');actions.style.cssText='display:flex;gap:10px;flex-wrap:wrap;';
+  const close=()=>shade.remove();
+  const later=document.createElement('button');later.type='button';
+  later.textContent=installFirst?'Entendi':'Agora não';
+  later.style.cssText='flex:1;min-width:100px;padding:11px;border:1px solid #bfd4ca;border-radius:9px;background:#fff;color:#075b49;font-weight:700;cursor:pointer;';
+  later.addEventListener('click',close);
+  actions.append(later);
+  if(!installFirst){
+   const activate=document.createElement('button');activate.type='button';activate.textContent='Ativar notificações';
+   activate.style.cssText='flex:1.5;min-width:170px;padding:11px;border:0;border-radius:9px;background:#075b49;color:#fff;font-weight:700;cursor:pointer;';
+   activate.addEventListener('click',async()=>{
+    if(busy)return;
+    activate.disabled=true;activate.textContent='Ativando...';
+    const ok=await enable();
+    if(ok)close();
+    else{activate.disabled=false;activate.textContent='Tentar novamente';}
+   });
+   actions.append(activate);
+  }
+  card.append(heading,description,status,actions);shade.append(card);document.body.append(shade);
+  later.focus();
+ }finally{pushWelcomeRunning=false;}
+}
+
 function noticeIdFromClick(target){
  const item=target?.closest?.('.v81-note[onclick]');
  const match=item?.getAttribute('onclick')?.match(/v81OpenNotification\(['"]([^'"]+)['"]\)/);
@@ -252,7 +316,11 @@ async function onAuthenticated(){
   me=data?.usuario||null;
   admin=['ADMIN','ADMINISTRADOR'].includes(N(me?.tipo));
   mountControls();
-  if(me)await applyPending();
+  if(me){
+   // Convite por aparelho, não a cada login. Não interfere nos links de notificações pendentes.
+   if(!pendingNotice())void promptPushOnFirstAccess();
+   await applyPending();
+  }
  }catch(_){}
 }
 function mergeInboxes(previous,extra){
