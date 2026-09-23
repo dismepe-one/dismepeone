@@ -99,6 +99,13 @@
               <span style="display:block;margin-top:2px;font-size:10px;line-height:15px;color:#64748b;">Somente publicações marcadas entram na lista das três últimas. Todas as decisões continuam registradas no LOG.</span>
             </span>
           </label>
+          <label style="display:flex;gap:12px;align-items:flex-start;padding:10px 12px;border:1px solid #d8e8df;border-radius:12px;background:#f8fbf9;cursor:pointer;margin-top:8px;">
+            <input id="hp59823NotifySales" type="checkbox" style="margin-top:3px;width:17px;height:17px;">
+            <span>
+              <strong style="display:block;font-size:12px;color:#0f172a;">Notificar Vendedores e Televendas após publicar</strong>
+              <span style="display:block;margin-top:2px;font-size:10px;line-height:15px;color:#64748b;">Somente se a Campanha Mensal tiver novos números confirmados no banco e o histórico for salvo. Não notifica Indústrias nem outros perfis.</span>
+            </span>
+          </label>
 
           <div style="display:grid;gap:8px;margin-top:12px;border:1px solid #e2e8f0;border-radius:12px;padding:11px;">
             <strong style="font-size:12px;color:#0f172a;">Selecionar as bases para atualizar</strong>
@@ -365,6 +372,11 @@
     publishing=true;
     const button=document.getElementById('hp59823Publish');
     const inserirHistorico=!!document.getElementById('hp59823History')?.checked;
+    const notificarVendas=!!document.getElementById('hp59823NotifySales')?.checked;
+    if(notificarVendas&&(!mensal||!inserirHistorico)){
+      setMessage('Para notificar Vendedores e Televendas, selecione Campanhas Mensais e inserir no histórico.','error');
+      return;
+    }
     if(button){
       button.disabled=true;
       button.innerHTML='<i class="fa-solid fa-spinner fa-spin" style="margin-right:6px;"></i>Atualizando...';
@@ -380,8 +392,11 @@
           if(state.novosNumeros){
             setMessage('Novos números confirmados. Publicando na HOME...','neutral');
             const publication=await request('/admin/home-publication/publish',{
-              method:'POST',body:JSON.stringify({inserirHistorico})
+              method:'POST',body:JSON.stringify({inserirHistorico,notificarVendas})
             });
+            if(publication.notificacaoSolicitada&&!publication.notificacaoRegistrada){
+              errors.push('Notificação automática: '+(publication.avisoNotificacao||'O aviso não foi confirmado no banco.'));
+            }
             const applied=await applyFreshHome();
             if(!applied)throw new Error('A parcial foi publicada, mas a HOME não pôde ser recarregada.');
             monthlyPublished=!!publication.atualizouHorario;
