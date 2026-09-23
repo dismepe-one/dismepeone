@@ -2346,11 +2346,17 @@ async def industries_page(
 ):
     await _industry_profile(session, require_password_changed=False)
     html = INDUSTRIES_FILE.read_text(encoding="utf-8")
+    if 'href="/push/manifest.webmanifest"' not in html:
+        html = html.replace("</head>", '<link rel="manifest" href="/push/manifest.webmanifest">'
+                            '<meta name="theme-color" content="#087b51">'
+                            '<meta name="apple-mobile-web-app-capable" content="yes">'
+                            '<meta name="apple-mobile-web-app-title" content="DISMEPE ONE"></head>', 1)
     if html.count("</body>") != 1:
         raise RuntimeError("Fechamento do portal Industrias nao encontrado.")
     html = html.replace(
         "</body>",
-        '<script src="/industrias/globo-positivacoes.js?v=GLOBO_POS_V1"></script>\n</body>',
+        '<script src="/industrias/globo-positivacoes.js?v=GLOBO_POS_V1"></script>\n'
+        '<script src="/push/client.js?v=PUSH-ONE-2"></script>\n</body>',
         1,
     )
     return HTMLResponse(
