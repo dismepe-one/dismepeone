@@ -324,6 +324,52 @@ def _history_sum(rows: list[dict[str, Any]], *fields: str) -> float:
     return round(total, 2)
 
 
+def _history_date_recife(value: Any) -> str:
+    """Dia calendario da fotografia no fuso da operacao, inclusive ISO com Z."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        recife = ZoneInfo("America/Recife")
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=recife)
+        return parsed.astimezone(recife).date().isoformat()
+    except (ValueError, OverflowError):
+        return ""
+
+
+def _daily_history(items: list[dict[str, Any]], timestamp_key: str) -> list[dict[str, Any]]:
+    """No maximo uma fotografia por dia (a mais recente), preservando dias anteriores."""
+    dated = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        raw = str(item.get(timestamp_key) or "")
+        day = _history_date_recife(raw)
+        if not day:
+            continue
+        try:
+            moment = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if moment.tzinfo is None:
+                moment = moment.replace(tzinfo=ZoneInfo("America/Recife"))
+            epoch = moment.timestamp()
+        except (ValueError, OverflowError):
+            continue
+        dated.append((epoch, day, item))
+    dated.sort(key=lambda record: record[0], reverse=True)
+    chosen: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for _, day, item in dated:
+        if day in seen:
+            continue
+        seen.add(day)
+        chosen.append(item)
+        if len(chosen) == 3:
+            break
+    return chosen
+
+
 async def _ensure_monthly_publication_history(
     *,
     payload: dict[str, Any],
@@ -341,19 +387,15 @@ async def _ensure_monthly_publication_history(
     old_items = existing.get("atualizacoes")
     if not isinstance(old_items, list):
         raise RuntimeError("O histórico Mensal não possui uma lista válida de atualizações.")
-    items = [entry for entry in old_items if isinstance(entry, dict)]
-    items.sort(key=lambda entry: str(entry.get("dataHoraISO") or ""), reverse=True)
-
-    latest = items[0] if items else {}
-    latest_rows = {
-        "dadosVendedores": latest.get("dadosVendedores"),
-        "dadosTelevendas": latest.get("dadosTelevendas"),
-    }
+    items = _daily_history(
+        [entry for entry in old_items if isinstance(entry, dict)], "dataHoraISO"
+    )
     current_rows = {"dadosVendedores": vend, "dadosTelevendas": tlv}
-    if (
-        str(latest.get("dataHoraISO") or "")[:10] == now.date().isoformat()
-        and str(latest.get("competencia") or "") == comp
-        and _partial_signature(latest_rows) == _partial_signature(current_rows)
+    # Uma publicacao adicional no mesmo dia nao regrava a fotografia salva.
+    # A HOME ainda pode receber numeros novos, sem expulsar os dias anteriores.
+    if any(
+        _history_date_recife(entry.get("dataHoraISO")) == now.date().isoformat()
+        for entry in items
     ):
         return
 
@@ -379,7 +421,7 @@ async def _ensure_monthly_publication_history(
         ] if isinstance(payload.get("regrasPremiacao"), list) else [],
     }
     updated = dict(existing)
-    updated["atualizacoes"] = [entry, *items][:3]
+    updated["atualizacoes"] = _daily_history([entry, *items], "dataHoraISO")
     size = len(json.dumps(updated, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
     await _edge_call(
         "CACHE_SET",
@@ -457,10 +499,10 @@ async def home_publication_status(
         "ultimaPublicacaoFormatada": _format_time(publication.get("publicadoEm")),
         "publicadoPor": str(publication.get("publicadoPor") or ""),
         "displayTimes": publication.get("displayTimes") if isinstance(publication.get("displayTimes"), dict) else {},
-        "historico": (
-            publication.get("historico")[:3]
-            if isinstance(publication.get("historico"), list)
-            else []
+        "historico": _daily_history(
+            publication.get("historico")
+            if isinstance(publication.get("historico"), list) else [],
+            "publicadoEm",
         ),
         "fontes": {
             "mensal": _source_meta(mensal_row),
@@ -577,7 +619,9 @@ async def _home_publication_publish_locked(
         }
 
         history = current.get("historico")
-        history = list(history) if isinstance(history, list) else []
+        history = _daily_history(
+            list(history) if isinstance(history, list) else [], "publicadoEm"
+        )
 
         history_entry = {
             "id": publication_id,
@@ -597,9 +641,11 @@ async def _home_publication_publish_locked(
                 publication_id=publication_id,
                 now=now,
             )
-            history = [history_entry, *history][:3]
-        else:
-            history = history[:3]
+            if not any(
+                _history_date_recife(item.get("publicadoEm")) == now.date().isoformat()
+                for item in history
+            ):
+                history = _daily_history([history_entry, *history], "publicadoEm")
 
         publication = {
             "schema": "HOME_PUBLICATION_V1",
