@@ -123,9 +123,13 @@ function mountControls(){
  let root=$(ID);
  if(root&&root.parentElement===panel)return;
  root?.remove();
- root=document.createElement('section');root.id=ID;
- root.style.cssText='padding:12px 16px;border-bottom:1px solid #deebe2;background:#f7fbf8;font-size:12px;line-height:1.6;position:relative;z-index:1';
- const header=document.createElement('strong');header.textContent='Notificações no celular (PWA)';
+ root=document.createElement('details');root.id=ID;
+ root.style.cssText='margin:7px 10px;border:1px solid #e3eee7;border-radius:9px;background:#f8fbf9;font-size:12px;line-height:1.5;position:relative;z-index:1;color:#486456';
+ const header=document.createElement('summary');
+ header.textContent='Notificações no celular · Configurar';
+ header.style.cssText='cursor:pointer;list-style:revert;padding:7px 10px;font-weight:650;color:#396a50;font-size:11px';
+ const content=document.createElement('div');
+ content.style.cssText='padding:0 11px 10px;border-top:1px solid #e3eee7';
  const desc=document.createElement('p');
  desc.textContent=alternateOrigin?'Você está no endereço alternativo do Render. Para instalar o PWA e ativar notificações, utilize dismepeone.com.br. O navegador trata os dois endereços como aplicativos diferentes.':(canPush()?'Receba avisos mesmo com o aplicativo fechado. A autorização é individual por aparelho.':'Este navegador não oferece notificações Push.');
  if(alternateOrigin){const official=document.createElement('a');official.href=canonicalOrigin;official.textContent='Abrir endereço oficial do DISMEPE ONE →';official.style.cssText='display:inline-block;color:#086b49;font-weight:800;text-decoration:underline;margin-top:6px';desc.append(document.createElement('br'),official);}
@@ -137,7 +141,8 @@ function mountControls(){
  summary.textContent='Gerenciar dispositivos';devices.append(summary);
  const devicesContent=document.createElement('div');devicesContent.id='dismepePushDevices';devices.append(devicesContent);
  devices.addEventListener('toggle',()=>{if(devices.open)loadDevices();});
- root.append(header,desc,actions,status,devices);
+ content.append(desc,actions,status,devices);
+ root.append(header,content);
  const list=$('v81NotificationList');
  if(list&&list.parentElement===panel)panel.insertBefore(root,list);
  else panel.append(root);
