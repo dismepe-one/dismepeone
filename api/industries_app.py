@@ -159,6 +159,7 @@ async def industries_route_guard(request: Request, call_next):
             return RedirectResponse(url="/industrias", status_code=303)
         allowed = (
             path.startswith("/industrias")
+            or path.startswith("/push/")
             or path in {"/auth/me", "/auth/logout", "/health"}
             or (path == "/admin/security/change-required-password"
                 and request.method == "POST"
