@@ -6,13 +6,14 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .access_reads import AccessReadError, admin_edge
 from .config import get_settings
 from .security import decode_session_token, normalizar
+from .push_notifications import deliver_notice
 
 router = APIRouter()
 settings = get_settings()
@@ -144,7 +145,7 @@ async def notification_history(profile: dict = Depends(_admin)):
 
 
 @router.post("/notificacoes/api/enviar")
-async def send_notification(payload: NotificationRequest, profile: dict = Depends(_admin)):
+async def send_notification(payload: NotificationRequest, background_tasks: BackgroundTasks, profile: dict = Depends(_admin)):
     titulo = payload.titulo.strip()
     mensagem = payload.mensagem.strip()
     if len(titulo) < 3 or len(mensagem) < 3:
@@ -208,6 +209,8 @@ async def send_notification(payload: NotificationRequest, profile: dict = Depend
         raise HTTPException(status_code=503, detail="Não foi possível salvar a notificação no banco.") from exc
     if str(result.get("id") or "") != item_id:
         raise HTTPException(status_code=503, detail="A gravação da notificação não foi confirmada.")
+    # O sino interno continua independente da entrega externa.
+    background_tasks.add_task(deliver_notice, item_id)
     return {"sucesso": True, "id": item_id,
-            "mensagem": "Aviso salvo no sistema. Push externo ainda não está habilitado.",
-            "pushEnviado": False, "destino": dest}
+            "mensagem": "Aviso registrado no sistema; a entrega Push foi agendada para os dispositivos autorizados.",
+            "pushAgendado": True, "destino": dest}
