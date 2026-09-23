@@ -369,14 +369,14 @@
       setMessage('Selecione ao menos uma base para atualizar.','error');
       return;
     }
-    publishing=true;
-    const button=document.getElementById('hp59823Publish');
     const inserirHistorico=!!document.getElementById('hp59823History')?.checked;
     const notificarVendas=!!document.getElementById('hp59823NotifySales')?.checked;
     if(notificarVendas&&(!mensal||!inserirHistorico)){
       setMessage('Para notificar Vendedores e Televendas, selecione Campanhas Mensais e inserir no histórico.','error');
       return;
     }
+    publishing=true;
+    const button=document.getElementById('hp59823Publish');
     if(button){
       button.disabled=true;
       button.innerHTML='<i class="fa-solid fa-spinner fa-spin" style="margin-right:6px;"></i>Atualizando...';
