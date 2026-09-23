@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "DISMEPE ONE",
+  "short_name": "DISMEPE ONE",
+  "description": "Central de Performance Comercial",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f2f8f5",
+  "theme_color": "#086b49",
+  "icons": [
+    {
+      "src": "/push/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
