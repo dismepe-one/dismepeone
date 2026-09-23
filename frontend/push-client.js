@@ -10,6 +10,8 @@ let me=null,admin=false,busy=false,loginEpoch=0,swPromise=null;
 const canPush=()=>('serviceWorker'in navigator && 'PushManager'in window && 'Notification'in window && !!window.isSecureContext);
 const mobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 const standalone=window.matchMedia?.('(display-mode: standalone)')?.matches||navigator.standalone===true;
+const canonicalOrigin='https://dismepeone.com.br';
+const alternateOrigin=/\\.onrender\\.com$/i.test(location.hostname);
 function binary(key){const b64=key.replace(/-/g,'+').replace(/_/g,'/');const raw=atob(b64+'='.repeat((4-b64.length%4)%4));return Uint8Array.from(raw,c=>c.charCodeAt(0));}
 function flash(msg,err=false){const el=$('dismepePushStatus');if(el){el.textContent=msg;el.style.color=err?'#a12525':'#176947';}}
 async function api(path,method='GET',data){
@@ -34,7 +36,10 @@ async function associateExisting(){
 }
 async function enable(){
  if(busy)return;
- busy=true;try{
+ busy=true;
+ let stage='inicio';
+ try{
+  if(alternateOrigin)throw Error('Para ativar notificações, abra o endereço oficial dismepeone.com.br no Chrome e entre novamente. O domínio onrender.com usa um cadastro Push separado.');
   if(!canPush())throw Error('Este navegador não oferece Web Push.');
   if(/iPhone|iPad|iPod/i.test(navigator.userAgent)&&!standalone){
    throw Error('No iPhone, use Compartilhar → Adicionar à Tela de Início e abra o DISMEPE ONE pelo ícone instalado.');
@@ -45,13 +50,23 @@ async function enable(){
   flash('Registrando este dispositivo...');
   const c=await api('/push/config');
   if(!c.enabled||!c.publicKey)throw Error('Serviço Push ainda não está habilitado.');
+  stage='service-worker';
   const reg=await getRegistration();
+  stage='servico-push';
   let sub=await reg.pushManager.getSubscription();
   if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:binary(c.publicKey)});
+  stage='cadastro-dispositivo';
   await api('/push/devices','POST',{inscricao:sub.toJSON(),descricao:mobile?'Celular DISMEPE ONE':'Navegador DISMEPE ONE',plataforma:navigator.platform||''});
   flash('Notificações Push ativadas neste dispositivo.');
   await loadDevices();
- }catch(e){flash(e.message||'Não foi possível ativar Push.',true);}
+ }catch(e){
+  const raw=String(e?.message||'');
+  const serviceError=stage==='servico-push'&&(/registration failed|push service error|aborterror/i.test(raw)||e?.name==='AbortError');
+  const detail=serviceError
+   ? 'O Chrome não conseguiu registrar este celular no serviço de notificações. Confira as atualizações do Chrome e dos Serviços do Google Play, permita notificações para o Chrome e tente novamente usando outra rede (Wi-Fi ou dados móveis). Se houver VPN ou DNS privado, teste temporariamente sem eles. Nenhum cadastro Push foi concluído neste aparelho.'
+   : raw||'Não foi possível ativar Push.';
+  flash(detail,true);
+ }
  finally{busy=false;}
 }
 async function revokeCurrent(){
@@ -122,7 +137,8 @@ function mountControls(){
  root.style.cssText='padding:12px 16px;border-bottom:1px solid #deebe2;background:#f7fbf8;font-size:12px;line-height:1.6;position:relative;z-index:1';
  const header=document.createElement('strong');header.textContent='Notificações no celular (PWA)';
  const desc=document.createElement('p');
- desc.textContent=canPush()?'Receba avisos mesmo com o aplicativo fechado. A autorização é individual por aparelho.':'Este navegador não oferece notificações Push.';
+ desc.textContent=alternateOrigin?'Você está no endereço alternativo do Render. Para instalar o PWA e ativar notificações, utilize dismepeone.com.br. O navegador trata os dois endereços como aplicativos diferentes.':(canPush()?'Receba avisos mesmo com o aplicativo fechado. A autorização é individual por aparelho.':'Este navegador não oferece notificações Push.');
+ if(alternateOrigin){const official=document.createElement('a');official.href=canonicalOrigin;official.textContent='Abrir endereço oficial do DISMEPE ONE →';official.style.cssText='display:inline-block;color:#086b49;font-weight:800;text-decoration:underline;margin-top:6px';desc.append(document.createElement('br'),official);}
  const actions=document.createElement('div');actions.style.cssText='display:flex;flex-wrap:wrap;gap:8px;margin:8px 0';
  actions.append(makeButton('Ativar Push',enable),makeButton('Desativar neste aparelho',disable));
  for(const b of actions.children)b.style.cssText='border:1px solid #afd7bd;background:white;color:#086b49;padding:8px 10px;border-radius:8px;font-weight:700';
