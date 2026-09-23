@@ -190,8 +190,23 @@ async def send_notification(payload: NotificationRequest, background_tasks: Back
 
     if modo == "INDUSTRIAS" and modulo not in {"HOME", "INDUSTRIAS"}:
         raise HTTPException(status_code=422, detail="Selecione HOME ou Indústrias para avisos coletivos da indústria.")
-    if modulo == "INDUSTRIAS" and modo == "TODOS":
-        raise HTTPException(status_code=422, detail="O destino Indústrias não pode ser enviado a todos os usuários do sistema.")
+    if modulo == "INDUSTRIAS":
+        if modo == "TODOS":
+            raise HTTPException(status_code=422, detail="O destino Indústrias não pode ser enviado a todos os usuários do sistema.")
+        recipients = [
+            row for row in users
+            if (modo == "INDUSTRIAS" and normalizar(row.get("tipo")) == "INDUSTRIA")
+            or (modo == "USUARIOS" and str(row.get("usuario")) in chosen_users)
+            or (modo == "CARGOS" and str(row.get("tipo")) in chosen_roles)
+        ]
+        allowed_roles = {"ADMIN", "ADMINISTRADOR", "INDUSTRIA", "COMPRADOR"}
+        if not recipients or any(
+            normalizar(row.get("tipo")) not in allowed_roles
+            and not (isinstance(row.get("permissoes"), dict)
+                     and row["permissoes"].get("INDUSTRIA_PORTAL_INTERNO") is True)
+            for row in recipients
+        ):
+            raise HTTPException(status_code=422, detail="O destino Indústrias aceita somente contas com acesso ao portal Indústrias.")
 
     # O módulo de gestão corporativa não pode ser divulgado para contas comuns.
     if modulo == "POSITIVACOES":
