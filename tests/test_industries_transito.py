@@ -85,3 +85,32 @@ def test_overdue_starts_only_after_due_date():
     late_day = transit._scope(sample, "GEOLAB", today=date(2026, 10, 6))
     assert late_day[0]["atrasado"] is True
     assert len(late_day) == 1
+
+
+def test_excel_export_matches_six_visible_columns_and_preserves_ean():
+    from openpyxl import load_workbook
+    rows = [{
+        "dataEmissao": "2026-09-01", "previsaoChegada": "2026-09-16",
+        "atrasado": True, "emitente": "GEOLAB", "ean": "0789001234567",
+        "produto": "PRODUTO TESTE", "quantidade": "12.5000",
+    }]
+    spreadsheet = transit._build_transit_excel(rows)
+    book = load_workbook(io.BytesIO(spreadsheet))
+    sheet = book.active
+    assert [cell.value for cell in sheet[1]] == [
+        "DATA DE EMISSÃO", "PREVISÃO DE CHEGADA", "EMITENTE",
+        "EAN", "PRODUTO", "QUANTIDADE",
+    ]
+    assert sheet.max_column == 6
+    assert sheet["A2"].value == date(2026, 9, 1)
+    assert sheet["B2"].value == date(2026, 9, 16)
+    assert sheet["D2"].value == "0789001234567"
+    assert sheet["F2"].value == 12.5
+    assert sheet["B2"].fill.fgColor.rgb.endswith("BF1F27")
+    assert sheet["B2"].font.color.rgb.endswith("FFFFFF")
+
+
+def test_excel_text_from_xml_cannot_run_formulas():
+    assert transit._excel_text("=HYPERLINK(\"https://example.com\")").startswith("'=")
+    assert transit._excel_text("+3+3") == "'+3+3"
+    assert transit._excel_text("0789") == "0789"

@@ -131,7 +131,8 @@ footer{background:linear-gradient(135deg,var(--head-a),var(--head-b) 50%,var(--h
     <div class="card table-card">
       <div class="table-top">
         <div class="panel-title"><h2>Trânsito</h2><p id="transitoSummary" aria-live="polite">Consulte os itens do laboratório selecionado.</p></div>
-        <div class="actions"><input class="search" id="transitoSearch" type="search" placeholder="Buscar emitente, EAN ou produto" aria-label="Buscar no Trânsito" oninput="renderIndustryTransit()"><label id="transitoUploadAction" class="btn secondary hidden" style="cursor:pointer" for="transitoZipInput"><i class="fa-solid fa-file-zipper"></i>&nbsp; Importar ZIP</label><input id="transitoZipInput" type="file" accept=".zip,application/zip" class="hidden" aria-label="Importar ZIP de notas fiscais"></div>
+        <div id="transitoFridayNotice" role="note" style="width:100%;flex-basis:100%;margin:0;padding:10px 13px;border:1px solid #B8D7CA;border-radius:10px;background:#EDF7F1;color:#185740;font-size:12px;font-weight:700"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i>&nbsp; A atualização do Trânsito será realizada toda sexta-feira.</div>
+        <div class="actions"><input class="search" id="transitoSearch" type="search" placeholder="Buscar emitente, EAN ou produto" aria-label="Buscar no Trânsito" oninput="renderIndustryTransit()"><button type="button" class="btn primary" id="transitoExcelBtn" onclick="downloadIndustryTransitExcel()"><i class="fa-solid fa-file-excel"></i>&nbsp; Baixar Excel</button><label id="transitoUploadAction" class="btn secondary hidden" style="cursor:pointer" for="transitoZipInput"><i class="fa-solid fa-file-zipper"></i>&nbsp; Importar ZIP</label><input id="transitoZipInput" type="file" accept=".zip,application/zip" class="hidden" aria-label="Importar ZIP de notas fiscais"></div>
       </div>
       <div class="table-wrap"><table><thead><tr><th>DATA DE EMISSÃO</th><th>PREVISÃO DE CHEGADA</th><th>EMITENTE</th><th>EAN</th><th>PRODUTO</th><th class="rightnum">QUANTIDADE</th></tr></thead><tbody id="transitoBody"><tr><td colspan="6" style="text-align:center;padding:24px">Abra a aba para carregar os registros.</td></tr></tbody></table></div>
     </div>
@@ -380,6 +381,14 @@ function renderIndustryTransit(){
   const formatDate=d=>/^\d{4}-\d{2}-\d{2}$/.test(String(d||''))?d.slice(8,10)+'/'+d.slice(5,7)+'/'+d.slice(0,4):'—';
   const formatQty=v=>Number.isFinite(Number(v))?Number(v).toLocaleString('pt-BR',{maximumFractionDigits:4}):'—';
   body.innerHTML=filtered.length?filtered.map(r=>'<tr><td>'+esc(formatDate(r.dataEmissao))+'</td><td class="transito-due'+(r.atrasado?' transito-due-late':'')+'">'+esc(formatDate(r.previsaoChegada))+(r.atrasado?'<span class="transito-late-label">ATRASO DE MERCADORIA</span>':'')+'</td><td>'+esc(r.emitente)+'</td><td>'+esc(r.ean||'—')+'</td><td>'+esc(r.produto)+'</td><td class="rightnum">'+esc(formatQty(r.quantidade))+'</td></tr>').join(''):'<tr><td colspan="6" style="text-align:center;color:#71807b;padding:24px">'+(term?'Nenhum item corresponde à busca.':'Nenhum item importado para este laboratório.')+'</td></tr>';
+}
+function downloadIndustryTransitExcel(){
+  const lab=document.getElementById('labSelect')?.value;
+  if(!lab)return;
+  const params=new URLSearchParams({laboratorio:lab});
+  const search=String(document.getElementById('transitoSearch')?.value||'').trim();
+  if(search)params.set('busca',search);
+  window.location.href='/industrias/transito/excel?'+params.toString();
 }
 async function loadIndustryTransit(){
   const lab=document.getElementById('labSelect')?.value;

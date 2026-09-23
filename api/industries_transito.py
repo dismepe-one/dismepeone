@@ -12,7 +12,9 @@ from decimal import Decimal, InvalidOperation
 from xml.etree import ElementTree as ET
 
 from fastapi import APIRouter, Cookie, HTTPException, Query, Request
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 
 from .cache_reads import CacheReadError, cache_get
 from .industries import (
@@ -211,6 +213,86 @@ async def transit_list(
               "importado": True, "atualizadoEm": payload.get("atualizadoEm", "")}
     return Response(content=json.dumps(output, ensure_ascii=False), media_type="application/json",
                     headers={"Cache-Control": "no-store"})
+
+
+def _excel_text(value: object) -> str:
+    """Impedir execução de fórmulas em campos textuais vindos do XML."""
+    content = str(value or "").strip()
+    return "'" + content if content and content[0] in "=+-@\t\r\n" else content
+
+
+def _build_transit_excel(rows: list[dict]) -> bytes:
+    """Planilha da mesma carteira e das seis colunas mostradas na tela."""
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Trânsito"
+    sheet.append(("DATA DE EMISSÃO", "PREVISÃO DE CHEGADA", "EMITENTE", "EAN", "PRODUTO", "QUANTIDADE"))
+    green = PatternFill("solid", fgColor="11694D")
+    overdue_fill = PatternFill("solid", fgColor="BF1F27")
+    white = Font(name="Aptos", size=10, color="FFFFFF", bold=True)
+    for cell in sheet[1]:
+        cell.fill = green
+        cell.font = white
+        cell.alignment = Alignment(vertical="center", wrap_text=True)
+    sheet.row_dimensions[1].height = 31
+    for item in rows:
+        emission = date.fromisoformat(str(item["dataEmissao"]))
+        due = date.fromisoformat(str(item["previsaoChegada"]))
+        quantity = Decimal(str(item["quantidade"]))
+        sheet.append((emission, due, _excel_text(item["emitente"]),
+                      _excel_text(item["ean"]), _excel_text(item["produto"]), float(quantity)))
+        line = sheet.max_row
+        sheet.cell(line, 1).number_format = "DD/MM/YYYY"
+        sheet.cell(line, 2).number_format = "DD/MM/YYYY"
+        sheet.cell(line, 4).number_format = "@"
+        sheet.cell(line, 6).number_format = "#,##0.####"
+        if item.get("atrasado"):
+            cell = sheet.cell(line, 2)
+            cell.fill = overdue_fill
+            cell.font = white
+            cell.comment = None
+        for col in (1, 2, 6):
+            sheet.cell(line, col).alignment = Alignment(vertical="center")
+    for column, width in {"A": 20, "B": 24, "C": 42, "D": 20, "E": 62, "F": 17}.items():
+        sheet.column_dimensions[column].width = width
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = f"A1:F{sheet.max_row}"
+    data = io.BytesIO()
+    workbook.save(data)
+    return data.getvalue()
+
+
+@router.get("/industrias/transito/excel")
+async def transit_excel(
+    laboratorio: str | None = Query(default=None),
+    busca: str = Query(default="", max_length=180),
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    profile = await _industry_profile(session, require_password_changed=True)
+    selected = _choose_lab(profile, laboratorio)
+    if _is_all_labs_request(selected) and not _buyer_all_labs(profile):
+        raise HTTPException(403, "Visão consolidada não autorizada.")
+    try:
+        payload, _ = await cache_get(modulo=MODULE, settings=settings)
+    except CacheReadError as exc:
+        raise HTTPException(503, "Base de Trânsito indisponível para exportação.") from exc
+    if payload.get("schema") != SCHEMA or not isinstance(payload.get("linhas"), list):
+        raise HTTPException(503, "Fotografia de Trânsito inválida.")
+    records = _scope(payload["linhas"], selected)
+    needle = busca.strip().casefold()
+    if needle:
+        records = [r for r in records if any(
+            needle in str(r.get(column) or "").casefold()
+            for column in ("emitente", "ean", "produto")
+        )]
+    excel = _build_transit_excel(records)
+    return StreamingResponse(
+        io.BytesIO(excel),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="DISMEPE_ONE_TRANSITO.xlsx"',
+                 "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
 
 @router.post("/admin/industrias/transito/importar")
 async def transit_import(
