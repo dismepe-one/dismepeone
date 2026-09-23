@@ -398,6 +398,17 @@ async def _ensure_monthly_publication_history(
         for entry in items
     ):
         return
+    # Uma fotografia com numeros identicos aos da ultima data nao deve
+    # expulsar a anterior apenas porque o calendario mudou.
+    latest = items[0] if items else {}
+    if (
+        str(latest.get("competencia") or "") == comp
+        and _partial_signature({
+            "dadosVendedores": latest.get("dadosVendedores"),
+            "dadosTelevendas": latest.get("dadosTelevendas"),
+        }) == _partial_signature(current_rows)
+    ):
+        return
 
     entry = {
         "idAtualizacao": publication_id,
