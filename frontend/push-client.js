@@ -28,12 +28,6 @@ async function currentSubscription(){
  const reg=await getRegistration();
  return reg.pushManager.getSubscription();
 }
-async function associateExisting(){
- if(!canPush()||Notification.permission!=='granted')return;
- const existing=await currentSubscription();
- if(existing)await api('/push/devices','POST',{inscricao:existing.toJSON(),
-  descricao:mobile?'Celular DISMEPE ONE':'Navegador DISMEPE ONE',plataforma:navigator.platform||''});
-}
 async function enable(){
  if(busy)return;
  busy=true;
@@ -258,28 +252,8 @@ async function onAuthenticated(){
   me=data?.usuario||null;
   admin=['ADMIN','ADMINISTRADOR'].includes(N(me?.tipo));
   mountControls();
-  if(me&&canPush())await associateExisting().catch(()=>{});
   if(me)await applyPending();
  }catch(_){}
-}
-let logoutInProgress=false;
-async function preLogout(){
- if(logoutInProgress)return;
- logoutInProgress=true;
- try{await revokeCurrent();}catch(_){/* A revogação pode ser repetida na interface de dispositivos. */}
- finally{logoutInProgress=false;}
-}
-function setupLogout(){
- // O botão legado também pode usar uma ação síncrona de logout.
- document.addEventListener('click',ev=>{
-  const btn=ev.target?.closest?.('#btnLogout');
-  if(!btn||btn.dataset.dismepePushRelease==='1'||!canPush()||Notification.permission!=='granted')return;
-  ev.preventDefault();ev.stopImmediatePropagation();ev.stopPropagation();
-  preLogout().finally(()=>{
-   btn.dataset.dismepePushRelease='1';
-   try{btn.click();}finally{delete btn.dataset.dismepePushRelease;}
-  });
- },true);
 }
 function mergeInboxes(previous,extra){
  if(!previous||previous.sucesso===false||!Array.isArray(previous.itens))return previous;
@@ -314,7 +288,7 @@ function init(){
  if(!document.querySelector('link[rel="manifest"]')){
   const m=document.createElement('link');m.rel='manifest';m.href='/push/manifest.webmanifest';head.append(m);
  }
- wireLegacyClick();setupLogout();
+ wireLegacyClick();
  const obs=new MutationObserver(()=>{
   hookLegacyInbox();
   const p=location.pathname.startsWith('/industrias')?$('industryNotificationPushArea'):$('v81NotificationPanel');
@@ -329,7 +303,6 @@ function init(){
  const original=window.fetch.bind(window);
  window.fetch=async function(input,options){
   const url=typeof input==='string'?input:String(input?.url||'');
-  if(/\/auth\/logout(?:\?|$)/.test(url))await preLogout();
   const response=await original(input,options);
   if(response.ok&&/\/auth\/login(?:\?|$)/.test(url))queueMicrotask(onAuthenticated);
   if(/\/auth\/logout(?:\?|$)/.test(url)){++loginEpoch;me=null;mountControls();}

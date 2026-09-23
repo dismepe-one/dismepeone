@@ -10,7 +10,7 @@ self.addEventListener('push',event=>{
   event.waitUntil(self.registration.showNotification(title,{
     body,
     tag:'dismepe-'+id,renotify:false,
-    icon:'/push/icon.svg',badge:'/push/icon.svg',
+    icon:'/push/app-icon-v2-192.png',badge:'/push/app-icon-v2-192.png',
     data:{id,url:String(data.url||'').startsWith('/industrias?dismepe_notice=')?'/industrias?dismepe_notice='+encodeURIComponent(id):'/?dismepe_notice='+encodeURIComponent(id)}
   }));
 });

@@ -127,15 +127,15 @@ def _portal_response(*, authenticated: bool = False) -> HTMLResponse:
     if 'href="/push/manifest.webmanifest"' not in html:
         head_end = html.lower().find("</head>")
         if head_end >= 0:
-            pwa_meta = ('<link rel="manifest" href="/push/manifest.webmanifest">'
+            pwa_meta = ('<link rel="manifest" href="/push/manifest.webmanifest?v=DISMEPE-ICON-2">'
                         '<meta name="theme-color" content="#087b51">'
                         '<meta name="apple-mobile-web-app-capable" content="yes">'
                         '<meta name="apple-mobile-web-app-title" content="DISMEPE ONE">')
             html = html[:head_end] + pwa_meta + html[head_end:]
 
     # Identidade visual exclusiva do icone instalado no iOS e Android.
-    icon_tags = ('<link rel="icon" type="image/png" sizes="192x192" href="/push/app-icon-192.png?v=DISMEPE-ICON-1">'
-                 '<link rel="apple-touch-icon" sizes="192x192" href="/push/app-icon-192.png?v=DISMEPE-ICON-1">')
+    icon_tags = ('<link rel="icon" type="image/png" sizes="192x192" href="/push/app-icon-v2-192.png?v=DISMEPE-ICON-2">'
+                 '<link rel="apple-touch-icon" sizes="192x192" href="/push/app-icon-v2-192.png?v=DISMEPE-ICON-2">')
     head_end = html.lower().find("</head>")
     if head_end >= 0 and 'rel="apple-touch-icon"' not in html:
         html = html[:head_end] + icon_tags + html[head_end:]
