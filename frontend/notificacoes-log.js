@@ -57,9 +57,16 @@ function check(){
  panel();
  if(!log.classList.contains('hidden'))load();
 }
-let scheduled=false;
-new MutationObserver(()=>{if(scheduled)return;scheduled=true;setTimeout(()=>{scheduled=false;check();},100);})
- .observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
-document.addEventListener('click',ev=>{if(ev.target?.closest?.('#auditLogButton'))setTimeout(()=>load(true),150)},true);
+// Só observa a criação inicial do LOG, sem monitorar todas as mudanças de estilo da HOME.
+const watcher=new MutationObserver(()=>{if($('auditLogModule')){watcher.disconnect();check();}});
+if(!$('auditLogModule'))watcher.observe(document.body,{childList:true,subtree:true});
+const originalOpen=window.openAuditLog;
+if(typeof originalOpen==='function'){
+ window.openAuditLog=async function(){
+  const result=await originalOpen.apply(this,arguments);
+  await load(true);
+  return result;
+ };
+}
 check();
 })();
