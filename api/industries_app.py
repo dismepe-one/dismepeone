@@ -92,6 +92,7 @@ def _portal_response(*, authenticated: bool = False) -> HTMLResponse:
         f'<script src="/herbamed-auto-metrics-prod59822.js?v={BUILD}"></script>',
         '<script src="/positivacao-launcher.js?v=POS-GERAL-DEV4-CARD"></script>',
         '<script src="/notificacoes/launcher.js?v=NOTIF-CENTRAL-V3"></script>',
+        '<script src="/notificacoes/log.js?v=NOTIF-LOG-IND-1"></script>',
         '<script src="/push/client.js?v=PUSH-ANDROID-2"></script>',
     ]
     missing = [tag for tag in tags if tag not in html]
