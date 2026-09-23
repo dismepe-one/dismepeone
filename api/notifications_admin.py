@@ -108,6 +108,12 @@ async def launcher_script():
     )
 
 
+@router.get("/notificacoes/log.js", include_in_schema=False)
+async def log_script(profile: dict = Depends(_admin)):
+    return FileResponse(ROOT / "frontend" / "notificacoes-log.js", media_type="application/javascript",
+                        headers={"Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff"})
+
+
 @router.get("/notificacoes/api/usuarios")
 async def search_users(q: str = "", profile: dict = Depends(_admin)):
     query = normalizar(q)[:90]
