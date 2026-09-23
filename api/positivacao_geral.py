@@ -1522,10 +1522,14 @@ def _supplier_view(row: dict[str, Any], key: str) -> dict[str, Any]:
 
 
 def _selected(data: dict[str, Any], status: str, setor: str, search: str,
-              nao_bloqueados: bool = False, fornecedor: str = "") -> list[dict[str, Any]]:
+              nao_bloqueados: bool = False, fornecedor: str = "",
+              positivador: str = "") -> list[dict[str, Any]]:
     if status not in {"todos", "positivados", "nao-positivados", "bloqueados", "inativos"}:
         raise HTTPException(400, "Filtro inválido.")
     supplier_key = _supplier_key(data, fornecedor)
+    origin_key = _norm(positivador)
+    if origin_key and origin_key not in {"OL", "TELEVENDAS", "VENDEDOR"}:
+        raise HTTPException(400, "Filtro de positivador inválido.")
     is_tv = setor.startswith("TV:")
     is_directorate = setor == "DIR:CARTEIRA"
     person = _norm(setor[3:] if is_tv else setor)
@@ -1544,6 +1548,8 @@ def _selected(data: dict[str, Any], status: str, setor: str, search: str,
             # A positivação do cliente é global à carteira, não crédito de
             # quem não realizou a venda; fornecedores usam a mesma regra.
         c = _supplier_view(original, supplier_key) if supplier_key else original
+        if origin_key and origin_key not in {_norm(item) for item in c.get("origens", [])}:
+            continue
         if status == "inativos" and not c.get("inativo"):
             continue
         if status not in {"todos", "inativos"} and c.get("inativo"):
@@ -1703,12 +1709,13 @@ def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, An
 @router.get("/positivacoes/api/resumo-filtro")
 async def positivacao_filtered_summary(
     setor: str = "", nao_bloqueados: bool = Query(False), fornecedor: str = "",
+    positivador: str = "",
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     context = await _viewer_context(session)
     setor = _enforced_sector(setor, context)
     data = _visible_data(await _get_data(context["profile"]), context)
-    if not setor and not fornecedor and not nao_bloqueados:
+    if not setor and not fornecedor and not nao_bloqueados and not positivador:
         return _safe_json_response({"indicadores": data["indicadores"],
                                     "origens": data["origens"], "setores": data["setores"],
                                     "carteirasTelevendas": data.get("carteirasTelevendas", []),
@@ -1717,7 +1724,10 @@ async def positivacao_filtered_summary(
         customers = _selected(data, "todos", "", "", nao_bloqueados, fornecedor)
         active = [r for r in customers if not r.get("inativo")]
         total = len(active)
-        positive = sum(r["status"] == "Positivado" for r in active)
+        origin_key = _norm(positivador)
+        selected = ([r for r in active if origin_key in {_norm(o) for o in r.get("origens", [])}]
+                    if origin_key else active)
+        positive = sum(r["status"] == "Positivado" for r in selected)
         summary = {"carteira": total, "positivados": positive,
                    "naoPositivados": total-positive,
                    "percentual": round(100*positive/total, 2) if total else 0,
@@ -1729,14 +1739,16 @@ async def positivacao_filtered_summary(
                 person = str(item[key])
                 wallet = _selected(data, "todos", prefix+person, "", nao_bloqueados, fornecedor)
                 live = [r for r in wallet if not r.get("inativo")]
-                counted = sum(r["status"] == "Positivado" for r in live)
+                counted = sum(r["status"] == "Positivado"
+                              and (not origin_key or origin_key in {_norm(o) for o in r.get("origens", [])})
+                              for r in live)
                 count = len(live)
                 output.append({**item, "total": count, "positivados": counted,
                                "naoPositivados": count-counted,
                                "bloqueados": sum(bool(r["bloqueado"]) for r in live),
                                "percentual": round(100*counted/count, 2) if count else 0})
             return output
-        return _safe_json_response({"indicadores": summary, "origens": _origins_for_rows(customers),
+        return _safe_json_response({"indicadores": summary, "origens": _origins_for_rows(selected),
                                     "setores": grouped(data["setores"], "setor"),
                                     "carteirasTelevendas": grouped(data.get("carteirasTelevendas", []),
                                                                   "televendas", "TV:"),
@@ -1752,11 +1764,14 @@ async def positivacao_filtered_summary(
         raise HTTPException(400, "Profissional indisponivel na fotografia atual.")
     customers = _selected(data, "todos", setor, "", nao_bloqueados, fornecedor)
     live = [x for x in customers if not x.get("inativo")]
+    origin_key = _norm(positivador)
+    selected = ([r for r in live if origin_key in {_norm(o) for o in r.get("origens", [])}]
+                if origin_key else live)
     total = len(live)
-    positive = sum(x["status"] == "Positivado" for x in live)
+    positive = sum(x["status"] == "Positivado" for x in selected)
     blocked = sum(bool(x["bloqueado"]) for x in live)
     channel = "Diretoria" if is_directorate else "Televendas" if is_tv else "Vendedor"
-    origins = _origins_for_rows(customers)
+    origins = _origins_for_rows(selected)
     focused = {**matched, "total": total, "positivados": positive,
                "naoPositivados": total-positive, "bloqueados": blocked,
                "percentual": round(100*positive/total, 2) if total else 0}
@@ -1770,7 +1785,8 @@ async def positivacao_filtered_summary(
 
 @router.get("/positivacoes/api/clientes")
 async def positivacao_clients(
-    status: str = "todos", setor: str = "", busca: str = "", fornecedor: str = "", pagina: int = Query(1, ge=1),
+    status: str = "todos", setor: str = "", busca: str = "", fornecedor: str = "",
+    positivador: str = "", pagina: int = Query(1, ge=1),
     tamanho: int = Query(50, ge=1, le=100),
     nao_bloqueados: bool = Query(False),
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
@@ -1778,7 +1794,7 @@ async def positivacao_clients(
     context = await _viewer_context(session)
     setor = _enforced_sector(setor, context)
     data = _visible_data(await _get_data(context["profile"]), context)
-    rows = _selected(data, status, setor, busca, nao_bloqueados, fornecedor)
+    rows = _selected(data, status, setor, busca, nao_bloqueados, fornecedor, positivador)
     start = (pagina-1)*tamanho
     return _safe_json_response({"total": len(rows), "pagina": pagina, "tamanho": tamanho,
                                 "clientes": rows[start:start+tamanho], "atualizadoEm": data["atualizadoEm"]})
@@ -2485,7 +2501,7 @@ def _export_fields(row: dict[str, Any]) -> list[str]:
 @router.get("/positivacoes/api/exportar/{kind}")
 async def positivacao_export(
     kind: str, status: str = "todos", setor: str = "", busca: str = "",
-    nao_bloqueados: bool = Query(False), fornecedor: str = "",
+    nao_bloqueados: bool = Query(False), fornecedor: str = "", positivador: str = "",
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
 ):
     context = await _viewer_context(session)
@@ -2504,9 +2520,9 @@ async def positivacao_export(
     key = "televendas" if is_tv else "setor"
     if not person or not any(_norm(g.get(key)) == person for g in groups):
         raise HTTPException(400, "Selecione uma carteira individual valida antes de exportar.")
-    rows = _selected(data, status, setor, busca, nao_bloqueados, fornecedor)
+    rows = _selected(data, status, setor, busca, nao_bloqueados, fornecedor, positivador)
     # Exportacao da carteira sempre inclui um anexo de inativos, mesmo com filtro ativo.
-    inativos = _selected(data, "inativos", setor, busca, nao_bloqueados, fornecedor)
+    inativos = _selected(data, "inativos", setor, busca, nao_bloqueados, fornecedor, positivador)
     presentes = {row["codigo"] for row in rows}
     rows.extend(row for row in inativos if row["codigo"] not in presentes)
     # Uma unica leitura em blocos dos comentarios dos clientes AUTORIZADOS.
