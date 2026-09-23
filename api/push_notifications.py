@@ -177,7 +177,7 @@ def vapid_pem():
     return base64.urlsafe_b64encode(der).decode('ascii')
 
 
-def _deliver(subscription: dict, notice_id: str):
+def _deliver(subscription: dict, notice_id: str, title: str, body: str):
     from pywebpush import webpush, WebPushException
     endpoint = str(subscription.get("endpoint") or "")
     if not valid_endpoint(endpoint):
@@ -185,8 +185,8 @@ def _deliver(subscription: dict, notice_id: str):
     try:
         webpush(
             subscription_info=subscription,
-            data=json.dumps({"id": notice_id, "title": "DISMEPE ONE",
-                             "body": "Você recebeu uma nova notificação.",
+            data=json.dumps({"id": notice_id, "title": title[:120] or "DISMEPE ONE",
+                             "body": body[:250] or "Você recebeu uma nova notificação.",
                              "url": "/?dismepe_notice=" + notice_id}, ensure_ascii=False),
             vapid_private_key=vapid_pem(),
             vapid_claims={"sub": VAPID_SUBJECT},
@@ -214,6 +214,8 @@ async def deliver_notice(notice_id: str):
         log.warning("Push não disparado: destinatários SQL indisponíveis.")
         return
     devices_list = data.get("dispositivos") or []
+    title = str(data.get("titulo") or "DISMEPE ONE")
+    body = str(data.get("mensagem") or "Você recebeu uma nova notificação.")
     sent = invalid = 0
     for row in devices_list:
         if not isinstance(row, dict):
@@ -221,7 +223,7 @@ async def deliver_notice(notice_id: str):
         sub = row.get("inscricao")
         if not isinstance(sub, dict):
             continue
-        success, gone = await asyncio.to_thread(_deliver, sub, notice_id)
+        success, gone = await asyncio.to_thread(_deliver, sub, notice_id, title, body)
         sent += int(success)
         invalid += int(gone)
         try:
