@@ -55,6 +55,7 @@ class CeremonyFinish(BaseModel):
 
 class RevokeKey(BaseModel):
     credencial_id: str = Field(min_length=12, max_length=1024)
+    senha: str = Field(min_length=1, max_length=256)
 
 
 def b64(value: bytes) -> str:
@@ -220,6 +221,14 @@ async def revoke(
 ):
     require_official(request)
     user = await logged_industry(session)
+    try:
+        verified = await login_via_edge(usuario=user["usuario"], senha=data.senha, settings=settings)
+    except InvalidCredentials as exc:
+        raise HTTPException(401, "Senha não confirmada.") from exc
+    except UpstreamUnavailable as exc:
+        raise HTTPException(503, "Não foi possível confirmar a senha agora.") from exc
+    if normalizar(verified.get("usuario")) != normalizar(user["usuario"]):
+        raise HTTPException(403, "Identidade não confirmada.")
     return await edge("CREDENTIAL_REVOKE", usuario=user["usuario"],
                       credential_id=data.credencial_id)
 
