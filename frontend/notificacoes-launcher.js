@@ -1,141 +1,78 @@
-/* Atalho administrativo isolado: não modifica o HTML nem os cards legados. */
+/* DISMEPE ONE: atalho administrativo aditivo, sem sobreposição da Central original. */
 (function(){'use strict';
 if(window.__DISMEPE_NOTIFICATIONS_LAUNCHER__)return;
 window.__DISMEPE_NOTIFICATIONS_LAUNCHER__=true;
-let isAdmin=false;
-let verification=0;
-let hostObserver=null;
-function watchHost(){
- const host=document.getElementById('homeCards');
- if(!host || hostObserver)return;
- hostObserver=new MutationObserver(()=>{
-   if(isAdmin){if(!document.getElementById('dismepeNotificationsAdminCard'))render();}
-   else scheduleVerify();
- });
- hostObserver.observe(host,{childList:true});
-}
-let retryTimer=null;
-function scheduleVerify(){
- if(retryTimer)return;
- retryTimer=setTimeout(()=>{retryTimer=null;verify();},350);
-}
-function normalize(s){return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();}
-
-/* O painel legado pode estar numa camada sobre a HOME.
-   Posicionamos o acesso junto ao painel VISÍVEL e acima de sua camada,
-   sem mover ou alterar os botões + AVISO e GERENCIAR. */
-const EDITOR_LINK_ID='dismepeNotificationsAdvancedEditor';
-let centerScanTimer=null;
-function scheduleCenterLink(){
- if(centerScanTimer!==null)return;
- centerScanTimer=setTimeout(()=>{centerScanTimer=null;renderCenterLink();},150);
-}
-function centralNoticeButton(){
- const buttons=document.querySelectorAll('button,[role="button"]');
- for(const button of buttons){
-   const label=normalize(button.textContent).replace(/\s+/g,' ').trim();
-   if(!/^(?:\+|＋)?\s*AVISO$/.test(label))continue;
-   const rect=button.getBoundingClientRect();
-   if(rect.width<15 || rect.height<10)continue;
-   let parent=button.parentElement;
-   for(let depth=0;parent && parent!==document.body && depth<15;depth++,parent=parent.parentElement){
-     const content=parent.textContent||'';
-     if(content.length<25000 && normalize(content).includes('CENTRAL DE NOTIFICACOES'))return button;
-   }
- }
- return null;
-}
-function renderCenterLink(){
- let link=document.getElementById(EDITOR_LINK_ID);
- if(!isAdmin){link?.remove();return;}
- const button=centralNoticeButton();
- if(!button){link?.remove();return;}
- if(!link){
-   link=document.createElement('a');
-   link.id=EDITOR_LINK_ID;
+const ID='dismepeNotificationsAdvancedEditor';
+const HOME='dismepeNotificationsAdminCard';
+const norm=x=>String(x??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();
+let admin=false,queued=false,version=0;
+function paint(){
+ const panel=document.getElementById('v81NotificationPanel');
+ let link=document.getElementById(ID);
+ if(!admin||!panel){link?.remove();}
+ else{
+  if(!link){
+   link=document.createElement('a');link.id=ID;
    link.href='/notificacoes/admin';
-   link.textContent='NOVO AVISO COM DESTINO →';
-   link.setAttribute('aria-label','Abrir formulário com destinatários e destino da notificação');
-   Object.assign(link.style,{
-     position:'fixed',zIndex:'2147483647',
-     display:'inline-flex',alignItems:'center',justifyContent:'center',
-     padding:'12px 15px',minHeight:'43px',boxSizing:'border-box',
-     borderRadius:'12px',background:'#087b51',color:'#ffffff',
-     boxShadow:'0 5px 18px rgba(0,0,0,.24)',fontWeight:'800',
-     fontSize:'13px',lineHeight:'1.3',textAlign:'center',
-     textDecoration:'none',maxWidth:'calc(100vw - 30px)',
-     whiteSpace:'normal',touchAction:'manipulation'
-   });
-   document.body.appendChild(link);
- }else if(link.parentElement!==document.body){
-   document.body.appendChild(link);
+   link.textContent='+ NOVO AVISO COM DESTINO';
+   link.setAttribute('aria-label','Criar aviso com destinatários e destino configuráveis');
+   Object.assign(link.style,{display:'block',padding:'11px 14px',margin:'12px 16px',
+    textAlign:'center',border:'1px solid #b5d9c5',borderRadius:'12px',
+    color:'#087b51',background:'#eaf8f0',fontSize:'13px',fontWeight:'800',
+    textDecoration:'none',whiteSpace:'normal',position:'relative',zIndex:'1'});
+  }
+  if(link.parentElement!==panel||link.nextElementSibling!==document.getElementById('v81NotificationList')){
+   const list=document.getElementById('v81NotificationList');
+   if(list&&list.parentElement===panel)panel.insertBefore(link,list);
+  }
  }
- const rect=button.getBoundingClientRect();
- // Fica na primeira linha da área branca do painel de notificações,
- // sem competir pelo espaço dos botões já existentes no cabeçalho.
- const top=Math.max(12,Math.min(rect.bottom+12,window.innerHeight-74));
- link.style.top=top+'px';
- link.style.right=Math.max(15,Math.round(window.innerWidth-rect.right))+'px';
-}
-function render(){
- const host=document.getElementById('homeCards');if(!host)return;
- const old=document.getElementById('dismepeNotificationsAdminCard');
- if(!isAdmin){old?.remove();return;}
- if(old)return;
- const link=document.createElement('a');link.id='dismepeNotificationsAdminCard';link.className='home-card text-left';link.href='/notificacoes/admin';
- const icon=document.createElement('span');icon.className='home-icon';icon.setAttribute('aria-hidden','true');icon.textContent='🔔';
- const label=document.createElement('span');label.className='min-w-0';
- const name=document.createElement('span');name.className='block font-black text-[14px] text-slate-800';name.textContent='Central de Notificações';
- const description=document.createElement('span');description.className='block text-[11px] leading-4 text-slate-500 mt-0.5';description.textContent='Criar avisos e definir destinatários';
+ const host=document.getElementById('homeCards');
+ const old=document.getElementById(HOME);
+ if(!admin){old?.remove();return;}
+ if(!host||old)return;
+ const a=document.createElement('a');a.id=HOME;a.href='/notificacoes/admin';a.className='home-card text-left';
+ const icon=document.createElement('span');icon.className='home-icon';icon.textContent='🔔';
+ const text=document.createElement('span');text.className='min-w-0';
+ const title=document.createElement('span');title.className='block font-black text-[14px] text-slate-800';title.textContent='Central de Notificações';
+ const sub=document.createElement('span');sub.className='block text-[11px] leading-4 text-slate-500 mt-0.5';sub.textContent='Avisos, destinatários e Push';
  const arrow=document.createElement('i');arrow.className='home-arrow fa-solid fa-chevron-right';arrow.setAttribute('aria-hidden','true');
- label.append(name,description);link.append(icon,label,arrow);host.append(link);
+ text.append(title,sub);a.append(icon,text,arrow);host.append(a);
 }
-async function verify(){
- const current=++verification;
+async function check(){
+ const seq=++version;
  try{
-   const response=await originalFetch('/auth/me',{credentials:'include',cache:'no-store'});
-   const result=response.ok?await response.json():null;
-   if(current!==verification)return;
-   isAdmin=['ADMIN','ADMINISTRADOR'].includes(normalize(result?.usuario?.tipo));
- }catch(_){if(current!==verification)return;isAdmin=false;}
- render();renderCenterLink();watchHost();
+  const response=await fetch('/auth/me',{credentials:'include',cache:'no-store'});
+  const result=response.ok?await response.json():null;
+  if(seq!==version)return;
+  admin=['ADMIN','ADMINISTRADOR'].includes(norm(result?.usuario?.tipo));
+ }catch(_){if(seq!==version)return;admin=false;}
+ paint();
 }
-const originalFetch=window.fetch.bind(window);
-// O login do portal ocorre sem recarregar a HOME. Atualizar o atalho assim que o login terminar.
-window.fetch=async function(input,init){
- const response=await originalFetch(input,init);
- try{
+function schedule(){
+ if(queued)return;
+ queued=true;
+ setTimeout(()=>{queued=false;paint();},180);
+}
+function start(){
+ check();
+ new MutationObserver(schedule).observe(document.body,{childList:true,subtree:true});
+ window.addEventListener('pageshow',check);
+ document.addEventListener('focus',()=>{if(!document.hidden)check();});
+ const original=window.fetch.bind(window);
+ window.fetch=async function(input,init){
+  const response=await original(input,init);
+  try{
    const url=typeof input==='string'?input:String(input?.url||'');
-   if(response.ok && /\/auth\/login(?:\\?|$)/.test(url)){
-     const current=++verification;
-     response.clone().json().then(data=>{
-       if(current!==verification)return;
-       isAdmin=['ADMIN','ADMINISTRADOR'].includes(normalize(data?.usuario?.tipo));
-       render();renderCenterLink();watchHost();
-     }).catch(()=>verify());
-   }else if(/\/auth\/logout(?:\\?|$)/.test(url)){
-     ++verification;isAdmin=false;render();renderCenterLink();
-   }
- }catch(_){}
- return response;
-};
-function init(){
- verify();watchHost();renderCenterLink();
- const centerObserver=new MutationObserver(scheduleCenterLink);
- centerObserver.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style','hidden','aria-hidden']});
- document.addEventListener('click',scheduleCenterLink,true);
- window.addEventListener('resize',scheduleCenterLink);
- window.addEventListener('scroll',scheduleCenterLink,true);
- // A grade pode ser montada somente depois do login.
- if(!document.getElementById('homeCards')){
-   const discover=new MutationObserver(()=>{
-     if(document.getElementById('homeCards')){discover.disconnect();watchHost();render();}
-   });
-   discover.observe(document.body,{childList:true,subtree:true});
- }
- window.addEventListener('pageshow',verify);
- document.addEventListener('focus',()=>{if(document.visibilityState==='visible')scheduleVerify();});
- document.addEventListener('visibilitychange',()=>{if(!document.hidden)scheduleVerify();});
+   if(response.ok&&/\/auth\/login(?:\?|$)/.test(url)){
+    const seq=++version;
+    response.clone().json().then(data=>{
+      if(seq!==version)return;
+      admin=['ADMIN','ADMINISTRADOR'].includes(norm(data?.usuario?.tipo));paint();
+    }).catch(check);
+   }else if(/\/auth\/logout(?:\?|$)/.test(url)){++version;admin=false;paint();}
+  }catch(_){}
+  return response;
+ };
 }
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 })();
