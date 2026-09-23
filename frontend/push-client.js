@@ -114,7 +114,7 @@ async function loadDevices(){
 }
 function makeButton(label,fn){const b=document.createElement('button');b.type='button';b.textContent=label;b.addEventListener('click',fn);return b;}
 function mountControls(){
- let panel=$('v81NotificationPanel');
+ let panel=$('v81NotificationPanel')||$('industryNotificationPushArea');
  const industry=location.pathname.startsWith('/industrias');
  if(!panel && industry && me){
    let widget=$('dismepeIndustryPushWidget');
@@ -172,6 +172,17 @@ async function navigateNotice(id){
  }catch(_){}
  window.v81ClosePanel?.();
  const mod=N(dest.modulo),screen=N(dest.tela);
+ if(location.pathname.startsWith('/industrias')&&(mod==='INDUSTRIAS'||mod==='HOME')){
+  await api('/push/notification/'+encodeURIComponent(id)+'/read','POST');
+  if(typeof window.switchView!=='function')return false;
+  window.switchView(mod==='INDUSTRIAS'&&screen==='MAPA'?'estoque':'inicio');
+  window.dismepeIndustryRefreshBell?.();
+  return true;
+ }
+ if(mod==='INDUSTRIAS'){
+  window.location.assign('/industrias?dismepe_notice='+encodeURIComponent(id));
+  return true;
+ }
  if(mod==='HOME'){
   if(['INDUSTRIA','COMPRADOR'].includes(N(me?.tipo))){window.location.assign('/industrias');return true;}
   if(typeof window.openHome!=='function')return false;
@@ -204,6 +215,7 @@ async function navigateNotice(id){
  window.alert('O destino solicitado não está disponível para seu perfil.');
  return false;
 }
+window.dismepeOpenPushNotice=navigateNotice;
 function wireLegacyClick(){
  document.addEventListener('click',ev=>{
   const id=noticeIdFromClick(ev.target);
@@ -231,7 +243,8 @@ async function applyPending(){
   let ready=false;
   for(let tries=0;tries<24;tries++){
    ready=!!(document.body.classList.contains('v51-auth-ready')||window.__v2Authenticated===true||
-     document.body.classList.contains('home-active'));
+     document.body.classList.contains('home-active')||
+     (location.pathname.startsWith('/industrias')&&$('userName')&&$('userName').textContent.trim()!=='—'));
    if(ready)break;
    await new Promise(resolve=>setTimeout(resolve,500));
   }
