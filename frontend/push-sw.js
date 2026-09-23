@@ -11,14 +11,15 @@ self.addEventListener('push',event=>{
     body,
     tag:'dismepe-'+id,renotify:false,
     icon:'/push/icon.svg',badge:'/push/icon.svg',
-    data:{id,url:'/?dismepe_notice='+encodeURIComponent(id)}
+    data:{id,url:String(data.url||'').startsWith('/industrias?dismepe_notice=')?'/industrias?dismepe_notice='+encodeURIComponent(id):'/?dismepe_notice='+encodeURIComponent(id)}
   }));
 });
 self.addEventListener('notificationclick',event=>{
   event.notification.close();
   const id=String(event.notification?.data?.id||'');
   if(!/^ONE-PUSH-[a-f0-9]{32}$/.test(id))return;
-  const target=new URL('/?dismepe_notice='+encodeURIComponent(id),self.location.origin);
+  const industry=String(event.notification?.data?.url||'').startsWith('/industrias?dismepe_notice=');
+  const target=new URL((industry?'/industrias':'/')+'?dismepe_notice='+encodeURIComponent(id),self.location.origin);
   event.waitUntil((async()=>{
     const windows=await self.clients.matchAll({type:'window',includeUncontrolled:true});
     const sameOrigin=windows.find(w=>new URL(w.url).origin===self.location.origin);
