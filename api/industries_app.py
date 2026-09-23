@@ -13,6 +13,7 @@ from . import prod4_app
 from . import industries as industries_module
 from .prod4_app import app, settings
 from .security import decode_session_token
+from .industries_transito import router as industries_transito_router
 from .industries import (
     is_industry_profile,
     is_buyer_profile,
@@ -61,6 +62,7 @@ main_module.scope_mensal_dashboard = _scope_with_industry
 main_module.cache_get = _cache_get_with_automatic_business_days
 industries_module.cache_get = _cache_get_with_automatic_business_days
 app.include_router(industries_router)
+app.include_router(industries_transito_router)
 app.include_router(monthly_business_days_router)
 app.version = BUILD
 
