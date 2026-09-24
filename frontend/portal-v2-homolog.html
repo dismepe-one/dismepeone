@@ -21414,7 +21414,7 @@ window.hist39DeleteSelected=async function(){
   function h39ScheduleFastRefresh(delayMs=0){
     const requestKey=h39SessionKey();
     if(!requestKey)return false;
-    if(h39AutoSessionCompletedKey===requestKey || H39.list.length>=3)return false;
+    if(h39AutoSessionCompletedKey===requestKey)return false;
     if(h39AutoSessionRunningKey===requestKey)return false;
 
     h39AutoSessionTargetKey=requestKey;
@@ -21444,23 +21444,13 @@ window.hist39DeleteSelected=async function(){
 
       if(h39SessionKey()!==requestKey)return;
 
-      // PROD5.9.8.23.26:
-      // Uma resposta HTTP 200 com somente 1 ou 2 snapshots NAO encerra
-      // a carga automatica. O PostgreSQL possui 3 fotografias oficiais.
-      if(ok===true && H39.list.length>=3){
+      // Uma resposta válida encerra a carga automática, mesmo quando existem
+      // apenas 1 ou 2 fotografias. "3" é o limite exibido, não uma obrigação.
+      if(ok===true){
         h39AutoSessionCompletedKey=requestKey;
         h39AutoRetryCount=0;
-        console.info('[G9D HIST AUTO] histórico pronto com 3 snapshots');
+        console.info('[G9D HIST AUTO] histórico carregado',H39.list.length,'snapshot(s)');
         return;
-      }
-
-      if(ok===true && H39.list.length<3){
-        console.info(
-          '[PROD5.9.8.23.26 HIST]',
-          'resposta parcial:',
-          H39.list.length,
-          'de 3; nova leitura sera feita'
-        );
       }
 
       const status=Number(h39LastListErrorStatus||0);
@@ -21486,7 +21476,7 @@ window.hist39DeleteSelected=async function(){
   function h39StartSessionRefreshOnce(){
     const requestKey=h39SessionKey();
     if(!requestKey)return false;
-    if(h39AutoSessionCompletedKey===requestKey || H39.list.length>=3)return false;
+    if(h39AutoSessionCompletedKey===requestKey)return false;
 
     if(h39AutoSessionTargetKey!==requestKey){
       h39AutoSessionTargetKey=requestKey;
@@ -21632,7 +21622,11 @@ window.hist39DeleteSelected=async function(){
     // G9A: sessão 2.0 autenticada não depende mais do token legado.
     if(!requestKey)return Promise.resolve(false);
     const opts=options||{};
-    if(opts.force!==true && H39.list.length>=3 && h39LastListErrorStatus===0){
+    if(
+      opts.force!==true &&
+      h39AutoSessionCompletedKey===requestKey &&
+      h39LastListErrorStatus===0
+    ){
       return Promise.resolve(true);
     }
 
@@ -21840,7 +21834,10 @@ window.hist39DeleteSelected=async function(){
         // loadDataFromCloudV2. Mantemos este ponto apenas como sincronização
         // posterior, evitando uma chamada duplicada logo após o login/F5.
         window.v183ClearConnectionNotice?.();
-        if(H39.list.length<3 && Date.now()-h39LastListRefreshAt>10000){
+        if(
+          h39AutoSessionCompletedKey!==h39SessionKey() &&
+          Date.now()-h39LastListRefreshAt>10000
+        ){
           h39ScheduleFastRefresh(0);
         }
       }
@@ -21940,7 +21937,11 @@ window.hist39DeleteSelected=async function(){
     }
 
     function refreshHistory(reason){
-      if(!channelVisible() || !sessionReady() || H39.list.length>=3)return false;
+      if(
+        !channelVisible() ||
+        !sessionReady() ||
+        h39AutoSessionCompletedKey===h39SessionKey()
+      )return false;
 
       const now=Date.now();
 
@@ -21950,7 +21951,11 @@ window.hist39DeleteSelected=async function(){
       clearTimeout(refreshTimer);
 
       refreshTimer=setTimeout(()=>{
-        if(!channelVisible() || !sessionReady() || H39.list.length>=3)return;
+        if(
+          !channelVisible() ||
+          !sessionReady() ||
+          h39AutoSessionCompletedKey===h39SessionKey()
+        )return;
 
         lastRefreshAt=Date.now();
 
