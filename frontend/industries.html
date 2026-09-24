@@ -246,7 +246,22 @@ function setupInternalLabSearch(){
     });
     results.classList.remove('hidden');input.setAttribute('aria-expanded','true');
   };
-  input.addEventListener('focus',()=>input.select());
+  input.addEventListener('focus',()=>{
+    // A opção consolidada fica acessível sem precisar digitar uma indústria.
+    if(!input.value.trim()){
+      results.replaceChildren();shown=choices.slice(0,8);active=-1;
+      shown.forEach((choice,i)=>{
+        const option=document.createElement('button');
+        option.type='button';option.id='labSearchOption-'+i;option.className='lab-search-option';
+        option.setAttribute('role','option');option.setAttribute('aria-selected','false');
+        option.textContent=choice.label;
+        option.addEventListener('pointerdown',event=>event.preventDefault());
+        option.addEventListener('click',()=>choose(choice));
+        results.append(option);
+      });
+      results.classList.remove('hidden');input.setAttribute('aria-expanded','true');
+    }else input.select();
+  });
   input.addEventListener('input',show);
   input.addEventListener('keydown',event=>{
     if(event.key==='Escape'){close();input.value=selectedLabel();return;}
@@ -265,6 +280,7 @@ function setupInternalLabSearch(){
   wrap.classList.remove('hidden');
   label.htmlFor='labSearchInput';
   input.value=selectedLabel();
+  input.placeholder='Digite o nome de uma indústria';
 }
 
 function showPwd(){document.getElementById('passwordGate').classList.remove('hidden')}
@@ -295,10 +311,14 @@ async function init(){
       return;
     }
 
-    const labs=await loadIndustryLabs();
-    const allOption=buyer?`<option value="${ALL_LABS}">TODOS OS LABORATÓRIOS</option>`:'';
-    sel.innerHTML=allOption+(labs.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')||(!buyer?'<option value="">Nenhum laboratório disponível</option>':''));
-    if(buyer)sel.value=ALL_LABS;
+    const labResponse=await api('/industrias/laboratorios?ts='+Date.now());
+    const labs=Array.isArray(labResponse?.laboratorios)?labResponse.laboratorios:[];
+    const canSelectAll=labResponse?.podeTodosLaboratorios===true;
+    const allOption=canSelectAll?`<option value="${ALL_LABS}">TODOS OS LABORATÓRIOS</option>`:'';
+    const emptyOption=internal?'<option value="">Digite o nome de uma indústria</option>':'';
+    sel.innerHTML=emptyOption+allOption+(labs.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')||(!internal?'<option value="">Nenhum laboratório disponível</option>':''));
+    if(internal)sel.value='';
+    else if(buyer&&canSelectAll)sel.value=ALL_LABS;
     if(internal)setupInternalLabSearch();
     if(sel.value){await loadData();await loadStock()}
   }catch(e){location.replace('/')}
