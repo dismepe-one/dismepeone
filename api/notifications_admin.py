@@ -151,6 +151,33 @@ async def notification_history(profile: dict = Depends(_admin)):
     return {"notificacoes": rows[:120]}
 
 
+
+@router.post("/notificacoes/api/limpar")
+async def clear_my_notifications(
+    response: Response,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    """Limpa somente o sino do usuário autenticado, sem excluir os avisos ou o LOG."""
+    profile = _profile(session)
+    usuario = str(profile.get("usuario") or profile.get("sub") or "").strip()
+    if not usuario:
+        raise HTTPException(status_code=403, detail="Usuário não identificado.")
+    cleared_at = int(datetime.now(ZoneInfo("America/Recife")).timestamp() * 1000)
+    try:
+        await admin_edge(
+            action="NOTIFICACAO_ESTADO_SET",
+            data={"usuario": usuario, "estado": {
+                "clearedAt": cleared_at, "read": {}, "seen": {},
+            }},
+            settings=settings,
+        )
+    except AccessReadError as exc:
+        raise HTTPException(status_code=503, detail="Não foi possível limpar sua central.") from exc
+    response.headers["Cache-Control"] = "no-store, private"
+    return {"sucesso": True, "clearedAt": cleared_at,
+            "mensagem": "Central de notificações limpa."}
+
+
 @router.post("/notificacoes/api/enviar")
 async def send_notification(payload: NotificationRequest, background_tasks: BackgroundTasks, profile: dict = Depends(_admin)):
     titulo = payload.titulo.strip()
