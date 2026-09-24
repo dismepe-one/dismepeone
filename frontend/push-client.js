@@ -354,7 +354,7 @@ function init(){
  if('serviceWorker'in navigator)getRegistration().catch(()=>{});
  const head=document.head;
  if(!document.querySelector('link[rel="manifest"]')){
-  const m=document.createElement('link');m.rel='manifest';m.href='/push/manifest.webmanifest';head.append(m);
+  const m=document.createElement('link');m.rel='manifest';m.href='/push/manifest.webmanifest?v=DISMEPE-ICON-3';head.append(m);
  }
  wireLegacyClick();
  const obs=new MutationObserver(()=>{

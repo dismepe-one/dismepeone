@@ -267,7 +267,7 @@ async def app_icon_v2_192():
 async def manifest():
     return FileResponse(ROOT / "frontend" / "push-manifest.webmanifest",
                         media_type="application/manifest+json",
-                        headers={"Cache-Control": "public, max-age=3600"})
+                        headers={"Cache-Control": "no-cache, max-age=0, must-revalidate"})
 
 
 @router.get("/client.js", include_in_schema=False)

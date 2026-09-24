@@ -125,22 +125,21 @@ def _portal_response(*, authenticated: bool = False) -> HTMLResponse:
             raise RuntimeError("Fechamento </body> não encontrado no portal.")
         html = html[:pos] + "\n".join(missing) + "\n" + html[pos:]
 
-    # Manifesto inserido no HEAD para reconhecimento do PWA no iPhone e Android.
-    if 'href="/push/manifest.webmanifest"' not in html:
-        head_end = html.lower().find("</head>")
-        if head_end >= 0:
-            pwa_meta = ('<link rel="manifest" href="/push/manifest.webmanifest?v=DISMEPE-ICON-2">'
-                        '<meta name="theme-color" content="#087b51">'
-                        '<meta name="apple-mobile-web-app-capable" content="yes">'
-                        '<meta name="apple-mobile-web-app-title" content="DISMEPE ONE">')
-            html = html[:head_end] + pwa_meta + html[head_end:]
-
-    # Identidade visual exclusiva do icone instalado no iOS e Android.
-    icon_tags = ('<link rel="icon" type="image/png" sizes="192x192" href="/push/app-icon-v2-192.png?v=DISMEPE-ICON-2">'
-                 '<link rel="apple-touch-icon" sizes="192x192" href="/push/app-icon-v2-192.png?v=DISMEPE-ICON-2">')
+    # Remove a identidade antiga embutida antes de inserir os links oficiais.
+    # A presença de apple-touch-icon legado não pode bloquear a atualização.
+    html = re.sub(
+        r'<link\b(?=[^>]*\brel\s*=\s*[\"\'](?:icon|shortcut icon|apple-touch-icon(?:-precomposed)?|manifest)[\"\'])[^>]*>',
+        '', html, flags=re.IGNORECASE,
+    )
     head_end = html.lower().find("</head>")
-    if head_end >= 0 and 'rel="apple-touch-icon"' not in html:
-        html = html[:head_end] + icon_tags + html[head_end:]
+    if head_end >= 0:
+        pwa_meta = ('<link rel="manifest" href="/push/manifest.webmanifest?v=DISMEPE-ICON-3">'
+                    '<link rel="icon" type="image/png" sizes="192x192" href="/push/app-icon-v2-192.png?v=DISMEPE-ICON-3">'
+                    '<link rel="apple-touch-icon" sizes="192x192" href="/push/app-icon-v2-192.png?v=DISMEPE-ICON-3">'
+                    '<meta name="theme-color" content="#087b51">'
+                    '<meta name="apple-mobile-web-app-capable" content="yes">'
+                    '<meta name="apple-mobile-web-app-title" content="DISMEPE ONE">')
+        html = html[:head_end] + pwa_meta + html[head_end:]
 
     # PROD5.9.8.17: no F5, se o cookie 2.0 já foi validado pelo servidor,
     # não pintamos a tela de login enquanto a Home é restaurada.
