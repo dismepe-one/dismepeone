@@ -6,16 +6,40 @@
  window.__DISMEPE_NOTIFICATIONS_LAUNCHER__=true;
  const HOME_ID='dismepeNotificationsAdminCard';
  const PANEL_ID='dismepeNotificationsAdvancedEditor';
+ let observedHome=null,homeObserver=null,repairScheduled=false;
  function isAdmin(){
    try{return window.panelIsAdmin?.()===true;}catch(_){return false;}
  }
+ function observeHomeCards(){
+   const host=document.getElementById('homeCards');
+   if(!host || host===observedHome)return;
+   homeObserver?.disconnect();
+   observedHome=host;
+   // O render nativo pode substituir todo o innerHTML após o login ou
+   // após uma atualização de permissões. Recuperar apenas o card removido,
+   // sem redesenhar a HOME ou disparar novas consultas.
+   homeObserver=new MutationObserver(()=>{
+     if(repairScheduled)return;
+     repairScheduled=true;
+     Promise.resolve().then(()=>{
+       repairScheduled=false;
+       if(!document.getElementById(HOME_ID))appendHomeCard();
+     });
+   });
+   homeObserver.observe(host,{childList:true});
+ }
  function appendHomeCard(){
    const host=document.getElementById('homeCards');
+   observeHomeCards();
    if(!host || !isAdmin()){
      document.getElementById(HOME_ID)?.remove();
      return;
    }
-   if(document.getElementById(HOME_ID))return;
+   const existing=document.getElementById(HOME_ID);
+   if(existing){
+     if(existing.parentElement!==host)host.append(existing);
+     return;
+   }
    // Executado sincronicamente logo depois do mesmo render dos outros cards.
    const card=document.createElement('button');
    card.type='button';
@@ -74,6 +98,7 @@
    if(typeof native!=='function' || native.__dismepeNotificationsWrapped)return;
    const wrapped=function(){
      const result=native.apply(this,arguments);
+     observeHomeCards();
      appendHomeCard();
      return result;
    };
@@ -82,8 +107,17 @@
  }
  function init(){
    wrapHomeRenderer();
-   // Quando a sessão já foi restaurada, o card é acrescentado sem redesenhar a HOME.
+   observeHomeCards();
+   // A autenticação pode terminar depois do DOMContentLoaded. As tentativas
+   // curtas só repõem o card quando o perfil já foi confirmado administrador.
    appendHomeCard();
+   [250,700,1500,3000,6000,10000].forEach(delay=>{
+     setTimeout(()=>{
+       wrapHomeRenderer();
+       observeHomeCards();
+       appendHomeCard();
+     },delay);
+   });
    syncPanelLink();
    const panel=document.getElementById('v81NotificationPanel');
    if(panel){
@@ -96,6 +130,7 @@
    },true);
    window.addEventListener('pageshow',()=>{
      wrapHomeRenderer();
+     observeHomeCards();
      appendHomeCard();
      syncPanelLink();
    });
