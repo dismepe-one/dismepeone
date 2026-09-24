@@ -482,6 +482,9 @@ def _finish_row(raw: dict[str, Any], supplier: str) -> dict[str, str]:
     row = {k: (v or "") for k, v in raw.items()}
     row["fornecedor"] = supplier
     row["descricao"] = _clean_spaces(row.get("descricao"))
+    # O codigo do Atrio pode vir como "6.183" (separador de milhar).
+    # Padronizar somente o codigo do produto; preco, EAN e outros campos intactos.
+    row["codigo"] = str(row.get("codigo") or "").replace(".", "")
     row["bloq_compra"] = "BC" if _clean_spaces(row.get("bloq_compra")).upper() == "BC" else ""
     return {k: str(v) for k, v in row.items()}
 
