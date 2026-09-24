@@ -538,6 +538,17 @@ def _buyer_all_labs(profile: dict[str, Any]) -> bool:
     )
 
 
+def _can_view_all_labs(profile: dict[str, Any]) -> bool:
+    # O usuário interno com acesso a todos os laboratórios individuais
+    # também pode solicitar a visão consolidada.
+    # Compradores mantêm a permissão específica já exigida anteriormente;
+    # representantes externos continuam restritos à própria indústria.
+    return _buyer_all_labs(profile) or (
+        not is_buyer_profile(profile)
+        and _is_internal_industry_viewer(profile)
+    )
+
+
 def _is_all_labs_request(value: Any) -> bool:
     text = str(value or "").strip()
     return text == ALL_LABS_VALUE or normalizar(text) == normalizar(ALL_LABS_LABEL)
@@ -765,13 +776,14 @@ def _snapshot_users(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _choose_lab(profile: dict[str, Any], requested: str | None) -> str:
-    # Consolidado global: exclusivo do perfil COMPRADOR.
+    # Consolidado global: somente para perfis internos autorizados a
+    # visualizar todos os laboratórios, sem abrir acesso a representantes.
     if _is_all_labs_request(requested):
-        if _buyer_all_labs(profile):
+        if _can_view_all_labs(profile):
             return ALL_LABS_VALUE
         raise HTTPException(
             status_code=403,
-            detail="O consolidado de todos os laboratórios é exclusivo do perfil Comprador.",
+            detail="Você não possui permissão para visualizar todos os laboratórios.",
         )
 
     # Usuário interno autorizado pode selecionar qualquer laboratório individual.
@@ -2369,7 +2381,7 @@ async def industries_labs(
         "sucesso": True,
         "acessoInterno": _is_internal_industry_viewer(profile),
         "acessoComprador": is_buyer_profile(profile),
-        "podeTodosLaboratorios": _buyer_all_labs(profile),
+        "podeTodosLaboratorios": _can_view_all_labs(profile),
         "laboratorios": labs,
     }
 
