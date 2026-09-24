@@ -26189,6 +26189,13 @@ table thead tr{
   }
   const V89_FAST_PROFILES=['ADMINISTRADOR','COMERCIAL','GERENTE DE VENDAS','VENDEDOR','TELEVENDAS','SUP VENDAS','SUP TELEVENDAS','CONTAS A PAGAR'];
   let directory81={sucesso:true,perfis:V89_FAST_PROFILES.slice(),setores:[]}, autoShown81=false, lastNotes81=[], lastAdminNotices81=[], importantSessionToken81=''; const shownImportantSession81=new Set();
+  let clearedAt81=0, notificationLoadSeq81=0;
+  async function notificationClearState81(){
+    const response=await fetch('/notificacoes/api/estado',{credentials:'include',cache:'no-store',headers:{Accept:'application/json'}});
+    const data=await response.json();
+    if(!response.ok || data?.sucesso!==true)throw new Error(typeof data?.detail==='string'?data.detail:'Não foi possível confirmar o estado das notificações.');
+    return Math.max(0,Number(data.clearedAt)||0);
+  }
   function ensure81(){
     const box=document.getElementById('userSessionBox');
     if(box&&!document.getElementById('btnNotificationsV81')){
@@ -26207,6 +26214,7 @@ table thead tr{
   window.v88ClearNotifications=async()=>{
     if(!confirm('Deseja realmente apagar suas notificações?'))return;
     const btn=document.getElementById('v88ClearNotesBtn');
+    notificationLoadSeq81++; // Descarta leituras iniciadas antes do clique.
     try{
       if(btn){btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin mr-1"></i>LIMPANDO...';}
       const response=await fetch('/notificacoes/api/limpar',{
@@ -26217,9 +26225,16 @@ table thead tr{
       if(!response.ok||r.sucesso!==true){
         throw new Error(typeof r.detail==='string'?r.detail:'Não foi possível limpar sua central.');
       }
+      const persisted=await notificationClearState81();
+      if(!Number.isFinite(Number(r.clearedAt)) || persisted<Number(r.clearedAt)){
+        throw new Error('A limpeza ainda não foi confirmada pelo servidor.');
+      }
+      clearedAt81=persisted;
       autoShown81=false;
       renderNotes81({itens:[],naoLidas:0});
-      await load81(false);
+      if(await load81(false)!==true){
+        throw new Error('Limpeza registrada, mas não foi possível atualizar a lista. Abra o sino novamente.');
+      }
       alert(r.mensagem||'Central de notificações limpa.');
     }catch(e){
       alert(e.message||'Não foi possível limpar as notificações.');
@@ -26250,7 +26265,36 @@ table thead tr{
     resultado.naoLidas=resultado.itens.filter(item=>!item.lida).length;
    }catch(e){console.warn('[Positivacoes: sino]',e);}
   }
-  async function load81(auto){if(!has81('NOTIFICACOES_VISUALIZAR'))return;try{const r=await api81('V81_LISTAR_NOTIFICACOES');await mesclarDecisoesInatividade81(r);renderNotes81(r);if(auto&&!autoShown81){const prox=(r.importantesPendentes||[]).find(x=>!shownImportantSession81.has(String(x.id)));if(prox){autoShown81=true;showImportant81(prox);}}}catch(e){console.warn('[V81 notificações]',e);}}
+  async function load81(auto){
+    if(!has81('NOTIFICACOES_VISUALIZAR'))return false;
+    const seq=++notificationLoadSeq81;
+    try{
+      // O gateway legado não aplica o marcador SQL; filtrar também os avisos
+      // de decisões mesclados na tela impede que reapareçam após o LIMPAR.
+      const persisted=await notificationClearState81();
+      if(seq!==notificationLoadSeq81)return false;
+      clearedAt81=persisted;
+      const r=await api81('V81_LISTAR_NOTIFICACOES');
+      await mesclarDecisoesInatividade81(r);
+      if(seq!==notificationLoadSeq81)return false;
+      r.itens=(Array.isArray(r.itens)?r.itens:[]).filter(item=>
+        (Number(item.criadoEpoch)||0)>clearedAt81
+      );
+      r.naoLidas=r.itens.filter(item=>!item.lida).length;
+      r.importantesPendentes=(Array.isArray(r.importantesPendentes)?r.importantesPendentes:[]).filter(item=>
+        (Number(item.criadoEpoch)||0)>clearedAt81
+      );
+      renderNotes81(r);
+      if(auto&&!autoShown81){
+        const prox=r.importantesPendentes.find(x=>!shownImportantSession81.has(String(x.id)));
+        if(prox){autoShown81=true;showImportant81(prox);}
+      }
+      return true;
+    }catch(e){
+      console.warn('[V81 notificações]',e);
+      return false;
+    }
+  }
   window.v81OpenNotification=async id=>{const x=lastNotes81.find(n=>String(n.id)===String(id));
    if(String(id).startsWith('POS-INAT-')){
     try{
