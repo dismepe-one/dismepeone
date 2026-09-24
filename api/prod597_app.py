@@ -1480,7 +1480,53 @@ async def prod597_update_center(
         }
         sync_errors: list[str] = []
 
-        if "MENSAL" in updated_names:
+        # V217: OPCACHE_ATUALIZAR apenas agenda o worker do Apps Script.
+        # DADOS já lê o snapshot SQL existente e pode retornar listas vazias
+        # antes da conclusão do worker; nunca usá-lo como fonte independente
+        # nem reenviar OPCACHE_ATUALIZAR para tentar concluir a publicação.
+        monthly_worker_pending = (
+            "MENSAL" in updated_names
+            and result.get("processamentoAssincrono") is True
+            and result.get("agendado") is True
+        )
+        if monthly_worker_pending:
+            confirmed.discard("MENSAL")
+            baseline = before_snapshot_times.get("MENSAL", "")
+            try:
+                monthly_payload, monthly_row = await cache_get(
+                    modulo="MENSAL", settings=settings
+                )
+                current_iso = str(monthly_row.get("atualizado_em") or "").strip()
+                saved_lists_valid = (
+                    isinstance(monthly_payload.get("dadosVendedores"), list)
+                    and isinstance(monthly_payload.get("dadosTelevendas"), list)
+                    and bool(
+                        monthly_payload["dadosVendedores"]
+                        or monthly_payload["dadosTelevendas"]
+                    )
+                )
+                if baseline and current_iso and current_iso != baseline and saved_lists_valid:
+                    persisted_confirmed["MENSAL"] = (
+                        main_module._format_snapshot_time(current_iso), current_iso
+                    )
+                    confirmed.add("MENSAL")
+                    monthly_worker_pending = False
+            except (CacheReadError, RuntimeError):
+                pass
+
+            if monthly_worker_pending:
+                result["mensalSync"] = "AGUARDANDO_WORKER"
+                result["mensalSnapshotFonte"] = "POSTGRESQL_PENDENTE"
+                result["mensalPublicacaoPendente"] = True
+                result["mensagem"] = (
+                    "Campanhas Mensais: atualização agendada. "
+                    "A gravação no PostgreSQL está em processamento; "
+                    "a fotografia anterior foi preservada."
+                )
+                result.pop("horarioMensal", None)
+                result.pop("horarioMensalISO", None)
+
+        if "MENSAL" in updated_names and not monthly_worker_pending:
             if "MENSAL" not in confirmed:
                 try:
                     display, iso = await _refresh_monthly_snapshot(
