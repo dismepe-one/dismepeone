@@ -412,6 +412,12 @@ async def _registered_users() -> tuple[dict[str, str], dict[str, str]]:
             value = _norm(item.get(key))
             if value:
                 target.setdefault(value, display)
+        # O PDF do Átrio identifica a televendas como "CLARICE DE JESUS",
+        # enquanto o cadastro ativo contém "CLARICE DE JESUS NUNES".
+        # Vincular somente esse apelido confirmado do mesmo usuário ativo;
+        # não associar automaticamente todos os clientes de um vendedor.
+        if role == "TELEVENDAS" and _norm(display) == "CLARICE DE JESUS NUNES":
+            televendas.setdefault("CLARICE DE JESUS", display)
     return vendedores, televendas
 
 
@@ -592,7 +598,7 @@ def _split_customer_owner(prefix: str, owner_id: str, tel_names: dict[str, str])
     return before, "", True
 
 
-_PDF_PARSER_VERSION = "poppler-recomposicao-raw-v13-consulta-diretoria"
+_PDF_PARSER_VERSION = "poppler-recomposicao-raw-v14-alias-clarice"
 
 
 def _pdf_pages_fast(raw: bytes, *, mode: str = "layout") -> list[str]:
