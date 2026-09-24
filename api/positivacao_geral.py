@@ -1487,18 +1487,48 @@ def _priscielle_client_allowed(row: dict[str, Any], setor: str) -> bool:
 
 
 
+def _supplier_group_key(name: str) -> str:
+    """Agrupa as divisões NEO apenas no filtro, sem modificar as vendas de origem."""
+    normalized = _norm(name)
+    flat = re.sub(r"[^A-Z0-9]+", " ", normalized).strip()
+    if flat in {"NEO QUIMICA", "NEO QUIMICA GENERICOS", "NEO QUIMICA SMART"}:
+        return "NEO QUIMICA"
+    return normalized
+
+
+def _supplier_display_names(names: Any) -> list[str]:
+    """Aplica a lista pública também às fotografias SQL já existentes."""
+    visible: dict[str, str] = {}
+    for name in names if isinstance(names, list) else []:
+        group = _supplier_group_key(str(name))
+        if not group or group == "CASAS BAHIA":
+            continue
+        visible.setdefault(group, "NEO QUÍMICA" if group == "NEO QUIMICA" else str(name))
+    return [visible[key] for key in sorted(visible)]
+
+
 def _supplier_key(data: dict[str, Any], fornecedor: str) -> str:
     if not fornecedor.strip():
         return ""
-    key = _norm(fornecedor)
-    if not key or key not in {_norm(x) for x in data.get("fornecedores", [])}:
+    key = _supplier_group_key(fornecedor)
+    if not key or key not in {_norm(x) for x in _supplier_display_names(data.get("fornecedores"))}:
         raise HTTPException(400, "Fornecedor indisponível na base publicada.")
     return key
 
 
 def _supplier_view(row: dict[str, Any], key: str) -> dict[str, Any]:
-    provider = (row.get("porFornecedor") or {}).get(key) or {}
-    origins = list(provider.get("origens") or [])
+    supplier_rows = row.get("porFornecedor") or {}
+    # NEO QUÍMICA considera ambas as divisões e conta cada cliente uma única vez.
+    matching = [
+        provider for source_key, provider in supplier_rows.items()
+        if _supplier_group_key(source_key) == key and isinstance(provider, dict)
+    ]
+    provider = {
+        field: list(dict.fromkeys(value for part in matching
+                                 for value in (part.get(field) or [])))
+        for field in ("origens", "positivacoesVendedor", "positivacoesTelevendas")
+    }
+    origins = provider["origens"]
     names = []
     for origin in origins:
         if origin == "Vendedor" and provider.get("positivacoesVendedor"):
@@ -1608,7 +1638,8 @@ def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, An
                             "bloqueados": sum(bool(r.get("bloqueado")) for r in ativos),
                             "percentual": round(100*positivos/len(ativos), 2) if ativos else 0}]
                            if diretoria else [])
-        return {**data, "carteirasDiretoria": grupos_diretoria, "acesso": {"individual": False,
+        return {**data, "fornecedores": _supplier_display_names(data.get("fornecedores")),
+                "carteirasDiretoria": grupos_diretoria, "acesso": {"individual": False,
                 "canal": "Administração" if context.get("admin") else "Visualização autorizada",
                 "capacidades": _pos_capabilities(context)}}
     person = context["pessoa"]
@@ -1696,7 +1727,7 @@ def _visible_data(data: dict[str, Any], context: dict[str, Any]) -> dict[str, An
             "persistencia": data.get("persistencia", "POSTGRESQL"),
             "inatividadesVersao": data.get("inatividadesVersao", "0"),
             "clientes": rows, "setores": sectors, "carteirasTelevendas": teles,
-            "fornecedores": data.get("fornecedores", []),
+            "fornecedores": _supplier_display_names(data.get("fornecedores")),
             "origens": origins, "indicadores": totals,
              "creditoIndividual": direct_count, "geralEmpresa": general,
             "movimentacao": {"novos": 0, "removidos": 0,
