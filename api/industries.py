@@ -1938,6 +1938,10 @@ async def _stock_rows_for_lab(lab: str) -> tuple[dict[str, Any], list[dict[str, 
         if not all_labs and _lab_key(row_lab) not in keys:
             continue
         item = dict(row)
+        # Normalizar também a fotografia já publicada, sem regravar o SQL.
+        # Assim a tabela e as exportações mostram 6183 em vez de 6.183
+        # antes mesmo da próxima importação do Mapa.
+        item["codigo"] = str(item.get("codigo") or "").replace(".", "")
         item["laboratorio"] = _portal_lab_label(row_lab) or (_clean_lab(lab) if not all_labs else "")
         rows.append(item)
     return data, rows
