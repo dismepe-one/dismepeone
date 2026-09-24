@@ -4,7 +4,7 @@ if(window.__dismepeIndustryBellInstalled)return;
 window.__dismepeIndustryBellInstalled=true;
 const $=id=>document.getElementById(id);
 const NOTICE=/^ONE-PUSH-[a-f0-9]{32}$/;
-let account=null,open=false,loading=false,interval=null;
+let account=null,open=false,loading=false,clearing=false,interval=null,loadSeq=0,clearedAt=0;
 function make(parent,tag,text,css){
  const el=document.createElement(tag);
  if(text!==undefined)el.textContent=String(text);
@@ -16,6 +16,11 @@ async function request(path,method='GET'){
  let data={};try{data=await resp.json();}catch(_){}
  if(!resp.ok)throw Error(typeof data.detail==='string'?data.detail:'Serviço de notificações indisponível.');
  return data;
+}
+async function notificationState(){
+ const data=await request('/notificacoes/api/estado');
+ if(data.sucesso!==true || !Number.isFinite(Number(data.clearedAt)))throw Error('Não foi possível consultar o estado das notificações.');
+ return Math.max(0,Number(data.clearedAt));
 }
 function shell(){
  if($('industryBellButton'))return;
@@ -32,9 +37,13 @@ function shell(){
  header.insertBefore(button,password||header.querySelector('button[onclick="logout()"]')||null);
  const pane=make(document.body,'section',undefined,'position:fixed;top:max(82px,env(safe-area-inset-top));right:12px;width:min(440px,calc(100vw - 24px));max-height:76dvh;overflow:auto;z-index:2147482000;background:white;border:1px solid #d6e6dc;box-shadow:0 15px 45px #0b302955;border-radius:16px;padding:15px;color:#163b2c;display:none;');
  pane.id='industryNotificationPanel';pane.setAttribute('role','dialog');pane.setAttribute('aria-label','Central de Notificações de Indústrias');
- const bar=make(pane,'div',undefined,'display:flex;align-items:center;justify-content:space-between;gap:10px');
+ const bar=make(pane,'div',undefined,'display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;');
  make(bar,'strong','Notificações · Indústrias','font-size:16px');
- const close=make(bar,'button','×','border:0;background:#eef5f0;border-radius:8px;padding:6px 12px;font-size:22px;cursor:pointer;');
+ const actions=make(bar,'div',undefined,'display:flex;align-items:center;gap:8px;margin-left:auto;');
+ const clear=make(actions,'button','LIMPAR','border:0;background:#fff0f1;color:#a41e34;border-radius:8px;padding:9px 11px;font-size:12px;font-weight:800;cursor:pointer;');
+ clear.id='industryNotificationClearButton';clear.type='button';clear.setAttribute('aria-label','Limpar minhas notificações');
+ clear.addEventListener('click',clearNotifications);
+ const close=make(actions,'button','×','border:0;background:#eef5f0;border-radius:8px;padding:6px 12px;font-size:22px;cursor:pointer;');
  close.type='button';close.setAttribute('aria-label','Fechar notificações');
  close.addEventListener('click',()=>toggle(false));
  const push=make(pane,'div',undefined,'margin-top:12px;');push.id='industryNotificationPushArea';
@@ -46,6 +55,34 @@ function toggle(value){
  open=!!value;
  const pane=$('industryNotificationPanel');if(pane)pane.style.display=open?'block':'none';
  $('industryBellButton')?.setAttribute('aria-expanded',String(open));
+}
+async function clearNotifications(){
+ if(clearing || !account || !confirm('Deseja realmente apagar suas notificações?'))return;
+ const button=$('industryNotificationClearButton');
+ clearing=true;
+ loadSeq++; // Descarta respostas de listagem iniciadas antes da limpeza.
+ loading=false;
+ if(button){button.disabled=true;button.textContent='LIMPANDO...';}
+ try{
+  const result=await request('/notificacoes/api/limpar','POST');
+  if(result.sucesso!==true || !Number.isFinite(Number(result.clearedAt)))throw Error('Não foi possível confirmar a limpeza.');
+  const persisted=await notificationState();
+  if(persisted<Number(result.clearedAt))throw Error('A limpeza ainda não foi confirmada pelo servidor.');
+  clearedAt=persisted;
+  if(await load(true)!==true)throw Error('Limpeza registrada, mas não foi possível atualizar a lista. Reabra o sino.');
+  const status=$('industryNotificationStatus');
+  if(status)status.textContent='Notificações limpas.';
+ }catch(e){
+  const list=$('industryNotificationList');
+  if(list){
+   let status=$('industryNotificationStatus');
+   if(!status){status=make(list,'p',undefined,'font-size:12px;color:#a41e34;');status.id='industryNotificationStatus';}
+   status.textContent=e.message||'Não foi possível limpar as notificações.';
+  }
+ }finally{
+  clearing=false;
+  if(button){button.disabled=false;button.textContent='LIMPAR';}
+ }
 }
 async function openNotice(id){
  if(!NOTICE.test(id))return;
@@ -64,13 +101,19 @@ async function openNotice(id){
   toggle(false);await load();
  }catch(e){const status=$('industryNotificationStatus');if(status)status.textContent=e.message||'Falha ao abrir aviso.';}
 }
-async function load(){
- if(loading||!account)return;
+async function load(force=false){
+ if((loading&&!force)||!account||(clearing&&!force))return false;
  loading=true;
+ const seq=++loadSeq;
  const list=$('industryNotificationList');
  try{
-  const data=await request('/push/inbox');
-  const items=Array.isArray(data.itens)?data.itens:[];
+  const [data,persisted]=await Promise.all([request('/push/inbox'),notificationState()]);
+  if(seq!==loadSeq)return false;
+  if(data.sucesso!==true)throw Error('Não foi possível consultar as notificações.');
+  clearedAt=persisted;
+  const items=(Array.isArray(data.itens)?data.itens:[]).filter(item=>
+   NOTICE.test(String(item.id||'')) && (Number(item.criadoEpoch)||0)>clearedAt
+  );
   const badge=$('industryBellBadge');
   const unread=items.filter(item=>!item.lida).length;
   if(badge){badge.textContent=unread>99?'99+':String(unread);badge.style.display=unread?'inline-block':'none';}
@@ -78,7 +121,6 @@ async function load(){
   const status=make(list,'p',items.length?'Toque no aviso para abrir o destino.':'Nenhuma notificação disponível.','font-size:12px;color:#698070;');
   status.id='industryNotificationStatus';
   for(const item of items){
-   if(!NOTICE.test(String(item.id||'')))continue;
    const card=make(list,'button',undefined,'display:block;width:100%;border:1px solid #dce8e0;border-left:4px solid '+(item.lida?'#dce8e0':'#e96819')+';background:'+(item.lida?'#fff':'#f1fbf5')+';text-align:left;border-radius:10px;padding:12px;margin-top:9px;cursor:pointer;color:#15382a;');
    card.type='button';
    make(card,'strong',item.titulo||'Notificação','display:block;font-size:13px;');
@@ -86,8 +128,11 @@ async function load(){
    make(card,'small',(item.criadoEm||'')+' · '+(item.lida?'Lida':'Não lida'),'display:block;margin-top:6px;color:#687e70;');
    card.addEventListener('click',()=>openNotice(item.id));
   }
- }catch(e){if(list)list.textContent=e.message||'Não foi possível consultar os avisos.';}
- finally{loading=false;}
+  return true;
+ }catch(e){
+  if(seq===loadSeq && list)list.textContent=e.message||'Não foi possível consultar os avisos.';
+  return false;
+ }finally{if(seq===loadSeq)loading=false;}
 }
 window.dismepeIndustryRefreshBell=load;
 async function init(){
