@@ -1366,19 +1366,33 @@ async def prod597_update_center(
 
     names = _requested_modules(payload) if action == "OPCACHE_ATUALIZAR" else set()
     updated_names = _updated_modules(payload) if action == "OPCACHE_ATUALIZAR" else set()
+    # O Apps Script apenas agenda um novo cálculo para o módulo MENSAL.
+    # No caminho exclusivo não é necessário consultar STATUS antes e depois
+    # de agendar; a publicação acompanhará o PostgreSQL diretamente.
+    monthly_only = (
+        action == "OPCACHE_ATUALIZAR"
+        and names == {"MENSAL"}
+        and updated_names == {"MENSAL"}
+        and not any(
+            item.get("notificar") is True
+            for item in (payload.get("acoes") or [])
+            if isinstance(item, dict)
+        )
+    )
 
     before_status: dict[str, Any] = {}
     before_times: dict[str, str] = {}
     before_snapshot_times: dict[str, str] = {}
     if action == "OPCACHE_ATUALIZAR":
-        try:
-            before_status = await call_update_center_legacy(
-                action="OPCACHE_STATUS",
-                payload={"acao": "OPCACHE_STATUS"},
-                legacy_token=legacy_token,
-            )
-        except UpdateCenterBridgeError:
-            before_status = {}
+        if not monthly_only:
+            try:
+                before_status = await call_update_center_legacy(
+                    action="OPCACHE_STATUS",
+                    payload={"acao": "OPCACHE_STATUS"},
+                    legacy_token=legacy_token,
+                )
+            except UpdateCenterBridgeError:
+                before_status = {}
         before_times = {
             name: prod4._time_from_result(before_status, name)
             for name in names
@@ -1400,6 +1414,18 @@ async def prod597_update_center(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     if action == "OPCACHE_ATUALIZAR":
+        # A resposta AGENDADO não prova a atualização. A HOME confere o SQL
+        # antes de publicar; não ler DADOS ou emitir mais um STATUS remoto.
+        if (monthly_only and result.get("processamentoAssincrono") is True
+                and result.get("agendado") is True):
+            result["mensalSync"] = "AGUARDANDO_WORKER"
+            result["mensalSnapshotFonte"] = "POSTGRESQL_PENDENTE"
+            result["mensalPublicacaoPendente"] = True
+            result.pop("horarioMensal", None)
+            result.pop("horarioMensalISO", None)
+            result["transporte"] = "FASTAPI_UPDATE_CENTER_DIRECT"
+            return result
+
         legacy_success = _successful(result)
 
         after_status: dict[str, Any] = {}
