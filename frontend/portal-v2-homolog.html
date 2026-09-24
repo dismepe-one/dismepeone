@@ -26200,7 +26200,7 @@ table thead tr{
   }
   window.v81ClosePanel=()=>document.getElementById('v81NotificationPanel')?.classList.add('hidden');
   window.v88ClearNotifications=async()=>{
-    if(!confirm('Limpar todas as notificações da sua central?\n\nIsso remove apenas a sua lista do sino. Os avisos, campanhas e registros do LOG não serão apagados.'))return;
+    if(!confirm('Deseja realmente apagar suas notificações?'))return;
     const btn=document.getElementById('v88ClearNotesBtn');
     try{
       if(btn){btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin mr-1"></i>LIMPANDO...';}
