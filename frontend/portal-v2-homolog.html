@@ -8458,10 +8458,12 @@ function showV36CreateUserInfo(){
     // permitir recuperar as fotografias anteriores quando a rota 2.0 vier parcial.
     setTimeout(()=>{
       try{
-        window.hist39RefreshHistoryList?.({
-          preserveSelection:true,
-          force:true
-        });
+        if(typeof window.hist39RefreshHistoryList==='function'){
+          window.hist39RefreshHistoryList({
+            preserveSelection:true,
+            automatic:true
+          });
+        }
       }catch(e){}
     },1200);
 
@@ -21412,7 +21414,7 @@ window.hist39DeleteSelected=async function(){
   function h39ScheduleFastRefresh(delayMs=0){
     const requestKey=h39SessionKey();
     if(!requestKey)return false;
-    if(h39AutoSessionCompletedKey===requestKey)return false;
+    if(h39AutoSessionCompletedKey===requestKey || H39.list.length>=3)return false;
     if(h39AutoSessionRunningKey===requestKey)return false;
 
     h39AutoSessionTargetKey=requestKey;
@@ -21484,7 +21486,7 @@ window.hist39DeleteSelected=async function(){
   function h39StartSessionRefreshOnce(){
     const requestKey=h39SessionKey();
     if(!requestKey)return false;
-    if(h39AutoSessionCompletedKey===requestKey)return false;
+    if(h39AutoSessionCompletedKey===requestKey || H39.list.length>=3)return false;
 
     if(h39AutoSessionTargetKey!==requestKey){
       h39AutoSessionTargetKey=requestKey;
@@ -21537,7 +21539,8 @@ window.hist39DeleteSelected=async function(){
     const p=h39$('hist39Primary');
     const refreshBtn=h39$('hist39RefreshBtn');
 
-    if(refreshBtn){
+    const showLoading=opts.automatic!==true || H39.list.length===0;
+    if(refreshBtn && showLoading){
       refreshBtn.disabled=true;
       refreshBtn.innerHTML=
         '<i class="fa-solid fa-spinner fa-spin mr-1"></i>ATUALIZANDO...';
@@ -21566,19 +21569,19 @@ window.hist39DeleteSelected=async function(){
 
       H39.configured=r.configurado===true;
 
-      H39.list=
-        (Array.isArray(r.atualizacoes)
+      const novas=(Array.isArray(r.atualizacoes)
           ?r.atualizacoes
-          :[])
-        .slice(0,3);
-
+          :[]).slice(0,3);
+      const sameList=H39.list.length===novas.length &&
+        H39.list.every((item,i)=>JSON.stringify(item)===JSON.stringify(novas[i]));
+      H39.list=novas;
       H39.canDelete=r.podeExcluir===true;
 
       if(p)p.disabled=!H39.configured;
 
-      h39PopulateSelects(
-        opts.preserveSelection!==false
-      );
+      if(!sameList || opts.preserveSelection===false){
+        h39PopulateSelects(opts.preserveSelection!==false);
+      }
 
       if(!H39.configured){
         h39Status(
@@ -21613,7 +21616,7 @@ window.hist39DeleteSelected=async function(){
       );
       return false;
     }finally{
-      if(refreshBtn){
+      if(refreshBtn && showLoading){
         refreshBtn.disabled=false;
         refreshBtn.innerHTML=
           '<i class="fa-solid fa-rotate mr-1"></i>ATUALIZAR HISTÓRICO';
@@ -21628,6 +21631,10 @@ window.hist39DeleteSelected=async function(){
 
     // G9A: sessão 2.0 autenticada não depende mais do token legado.
     if(!requestKey)return Promise.resolve(false);
+    const opts=options||{};
+    if(opts.force!==true && H39.list.length>=3 && h39LastListErrorStatus===0){
+      return Promise.resolve(true);
+    }
 
     if(
       h39PendingV185 &&
@@ -21833,7 +21840,7 @@ window.hist39DeleteSelected=async function(){
         // loadDataFromCloudV2. Mantemos este ponto apenas como sincronização
         // posterior, evitando uma chamada duplicada logo após o login/F5.
         window.v183ClearConnectionNotice?.();
-        if(Date.now()-h39LastListRefreshAt>10000){
+        if(H39.list.length<3 && Date.now()-h39LastListRefreshAt>10000){
           h39ScheduleFastRefresh(0);
         }
       }
@@ -21933,7 +21940,7 @@ window.hist39DeleteSelected=async function(){
     }
 
     function refreshHistory(reason){
-      if(!channelVisible() || !sessionReady())return false;
+      if(!channelVisible() || !sessionReady() || H39.list.length>=3)return false;
 
       const now=Date.now();
 
@@ -21943,7 +21950,7 @@ window.hist39DeleteSelected=async function(){
       clearTimeout(refreshTimer);
 
       refreshTimer=setTimeout(()=>{
-        if(!channelVisible() || !sessionReady())return;
+        if(!channelVisible() || !sessionReady() || H39.list.length>=3)return;
 
         lastRefreshAt=Date.now();
 
@@ -21956,7 +21963,7 @@ window.hist39DeleteSelected=async function(){
         Promise.resolve(
           window.hist39RefreshHistoryList?.({
             preserveSelection:true,
-            force:true
+            automatic:true
           })
         ).catch(e=>{
           console.warn(
@@ -26197,8 +26204,16 @@ table thead tr{
     const btn=document.getElementById('v88ClearNotesBtn');
     try{
       if(btn){btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin mr-1"></i>LIMPANDO...';}
-      const r=await api81('V81_LIMPAR_NOTIFICACOES');
+      const response=await fetch('/notificacoes/api/limpar',{
+        method:'POST',credentials:'include',cache:'no-store',
+        headers:{Accept:'application/json'}
+      });
+      let r={};try{r=await response.json();}catch(_){}
+      if(!response.ok||r.sucesso!==true){
+        throw new Error(typeof r.detail==='string'?r.detail:'Não foi possível limpar sua central.');
+      }
       autoShown81=false;
+      renderNotes81({itens:[],naoLidas:0});
       await load81(false);
       alert(r.mensagem||'Central de notificações limpa.');
     }catch(e){
