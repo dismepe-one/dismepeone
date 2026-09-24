@@ -353,13 +353,22 @@
     // Em especial: "Leitura DADOS do legado indisponivel" pode ocorrer
     // depois que a Central ja iniciou a gravacao. Confirmar a fonte antes
     // de considerar a operacao perdida; jamais enviar OPCACHE_ATUALIZAR de novo.
+    const queued=String(result?.mensalSync||'').toUpperCase()==='AGUARDANDO_WORKER'
+      ||result?.mensalPublicacaoPendente===true
+      ||(result?.processamentoAssincrono===true&&result?.agendado===true);
+    // O worker recorrente do Apps Script não termina durante a requisição
+    // HTTP. Consultar somente o SQL; jamais repetir OPCACHE_ATUALIZAR.
     let state=await waitForMonthlyPersistence(publishedSignature,
-      updateError?70000:25000);
+      queued?300000:(updateError?70000:25000));
     if(state.novosNumeros)return state;
     if(updateError){
       throw new Error('A atualizacao mensal nao foi confirmada no PostgreSQL. '
         +'A fotografia anterior foi preservada. Detalhe: '
         +String(updateError.message||updateError));
+    }
+    if(queued){
+      throw new Error('A atualizacao foi agendada, mas o worker ainda nao confirmou novos numeros no PostgreSQL. '
+        +'A fotografia anterior foi preservada. Nao solicite uma segunda atualizacao; consulte o estado da publicacao.');
     }
     const errors=Array.isArray(result?.erros)
       ?result.erros.map(x=>String(x||'').trim()).filter(Boolean):[];
