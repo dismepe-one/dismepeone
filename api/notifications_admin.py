@@ -152,6 +152,28 @@ async def notification_history(profile: dict = Depends(_admin)):
 
 
 
+@router.get("/notificacoes/api/estado")
+async def my_notification_state(
+    response: Response,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    """O marcador de limpeza pertence à sessão e não altera os avisos globais."""
+    profile = _profile(session)
+    usuario = str(profile.get("usuario") or profile.get("sub") or "").strip()
+    if not usuario:
+        raise HTTPException(status_code=403, detail="Usuário não identificado.")
+    try:
+        data = await admin_edge(
+            action="NOTIFICACAO_ESTADO_GET",
+            data={"usuario": usuario},
+            settings=settings,
+        )
+    except AccessReadError as exc:
+        raise HTTPException(status_code=503, detail="Não foi possível consultar sua central.") from exc
+    response.headers["Cache-Control"] = "no-store, private"
+    return {"sucesso": True, "clearedAt": int((data.get("estado") or {}).get("clearedAt") or 0)}
+
+
 @router.post("/notificacoes/api/limpar")
 async def clear_my_notifications(
     response: Response,
