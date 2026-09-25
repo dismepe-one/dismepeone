@@ -50,7 +50,7 @@ async function init(){try{const s=await request('/termo/api/status');
  $('state').textContent=s.obrigatorio?'Assinatura obrigatória para continuar utilizando os módulos comerciais.':'Fase piloto: revise o termo e assine eletronicamente. O acesso continua liberado nesta fase.';
  $('signing').hidden=false;
 }catch(err){$('state').textContent='Não foi possível consultar o registro do termo. Faça login novamente.';status(String(err.message||err))}}
-$('submit').onclick=async()=>{if(busy||!drawn||!$('agree').checked)return;busy=true;refresh();status('Gerando e verificando o PDF no Google Drive...');
+$('submit').onclick=async()=>{if(busy||!drawn||!$('agree').checked)return;busy=true;refresh();status('Gerando e verificando o PDF no armazenamento privado do DISMEPE ONE...');
 try{const result=await request('/termo/api/assinar',{method:'POST',headers:{'Content-Type':'application/json'},
  body:JSON.stringify({confirmado:true,assinatura:canvas.toDataURL('image/png')})});
  if(result.assinado){$('state').textContent='Assinatura confirmada e registrada.';$('signing').hidden=true;status('Documento registrado com sucesso. Você pode voltar ao DISMEPE ONE.',true)}
