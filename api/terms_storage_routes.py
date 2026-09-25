@@ -115,6 +115,21 @@ def _parse_token(value):
         raise HTTPException(422, "A confirmação do backup expirou. Exporte novamente os PDFs.") from exc
 
 
+async def diagnostic_private(pilot):
+    import asyncio, base64, hashlib
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    _, user = pilot
+    if user != "DANTON":
+        raise HTTPException(403, "Diagnóstico restrito.")
+    try:
+        pdf = await asyncio.to_thread(_pdf, user, "ADMINISTRADOR", datetime.now(ZoneInfo("America/Recife")), None)
+        answer = await storage_call("TEST", user, pdf_base64=base64.b64encode(pdf).decode("ascii"), pdf_sha256=hashlib.sha256(pdf).hexdigest())
+        return {"sucesso": True, "armazenamento": "SUPABASE_PRIVADO", "gravarLerExcluirPDF": answer.get("gerarLerExcluirPDF"), "obrigatoriedadeAtiva": False}
+    except Exception:
+        return {"sucesso": False, "motivo": "FALHA_PDF_OU_STORAGE", "obrigatoriedadeAtiva": False}
+
+
 async def sign_private(body, request, pilot):
     from .terms_responsibility import _signature, LOCK, TERM_HASH
     import asyncio
