@@ -87,7 +87,7 @@ def _remove_routes(*paths: str) -> None:
     ]
 
 
-def _portal_response(*, authenticated: bool = False) -> HTMLResponse:
+def _portal_response(*, authenticated: bool = False, terms_admin: bool = False) -> HTMLResponse:
     html = PORTAL_FILE.read_text(encoding="utf-8")
     # Marcacao HTML reconhecivel pelo gerenciador de senhas do navegador.
     # Somente o navegador/dispositivo decide se oferece salvar credenciais.
@@ -124,6 +124,15 @@ def _portal_response(*, authenticated: bool = False) -> HTMLResponse:
         if pos < 0:
             raise RuntimeError("Fechamento </body> não encontrado no portal.")
         html = html[:pos] + "\n".join(missing) + "\n" + html[pos:]
+
+    # Inject only for DANTON after server-side session validation. Never expose
+    # the management entry or its script to other authenticated profiles.
+    if authenticated and terms_admin:
+        marker = "</body>"
+        pos = html.lower().rfind(marker)
+        if pos < 0:
+            raise RuntimeError("Fechamento do portal nao encontrado.")
+        html = html[:pos] + '<script src="/termo/admin/mais.js?v=TERM-MAIS-1"></script>\n' + html[pos:]
 
     # Remove a identidade antiga embutida antes de inserir os links oficiais.
     # A presença de apple-touch-icon legado não pode bloquear a atualização.
@@ -263,7 +272,7 @@ async def industries_root(request: Request):
     profile = _profile_from_cookie(request)
     if profile and (is_industry_profile(profile) or is_buyer_profile(profile)):
         return RedirectResponse(url="/industrias", status_code=303)
-    return _portal_response(authenticated=True) if profile else _public_login_response()
+    return _portal_response(authenticated=True, terms_admin=str(profile.get("usuario") or profile.get("sub") or "").strip().upper() == "DANTON" and str(profile.get("tipo") or "").strip().upper() == "ADMINISTRADOR") if profile else _public_login_response()
 
 
 @app.get("/portal-v2-homolog.html", include_in_schema=False)
@@ -271,7 +280,7 @@ async def industries_root_alias(request: Request):
     profile = _profile_from_cookie(request)
     if profile and (is_industry_profile(profile) or is_buyer_profile(profile)):
         return RedirectResponse(url="/industrias", status_code=303)
-    return _portal_response(authenticated=True) if profile else _public_login_response()
+    return _portal_response(authenticated=True, terms_admin=str(profile.get("usuario") or profile.get("sub") or "").strip().upper() == "DANTON" and str(profile.get("tipo") or "").strip().upper() == "ADMINISTRADOR") if profile else _public_login_response()
 
 
 # Safari iOS pode consultar o ícone na raiz do domínio, mesmo com o
