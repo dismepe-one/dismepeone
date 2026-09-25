@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -16,6 +17,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from . import main as main_module
 from . import prod4_app as prod4
 from .cache_reads import CacheReadError, cache_get
+from .monthly_commercial_live import sync_commercial, CommercialSyncError
 from .industries_app import app, settings
 from .legacy_bridge import clear_state, get_state
 from .security import decode_session_token
@@ -1347,6 +1349,54 @@ async def prod597_update_center(
         raise HTTPException(status_code=400, detail="Ação inválida para o Centro de Atualizações.")
 
     mensal_requested = action == "OPCACHE_ATUALIZAR" and _monthly_requested(payload)
+    names = _requested_modules(payload) if action == "OPCACHE_ATUALIZAR" else set()
+    updated_names = _updated_modules(payload) if action == "OPCACHE_ATUALIZAR" else set()
+    # O Apps Script apenas agenda um novo cálculo para o módulo MENSAL.
+    # No caminho exclusivo não é necessário consultar STATUS antes e depois
+    # de agendar; a publicação acompanhará o PostgreSQL diretamente.
+    monthly_only = (
+        action == "OPCACHE_ATUALIZAR"
+        and names == {"MENSAL"}
+        and updated_names == {"MENSAL"}
+        and not any(
+            item.get("notificar") is True
+            for item in (payload.get("acoes") or [])
+            if isinstance(item, dict)
+        )
+    )
+
+    # Exclusivo comercial: publica em MENSAL_COMERCIAL, nunca regrava MENSAL
+    # ou dispara calculo de premiacoes; os demais caminhos ficam inalterados.
+    if monthly_only and os.getenv("DISMEPE_MONTHLY_COMMERCIAL_ENABLED", "0") == "1":
+        try:
+            commercial = await sync_commercial(
+                settings=settings, profile=profile, persist=_cache_set_snapshot,
+            )
+        except Exception as exc:
+            # Não acionar o worker legado como fallback de uma falha Google/SQL:
+            # isso causaria duas leituras ou sobrescrita de números diferentes.
+            raise HTTPException(
+                status_code=502,
+                detail="Campanhas Mensais: atualização comercial independente não confirmada. "
+                       "Fotografia SQL anterior preservada. "
+                       f"Tipo de falha: {type(exc).__name__}.",
+            ) from None
+        if commercial["resultado"] == "SEM_ALTERACAO":
+            return {
+                "sucesso": True, "ok": True, "mensalSync": "SEM_ALTERACAO",
+                "mensalSnapshotFonte": "POSTGRESQL",
+                "mensagem": "Os números comerciais já estão atualizados no SQL.",
+                "financeiro": commercial["financeiro"], "transporte": "FASTAPI_MENSAL_COMERCIAL",
+            }
+        return {
+            "sucesso": True, "ok": True, "mensalSync": "COMERCIAL_SQL_PUBLICADO",
+            "mensalSnapshotFonte": "POSTGRESQL_MENSAL_COMERCIAL",
+            "horarioMensalISO": commercial["atualizadoEm"],
+            "horarioMensal": main_module._format_snapshot_time(commercial["atualizadoEm"]),
+            "mensagem": "Números comerciais atualizados no PostgreSQL; premiações legadas preservadas.",
+            "financeiro": commercial["financeiro"], "transporte": "FASTAPI_MENSAL_COMERCIAL",
+        }
+
     session_key = hashlib.sha256(session.encode("utf-8")).hexdigest()
     legacy_token = await _legacy_token(
         session_key=session_key,
@@ -1363,22 +1413,6 @@ async def prod597_update_center(
             status_code=409,
             detail="A sessão de compatibilidade ainda está sendo preparada. Aguarde alguns segundos e tente novamente.",
         )
-
-    names = _requested_modules(payload) if action == "OPCACHE_ATUALIZAR" else set()
-    updated_names = _updated_modules(payload) if action == "OPCACHE_ATUALIZAR" else set()
-    # O Apps Script apenas agenda um novo cálculo para o módulo MENSAL.
-    # No caminho exclusivo não é necessário consultar STATUS antes e depois
-    # de agendar; a publicação acompanhará o PostgreSQL diretamente.
-    monthly_only = (
-        action == "OPCACHE_ATUALIZAR"
-        and names == {"MENSAL"}
-        and updated_names == {"MENSAL"}
-        and not any(
-            item.get("notificar") is True
-            for item in (payload.get("acoes") or [])
-            if isinstance(item, dict)
-        )
-    )
 
     before_status: dict[str, Any] = {}
     before_times: dict[str, str] = {}
