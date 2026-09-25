@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feature/monthly-commercial-sidecar-20260925
+      - fix/monthly-commercial-home-confirmation-20260925
   workflow_dispatch:
 permissions:
   contents: read
@@ -20,7 +21,7 @@ jobs:
           python -m pip install -r requirements.txt pytest
       - name: Compile changed Python files
         run: |
-          python -m compileall -q api/main.py api/prod597_app.py api/cache_reads.py api/monthly_source_normalization.py api/monthly_commercial_live.py api/monthly_commercial_overlay.py
+          python -m compileall -q api/main.py api/prod597_app.py api/cache_reads.py api/monthly_source_normalization.py api/monthly_commercial_live.py api/monthly_commercial_overlay.py api/home_publication.py
       - name: Test commercial-only SQL snapshot and scoped dashboard without remote credentials
         run: |
-          python -m pytest -q tests/test_monthly_commercial_sidecar.py tests/test_bootstrap_scope.py
+          python -m pytest -q tests/test_monthly_commercial_sidecar.py tests/test_monthly_commercial_home_confirmation.py tests/test_bootstrap_scope.py
