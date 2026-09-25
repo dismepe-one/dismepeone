@@ -66,6 +66,8 @@ def test_metrics_recalculate_only_open_month_preserve_commercial_financial():
     out = calculate(base, src)
     assert out["dadosVendedores"][0]["metricasParcial"]["componentes"][0]["realizado"] == 2
     assert out["dadosVendedores"][0]["Premiação"] == 150
+    assert out["dadosVendedores"][0]["metricasParcial"]["realizado"] == 2
+    assert out["dadosVendedores"][0]["metricasParcial"]["atingimento"] == 100
     assert out["dadosTelevendas"][0]["Premiação"] == 70
     assert out["dadosVendedores"][1]["metricasParcial"]["componentes"][0]["realizado"] == 1
     assert out["dadosVendedores"][2]["metricasParcial"]["componentes"][0]["realizado"] == 20
@@ -110,3 +112,21 @@ def test_integer_points_and_unique_client():
     out = calculate(base, src)
     assert out["dadosVendedores"][2]["metricasParcial"]["componentes"][0]["realizado"] == 20
     assert out["dadosVendedores"][1]["metricasParcial"]["componentes"][0]["realizado"] == 1
+
+
+def test_frontend_checks_special_metrics_even_when_commercial_snapshot_is_unchanged():
+    from pathlib import Path
+    js = (Path(__file__).resolve().parents[1] / "frontend" /
+          "home-publication-prod59823.js").read_text(encoding="utf-8")
+    assert "Conferindo positivações especiais" in js
+    assert "metricasEspeciaisAtualizadas" in js
+    assert "avisoMetricasEspeciais" in js
+    assert "if(state.novosNumeros){" not in js
+
+
+def test_special_metric_only_changes_do_not_generate_sales_notifications():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / "api" /
+              "home_publication.py").read_text(encoding="utf-8")
+    assert "and sales_changed and not body.somenteExtras" in source
+    assert "special_changed and _special_metrics_changed(" in source
