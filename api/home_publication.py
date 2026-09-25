@@ -4,6 +4,7 @@ import asyncio
 import copy
 import hashlib
 import json
+import os
 import time
 import uuid
 from datetime import datetime
@@ -227,7 +228,16 @@ async def home_publication_cache_get(
 
 async def _source_snapshot(module: str) -> tuple[dict[str, Any], dict[str, Any]]:
     try:
-        return await raw_cache_get(modulo=module, settings=settings)
+        payload, row = await raw_cache_get(modulo=module, settings=settings)
+        # A atualização comercial nova grava MENSAL_COMERCIAL, não MENSAL.
+        # A confirmação da HOME deve ler a mesma fotografia que o dashboard,
+        # mantendo premiações e histórico financeiro do MENSAL original.
+        if module == "MENSAL" and os.getenv("DISMEPE_MONTHLY_COMMERCIAL_ENABLED", "0") == "1":
+            from .monthly_commercial_overlay import monthly_commercial_overlay
+            return await monthly_commercial_overlay(
+                payload=payload, row=row, settings=settings,
+            )
+        return payload, row
     except CacheReadError as exc:
         raise HTTPException(
             status_code=503,
