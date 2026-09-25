@@ -813,7 +813,12 @@ async def _home_publication_publish_locked(
             "displayTimes": display_times,
             "fontes": {
                 "mensal": monthly_source_meta,
-                "extras": _source_meta(extras_row),
+                "extras": (
+                    previous_sources["extras"]
+                    if body.somenteMetricasEspeciais
+                    and isinstance(previous_sources.get("extras"), dict)
+                    else _source_meta(extras_row)
+                ),
             },
             "historico": history,
             "mensal": mensal_publicado,
