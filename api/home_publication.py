@@ -871,51 +871,60 @@ async def _home_publication_publish_locked(
             and sales_changed and not body.somenteExtras
         )
         notice_id = ""
+        notice_ids = []
         notice_error = ""
         if notice_requested:
-            notice_id = "ONE-PUSH-" + uuid.UUID(publication_id).hex
-            notice = {
-                "id": notice_id, "tipo": "AVISO", "status": "ATIVO",
-                "titulo": "Campanha Mensal atualizada",
-                "mensagem": (
-                    "Novos numeros de Vendedores e Televendas foram publicados "
-                    "na HOME. Consulte sua parcial atualizada."
-                ),
-                "publico": {
-                    "todos": False, "perfis": ["VENDEDOR", "TELEVENDAS"],
-                    "setores": [], "usuarios": [],
-                },
-                "criadoEpoch": int(now.timestamp() * 1000),
-                "criadoEm": now.strftime("%d/%m/%Y %H:%M"),
-                "criadoPor": username, "publicarEm": now_iso, "expiraEm": "",
-                "importante": False, "exibirUmaVez": False,
-                "destino": {"modulo": "HOME", "tela": "INICIO", "fornecedor": ""},
-                "pushStatus": "AGENDADO",
-                "origem": "HOME_PUBLICATION_MENSAL",
-                "publicationId": publication_id,
-            }
-            try:
-                registered = await _edge_call(
-                    "NOTIFICACAO_UPSERT", {"notificacao": notice},
-                    timeout_seconds=20.0,
-                )
-                if str(registered.get("id") or "") != notice_id:
-                    raise RuntimeError("O banco nao confirmou o aviso da Campanha Mensal.")
-                background_tasks.add_task(deliver_notice, notice_id)
-            except Exception:
-                notice_error = (
-                    "A campanha e o historico foram publicados, mas nao foi "
-                    "possivel confirmar o envio do aviso automatico."
-                )
-                notice_id = ""
+            # Cada perfil recebe apenas seu aviso, com destino a sua própria
+            # parcial. A navegação existente valida as permissões do usuário.
+            for role, module, recipient_id in (
+                ("VENDEDOR", "VENDEDORES", "ONE-PUSH-" + uuid.UUID(publication_id).hex),
+                ("TELEVENDAS", "TELEVENDAS", "ONE-PUSH-" + uuid.uuid5(
+                    uuid.UUID(publication_id), "TELEVENDAS").hex),
+            ):
+                notice = {
+                    "id": recipient_id, "tipo": "AVISO", "status": "ATIVO",
+                    "titulo": "⚠️ Parcial atualizada!",
+                    "mensagem": "Confira seus resultados e acompanhe seu desempenho.",
+                    "publico": {
+                        "todos": False, "perfis": [role],
+                        "setores": [], "usuarios": [],
+                    },
+                    "criadoEpoch": int(now.timestamp() * 1000),
+                    "criadoEm": now.strftime("%d/%m/%Y %H:%M"),
+                    "criadoPor": username, "publicarEm": now_iso, "expiraEm": "",
+                    "importante": False, "exibirUmaVez": False,
+                    "destino": {"modulo": module, "tela": "PARCIAL", "fornecedor": ""},
+                    "pushStatus": "AGENDADO",
+                    "origem": "HOME_PUBLICATION_MENSAL",
+                    "publicationId": publication_id,
+                }
+                try:
+                    registered = await _edge_call(
+                        "NOTIFICACAO_UPSERT", {"notificacao": notice},
+                        timeout_seconds=20.0,
+                    )
+                    if str(registered.get("id") or "") != recipient_id:
+                        raise RuntimeError("O banco nao confirmou o aviso da Campanha Mensal.")
+                    notice_ids.append(recipient_id)
+                    background_tasks.add_task(deliver_notice, recipient_id)
+                except Exception:
+                    # Uma falha isolada nao pode criar aviso com destino errado
+                    # nem desfazer a publicação das vendas e do histórico.
+                    notice_error = (
+                        "A campanha e o historico foram publicados, mas nao foi "
+                        "possivel confirmar o aviso automatico para todos os perfis."
+                    )
+            if len(notice_ids) == 2:
+                notice_id = notice_ids[0]
             await _audit(
                 profile,
-                action=("NOTIFICACAO_MENSAL_REGISTRADA" if notice_id
+                action=("NOTIFICACAO_MENSAL_REGISTRADA" if len(notice_ids) == 2
                         else "NOTIFICACAO_MENSAL_FALHOU"),
                 identifier=publication_id,
-                details={"notificacaoId": notice_id, "enviadaPara": [
-                    "VENDEDOR", "TELEVENDAS"], "resultado": (
-                    "AVISO_REGISTRADO" if notice_id else "AVISO_NAO_CONFIRMADO")},
+                details={"notificacaoId": notice_id, "notificacaoIds": notice_ids,
+                         "enviadaPara": ["VENDEDOR", "TELEVENDAS"],
+                         "resultado": ("AVISOS_REGISTRADOS" if len(notice_ids) == 2
+                                       else "AVISOS_NAO_CONFIRMADOS")},
             )
 
         await _audit(
@@ -946,8 +955,9 @@ async def _home_publication_publish_locked(
             "somenteMetricasEspeciais": body.somenteMetricasEspeciais,
             "avisoMetricasEspeciais": special_warning,
             "notificacaoSolicitada": notice_requested,
-            "notificacaoRegistrada": bool(notice_id),
+            "notificacaoRegistrada": len(notice_ids) == 2 if notice_requested else False,
             "notificacaoId": notice_id,
+            "notificacaoIds": notice_ids,
             "avisoNotificacao": notice_error,
             "mensagem": (
                 "Positivacoes especiais verificadas e publicadas na HOME."
