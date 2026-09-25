@@ -126,12 +126,13 @@ async def sync_commercial(*, settings, profile, persist):
             previous_commercial, _ = await cache_get(modulo="MENSAL_COMERCIAL", settings=settings)
         except CacheReadError:
             pass  # A primeira publicação não tem módulo independente ainda.
-        if (not differences and isinstance(previous_commercial, dict)
+        if (not differences or (
+                isinstance(previous_commercial, dict)
                 and previous_commercial.get("competencia") == comp
                 and previous_commercial.get("sheetId") == sheet_id
                 and previous_commercial.get("baseAtualizadoEm") == initial_time
                 and all(_commercial_signature(previous_commercial.get(key, []))
-                        == _commercial_signature(candidate[key]) for key in CHANNELS)):
+                        == _commercial_signature(candidate[key]) for key in CHANNELS))):
             return {"sucesso": True, "resultado": "SEM_ALTERACAO", "competencia": comp,
                     "vendedores": len(candidate["dadosVendedores"]), "televendas": len(candidate["dadosTelevendas"]),
                     "atualizadoEm": initial_time, "financeiro": "LEGADO_PRESERVADO"}
