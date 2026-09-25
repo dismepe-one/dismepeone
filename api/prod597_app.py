@@ -45,6 +45,44 @@ app.include_router(stock_schedule_router)
 # Pilot of confidentiality agreement: endpoints only, no access guard until Drive verified.
 app.include_router(terms_responsibility_router)
 
+# Diagnóstico pontual da conta técnica no próprio Render: sem qualquer
+# assinatura real, sem publicar dados e sem registrar aceite.
+@app.on_event("startup")
+async def _terms_one_time_drive_probe():
+    import logging
+    from googleapiclient.errors import HttpError
+    from .terms_responsibility import _probe_drive
+    logger = logging.getLogger("uvicorn.error")
+    def probe():
+        try:
+            _probe_drive()
+            logger.info("TERMS_PILOT_DRIVE_PROBE success=pdf_generated_uploaded_read_deleted")
+        except Exception as exc:
+            if isinstance(exc, HttpError):
+                import json as _json
+                reason = "unknown"
+                try:
+                    body = _json.loads(bytes(exc.content or b"{}"))
+                    reasons = body.get("error", {}).get("errors", [])
+                    if isinstance(reasons, list) and reasons:
+                        candidate = str(reasons[0].get("reason") or "")
+                        if candidate in {"storageQuotaExceeded","insufficientFilePermissions",
+                                         "forbidden","notFound","dailyLimitExceeded",
+                                         "userRateLimitExceeded","rateLimitExceeded"}:
+                            reason = candidate
+                except (TypeError, ValueError, AttributeError):
+                    pass
+                logger.warning("TERMS_PILOT_DRIVE_PROBE failed=http_%s reason=%s", exc.resp.status, reason)
+            else:
+                name = str(exc)
+                known = {"CONTA_TECNICA_NAO_CONFIGURADA","PASTA_INVALIDA",
+                         "SEM_PERMISSAO_DE_GRAVACAO","LOGO_OFICIAL_AUSENTE",
+                         "PDF_NAO_GERADO","GRAVACAO_NAO_CONFIRMADA",
+                         "PDF_NO_DRIVE_DIVERGENTE"}
+                logger.warning("TERMS_PILOT_DRIVE_PROBE failed=%s", name if name in known else type(exc).__name__)
+    await asyncio.to_thread(probe)
+
+
 LEGACY_COOKIE_PREFIX = "dismepe_legacy_"
 LEGACY_COOKIE_MAX_AGE = 3 * 60 * 60
 
