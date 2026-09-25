@@ -265,6 +265,8 @@ async def term_page(pilot=Depends(_pilot)):
 
 @router.get("/api/diagnostico")
 async def term_diagnostic(pilot=Depends(_pilot)):
+    from .terms_storage_routes import diagnostic_private
+    return await diagnostic_private(pilot)
     _, username = pilot
     if username != "DANTON":
         raise HTTPException(403, "Diagnóstico restrito ao administrador.")
