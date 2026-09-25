@@ -23,6 +23,7 @@ from .monthly_auxiliary_sources import read_auxiliary_matrices, parse_auxiliary_
 from .monthly_awards_engine import rule_coverage
 from .monthly_manual_indicators import read_manual_indicators
 from .monthly_special_preview import preview_special_awards
+from .monthly_source_normalization import candidate_from_sheets
 from .industries_stock_sync import _service_account_info
 
 
@@ -258,13 +259,22 @@ def _read_current_source(
     ).execute(num_retries=2)
     if str(end_meta.get("modifiedTime") or "") != str(metadata.get("modifiedTime") or ""):
         raise MonthlyShadowError("Planilha alterada durante a leitura; teste cancelado.")
+    candidate = candidate_from_sheets(
+        matrices[0].get("values") or [],
+        matrices[1].get("values") or [],
+        source.competence,
+    )
     auxiliary_matrices = read_auxiliary_matrices(admin_id)
     auxiliary_summary = {
         name: parse_auxiliary_tab(name, matrix)
         for name, matrix in auxiliary_matrices.items()
     }
+    # A prévia usa participantes da fonte viva, inclusive novos colaboradores.
+    # Histórico e regras permanecem intocados; comparação financeira ainda pendente.
+    preview_snapshot = dict(snapshot, **candidate)
     preview = preview_special_awards(
-        snapshot, auxiliary_matrices, manual_indicators, source.competence,
+        preview_snapshot, auxiliary_matrices, manual_indicators,
+        source.competence,
     )
     return {
         "competencia": source.competence,
@@ -273,6 +283,10 @@ def _read_current_source(
         "auditoria": audits,
         "fontesAuxiliares": auxiliary_summary,
         "previaEspeciais": preview,
+        "linhasCandidatas": {
+            "VENDEDORES": len(candidate["dadosVendedores"]),
+            "TELEVENDAS": len(candidate["dadosTelevendas"]),
+        },
     }
 
 
@@ -312,6 +326,7 @@ async def run_shadow_comparison() -> dict[str, Any]:
         "auditoriaFonteVsFotografia": source_stats["auditoria"],
         "fontesAuxiliares": source_stats["fontesAuxiliares"],
         "previaPremiacoesEspeciais": source_stats["previaEspeciais"],
+        "linhasCandidatas": source_stats["linhasCandidatas"],
         "coberturaPremiacao": rules,
         "indicadoresManuaisNoSQL": all(key in manual_indicators for key in (
             "FATURAMENTO_GERAL_MANUAL", "POSITIVACAO_GERAL_MANUAL",
