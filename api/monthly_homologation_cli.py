@@ -43,14 +43,24 @@ def main():
                 cur.execute("BEGIN READ ONLY")
                 cur.execute("SET LOCAL statement_timeout = '15s'")
                 cur.execute(
-                    "SELECT payload, atualizado_em FROM public.dismepe_cache_operacional WHERE modulo = %s",
-                    ("MENSAL",),
+                    "SELECT current_user, "
+                    "current_setting('transaction_read_only'), "
+                    "has_table_privilege(current_user, 'public.dismepe_cache_operacional', 'SELECT'), "
+                    "has_table_privilege(current_user, 'public.dismepe_config', 'SELECT'), "
+                    "has_table_privilege(current_user, 'dismepe_monthly_homolog.monthly_snapshot', 'SELECT')"
+                )
+                login, readonly, can_read_base, can_read_config, can_read_view = cur.fetchone()
+                if (login != "dismepe_monthly_homolog_login" or readonly != "on"
+                        or can_read_base or can_read_config or not can_read_view):
+                    raise PermissionError("Conexao SQL nao possui identidade e permissoes de homologacao.")
+                cur.execute(
+                    "SELECT payload, atualizado_em FROM dismepe_monthly_homolog.monthly_snapshot"
                 )
                 row = cur.fetchone()
                 if not row or not isinstance(row[0], dict):
                     raise ValueError("Fotografia mensal ausente.")
                 cur.execute(
-                    "SELECT chave, valor FROM public.dismepe_config WHERE chave = ANY(%s)",
+                    "SELECT chave, valor FROM dismepe_monthly_homolog.manual_indicators WHERE chave = ANY(%s)",
                     (["FATURAMENTO_GERAL_MANUAL", "POSITIVACAO_GERAL_MANUAL"],),
                 )
                 indicators = dict(cur.fetchall())
