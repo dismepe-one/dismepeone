@@ -5,7 +5,24 @@ import copy
 import pytest
 from fastapi import BackgroundTasks, HTTPException
 from api import home_publication as hp
-from tests.test_monthly_special_metrics import snapshot
+def snapshot():
+    def row(lab, metric, name="ANA"):
+        return {"__COMPETENCIA": "09/2026", "__COLABORADOR": name,
+                "__LAB": lab, "__VENDA": 120, "__OBJETIVO": 200, "__linha": 4,
+                "metricasParcial": {"valor": 0, "pendente": False,
+                                   "componentes": [{"metrica": metric, "realizado": 1,
+                                                    "meta": 5, "premio": 0}]}}
+    return {"competencias": [{"competencia": "09/2026", "status": "ATUAL",
+             "linkDrive": "https://docs.google.com/spreadsheets/d/17JuuFiUoYAQyYJ1rOIiydxhVIPGZbXGH7fy4WQYyhD4/edit"}],
+            "dadosVendedores": [row("GLOBO", "POSITIVACAO_CLIENTES"),
+                                row("HERBAMED", "POSITIVACAO_CLIENTES"),
+                                row("BRG SUPLEMENTOS", "PONTUACAO_PRODUTO")],
+            "dadosTelevendas": [row("GLOBO", "POSITIVACAO_CLIENTES", "BIA"),
+                                row("HERBAMED", "POSITIVACAO_CLIENTES", "BIA"),
+                                row("BRG SUPLEMENTOS", "PONTUACAO_PRODUTO", "BIA")],
+            "regrasPremiacao": [{"regra": "ORIGINAL"}]}
+
+
 
 
 def _fixture(monkeypatch, *, changed=False, fail=False):
