@@ -32,7 +32,7 @@ def main() -> int:
 
     try:
         result = _sync_stock_once_blocking(force=bool(args.force))
-        if args.scheduled and result.get("lastStatus") == "IMPORTED":
+        if result.get("lastStatus") == "IMPORTED":
             from .industries_stock_notice import notify_stock_worker
             notify_stock_worker(str(result.get("lastSha256") or ""))
         duration = round(time.monotonic() - started_monotonic, 2)
