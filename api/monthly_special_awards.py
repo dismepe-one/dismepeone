@@ -153,3 +153,76 @@ def herbamed_general(rule: dict[str, Any], metric: str, meta: Decimal,
         return component(rule, meta, None, Decimal(0), "Indicador manual ausente no SQL.")
     achieved = money(indicators[key])
     return component(rule, meta, achieved, prize if achieved >= meta else Decimal(0))
+
+
+def integral_points(comp: str, canal: str, person: str, rule: dict[str, Any],
+                    movements: list[dict[str, Any]], products: list[dict[str, Any]],
+                    tiers: list[dict[str, Any]]) -> dict[str, Any]:
+    """Pontuação por SKU faturado e gatilho geral, conforme cm171Calcular_."""
+    if not competence(comp) or not channel(canal) or not norm(person):
+        raise SpecialAwardError("Chave comercial de pontos inválida.")
+    if not products or not tiers or not movements:
+        raise SpecialAwardError("Fontes de pontuação ausentes.")
+    catalog = {}
+    for r in products:
+        code = field(r, "COD PRODUTO", "CODIGO PRODUTO", "CODIGO")
+        if code is not None:
+            catalog[str(code).strip()] = money(field(r, "PONTOS", "PONTO", "PONTUACAO"))
+    if not catalog:
+        raise SpecialAwardError("INTEGRAL_PRODUTOS não contém produtos válidos.")
+    brackets = sorted((money(field(r, "PONTOS")), money(field(r, "PREMIO"))) for r in tiers)
+    if not brackets:
+        raise SpecialAwardError("INTEGRAL_FAIXAS sem faixas válidas.")
+    source = []
+    for row in movements:
+        parsed = competence(field(row, "DATA", "COMPETENCIA"))
+        if not parsed:
+            continue  # linha incompleta não invalida a base inteira
+        if parsed != comp:
+            continue
+        code = field(row, "COD PRODUTO", "CODIGO PRODUTO", "CODIGO")
+        qty = field(row, "TOTAL UNIDADE", "TOTAL UNIDADES", "QUANTIDADE", "QTD", "QTDE")
+        billed = field(row, "FATURADO", "STATUS")
+        if code is None or qty is None or billed is None:
+            continue  # descarta somente a linha incompleta
+        source.append((row, str(code).strip(), qty, billed))
+    if not source:
+        return component(rule, None, None, Decimal(0),
+                         "INT_PONTOS sem registros válidos da competência.")
+    individual = Decimal(0)
+    total = Decimal(0)
+    purchased = {}
+    for row, code, quantity, billed in source:
+        if norm(billed) not in ("SIM", "FATURADO", "FATURADA"):
+            continue
+        via = channel(field(row, "PEDIDOS POR", "CANAL", "TIPO"))
+        if not via:
+            return component(rule, None, None, Decimal(0),
+                             "INT_PONTOS: canal faturado não identificado.")
+        qty = money(quantity)
+        value = qty * catalog.get(code, Decimal(0))
+        total += value
+        if via == channel(canal) and norm(field(row, "VENDEDOR", "COLABORADOR")) == norm(person):
+            individual += value
+            if code in catalog and qty > 0:
+                purchased[code] = purchased.get(code, Decimal(0)) + qty
+    required = rule.get("exigeSomaLaboratorio") is True
+    threshold = money(rule.get("somaLabMinimo") or 0)
+    if required and threshold <= 0:
+        return component(rule, None, None, Decimal(0),
+                         "Integral: gatilho geral não configurado.")
+    prize = Decimal(0)
+    for minimum, award in brackets:
+        if individual >= minimum:
+            prize = award
+    if required and total < threshold:
+        prize = Decimal(0)
+    result = component(rule, brackets[0][0], individual, prize)
+    result.update(pontosGerais=total, metaPontosGerais=threshold,
+                  gatilhoGeralOK=not required or total >= threshold,
+                  totalProdutosPositivados=len(purchased),
+                  # Não inclui dados de clientes nos registros de diagnóstico.
+                  produtosPositivados=[{"codigo": code, "quantidade": qty,
+                                        "pontos": qty * catalog[code]}
+                                       for code, qty in sorted(purchased.items())])
+    return result
