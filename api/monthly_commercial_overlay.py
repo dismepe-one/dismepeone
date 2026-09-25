@@ -46,13 +46,14 @@ def _commercial_copy(previous, incoming, key, comp):
     return row
 
 
-def overlay_commercial(original, original_row, commercial, commercial_row):
+def overlay_commercial(original, original_row, commercial, commercial_row, baseline_row=None):
     """Adiciona somente números comerciais ao payload que já passou pela autorização de leitura."""
     data = copy.deepcopy(original)
     comp, sheet_id = current_source(data)
+    baseline_time = str((baseline_row or original_row).get("atualizado_em") or "")
     if (commercial.get("competencia") != comp
             or commercial.get("sheetId") != sheet_id
-            or str(commercial.get("baseAtualizadoEm") or "") != str(original_row.get("atualizado_em") or "")):
+            or str(commercial.get("baseAtualizadoEm") or "") != baseline_time):
         return original, original_row
     for key in CHANNELS:
         incoming = commercial.get(key)
@@ -91,6 +92,9 @@ def overlay_commercial(original, original_row, commercial, commercial_row):
 async def monthly_commercial_overlay(*, payload, row, settings):
     try:
         commercial, commercial_row = await cache_get(modulo="MENSAL_COMERCIAL", settings=settings)
-        return overlay_commercial(payload, row, commercial, commercial_row)
+        baseline, baseline_row = await cache_get(modulo="MENSAL", settings=settings)
+        if current_source(baseline) != current_source(payload):
+            return payload, row
+        return overlay_commercial(payload, row, commercial, commercial_row, baseline_row)
     except (CacheReadError, CommercialSyncError, ValueError, TypeError, KeyError):
         return payload, row

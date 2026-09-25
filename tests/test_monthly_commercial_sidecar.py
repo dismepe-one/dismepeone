@@ -57,6 +57,26 @@ def test_overlay_only_commercial_and_maintains_awards():
     assert result["financeiroPendente"] is True
 
 
+def test_home_publication_has_different_timestamp_from_raw_monthly():
+    payload = snapshot()
+    sidecar = {
+        "competencia": "09/2026",
+        "sheetId": "17JuuFiUoYAQyYJ1rOIiydxhVIPGZbXGH7fy4WQYyhD4",
+        "baseAtualizadoEm": "monthly-snapshot-revision",
+        "temDivergenciaComercial": True,
+        "dadosVendedores": [sample(sale=250)],
+        "dadosTelevendas": [dict(sample(sale=250), **{"__CANAL": "TELEVENDAS"})],
+    }
+    result, row = overlay_commercial(
+        payload, {"atualizado_em": "home-publication-revision"},
+        sidecar, {"atualizado_em": "commercial-revision"},
+        {"atualizado_em": "monthly-snapshot-revision"},
+    )
+    assert result["dadosVendedores"][0]["__VENDA"] == 250
+    assert row["atualizado_em"] == "commercial-revision"
+    assert row["atualizado_em_financeiro"] == "home-publication-revision"
+
+
 def test_stale_sidecar_never_overrides_new_legacy_calculation():
     payload = snapshot()
     out, row = overlay_commercial(
