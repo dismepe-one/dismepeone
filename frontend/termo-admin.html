@@ -1,0 +1,26 @@
+<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Termos de Responsabilidade</title><style>body{font:15px system-ui;background:#eff7f2;color:#164632;padding:16px}main{max-width:850px;margin:auto;background:white;padding:25px;border-radius:15px}button,a{background:#087b51;color:white;padding:11px;border:0;border-radius:8px;margin:5px;text-decoration:none;cursor:pointer}table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px solid #ddd;text-align:left}p{line-height:1.5}</style><main><h1>Termos de Responsabilidade</h1><p>Área exclusiva do administrador DANTON. O piloto de assinatura para DANTON e JOSE ainda não bloqueia o acesso ao sistema.</p><a href="/termo/assinar">Abrir termo</a><button id="refresh">Atualizar</button><button id="export" disabled>Exportar PDFs em ZIP</button><p id="status">Carregando...</p><table><thead><tr><th>Usuário</th><th>Assinatura</th><th>PDF</th></tr></thead><tbody id="rows"></tbody></table><p>Após a exportação, guarde o ZIP em local seguro e confira os PDFs. A exclusão dos originais dependerá de confirmação separada. O registro do aceite permanecerá no PostgreSQL.</p></main><script>
+const $=id=>document.getElementById(id);
+async function load(){
+ try{const r=await fetch("/termo/admin/api/lista",{credentials:"include",cache:"no-store"}),data=await r.json();
+ if(!r.ok||!data.sucesso)throw Error("Consulta indisponível.");
+ const map=new Map(data.documentos.map(v=>[v.usuario_norm,v]));
+ $("rows").replaceChildren();
+ for(const name of ["DANTON","JOSE"]){const entry=map.get(name),tr=document.createElement("tr");
+ for(const value of [name,entry?new Date(entry.aceito_em).toLocaleString("pt-BR"):"Pendente"]){const td=document.createElement("td");td.textContent=value;tr.appendChild(td)}
+ const td=document.createElement("td");
+ if(entry&&entry.storage_path&&!entry.arquivo_removido_em){const a=document.createElement("a");a.href="/termo/admin/api/arquivo/"+encodeURIComponent(entry.id);a.textContent="Baixar PDF";td.appendChild(a)}
+ else td.textContent=entry?"Arquivado":"—";
+ tr.appendChild(td);$("rows").appendChild(tr)}
+ $("export").disabled=!data.documentos.some(x=>x.storage_path&&!x.arquivo_removido_em);
+ $("status").textContent=data.documentos.length+" aceite(s) registrado(s).";
+ }catch(e){$("status").textContent=String(e.message||e)}}
+$("refresh").onclick=load;
+$("export").onclick=async()=>{try{
+ const r=await fetch("/termo/admin/api/exportar",{credentials:"include",cache:"no-store"});
+ if(!r.ok)throw Error("Exportação não confirmada.");
+ const zip=await r.blob();const url=URL.createObjectURL(zip);const a=document.createElement("a");
+ a.href=url;a.download="TERMOS_DISMEPE_ONE_BACKUP.zip";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+ $("status").textContent="ZIP disponibilizado para download. Confira e guarde uma cópia em local seguro.";
+ }catch(e){$("status").textContent=String(e.message||e)}};
+load();
+</script></html>
