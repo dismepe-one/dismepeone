@@ -290,7 +290,9 @@ def _special_metrics_changed(previous: dict[str, Any], candidate: dict[str, Any]
                     continue
                 items = (row.get("metricasParcial") or {}).get("componentes", [])
                 selected = [(str(p.get("metrica") or ""), _partial_value(p.get("realizado")),
-                             _partial_value(p.get("premio")), _partial_value(p.get("pontosGerais")))
+                             _partial_value(p.get("meta")), _partial_value(p.get("premio")),
+                             _partial_value(p.get("premioConfigurado")),
+                             _partial_value(p.get("pontosGerais")), p.get("gatilhoGeralOK"))
                             for p in items if isinstance(p, dict) and p.get("metrica") in
                             ("POSITIVACAO_CLIENTES", "PONTUACAO_PRODUTO")]
                 if selected and (str(row.get("__LAB") or "").upper().startswith(
