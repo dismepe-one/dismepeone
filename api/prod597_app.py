@@ -43,7 +43,7 @@ PASSWORD_CHANGE_REQUIRED = "SEGURANCA_TROCA_SENHA_OBRIGATORIA"
 
 app.include_router(home_publication_router)
 app.include_router(stock_schedule_router)
-# Pilot of confidentiality agreement: endpoints only, no access guard until Drive verified.
+# Termos privados: acesso obrigatório somente para JOSE até aceite confirmado.
 app.include_router(terms_responsibility_router)
 app.include_router(terms_storage_router)
 
