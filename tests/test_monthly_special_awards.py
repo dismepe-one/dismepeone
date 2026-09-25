@@ -4,7 +4,7 @@ import pytest
 
 from api.monthly_special_awards import (
     SpecialAwardError, channel, competence, component, globo,
-    herbamed_clients, herbamed_general, money, records,
+    herbamed_clients, herbamed_general, integral_points, money, records,
 )
 
 
@@ -65,3 +65,45 @@ def test_valor_financeiro_invalido_bloqueia():
 def test_regra_geral_desconhecida_bloqueia():
     with pytest.raises(SpecialAwardError):
         herbamed_general({}, "DESCONHECIDO", Decimal(1), Decimal(1), {})
+
+
+def test_integral_pontos_individual_faixas_e_gatilho_geral():
+    rule = {"id": "brg", "metrica": "PONTUACAO_PRODUTO",
+            "exigeSomaLaboratorio": True, "somaLabMinimo": 12}
+    products = records([["Cód. Produto", "PONTOS"], ["6183", 3]])
+    tiers = records([["PONTOS", "PREMIO"], [6, "R$ 50,00"], [12, "R$ 100,00"]])
+    movements = records([["Data", "Pedidos Por", "Vendedor", "Cód. Produto",
+                          "Total Unidade", "Faturado"],
+                         [46274, "Eletrônico", "ANA", "6183", 4, "SIM"],
+                         [46274, "Eletrônico", "OUTRO", "6183", 1, "SIM"],
+                         [None, "Eletrônico", "ANA", "6183", 9, "SIM"]])
+    result = integral_points("09/2026", "VENDEDOR", "ANA", rule, movements, products, tiers)
+    assert result["realizado"] == 12
+    assert result["premio"] == 100
+    assert result["pontosGerais"] == 15
+    assert result["totalProdutosPositivados"] == 1
+    assert not result["pendente"]
+
+
+def test_integral_gatilho_geral_bloqueia_faixa_individual():
+    rule = {"exigeSomaLaboratorio": True, "somaLabMinimo": 20}
+    movements = records([["Data", "Pedidos Por", "Vendedor", "Cód. Produto",
+                          "Total Unidade", "Faturado"],
+                         [46274, "Eletrônico", "ANA", "6183", 4, "SIM"]])
+    products = records([["Cód. Produto", "PONTOS"], ["6183", 3]])
+    tiers = records([["PONTOS", "PREMIO"], [6, 50]])
+    result = integral_points("09/2026", "VENDEDOR", "ANA", rule, movements, products, tiers)
+    assert result["realizado"] == 12
+    assert result["premio"] == 0
+    assert result["gatilhoGeralOK"] is False
+
+
+def test_integral_base_incompleta_marca_pendente():
+    rule = {"exigeSomaLaboratorio": True, "somaLabMinimo": 5}
+    movements = records([["Data", "Pedidos Por", "Vendedor", "Cód. Produto",
+                          "Total Unidade", "Faturado"],
+                         [None, "Eletrônico", "ANA", "6183", 4, "SIM"]])
+    products = records([["Cód. Produto", "PONTOS"], ["6183", 3]])
+    tiers = records([["PONTOS", "PREMIO"], [6, 50]])
+    result = integral_points("09/2026", "VENDEDOR", "ANA", rule, movements, products, tiers)
+    assert result["pendente"] and result["realizado"] is None
