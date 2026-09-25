@@ -252,7 +252,7 @@ async def term_status(pilot=Depends(_pilot)):
         "cargo": str(profile.get("tipo") or ""), "versao": VERSION,
         "empresa": COMPANY, "texto": [{"titulo": h, "texto": p} for h,p in CLAUSES],
         "assinado": db.get("assinado") is True, "aceitoEm": db.get("aceitoEm"),
-        "obrigatorio": ENFORCE, "hashTermo": TERM_HASH,
+        "obrigatorio": False, "hashTermo": TERM_HASH,
     }
 
 
