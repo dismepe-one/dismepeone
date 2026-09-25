@@ -31,3 +31,20 @@ Na competência 09/2026, a leitura conectada do Google Sheets encontrou 335 linh
 O leitor-sombra agora audita objetivos e vendas por linha de origem, reporta divergências de forma agregada sem nomes de colaboradores e revalida a revisão do Google Drive após a leitura. `tests/test_monthly_source_audit.py` contém casos de divergência real, linhas novas, fonte inválida e cabeçalho ambíguo. **Estes testes foram adicionados, mas ainda não foram executados no ambiente Render.** A leitura realizada pelo conector Google Drive não substitui prova de acesso pela Service Account configurada no Render.
 
 **Nunca comparar premiações de revisões diferentes como se fossem uma regressão do motor.** O motor novo deve primeiro ler a mesma revisão de todas as fontes da referência ou comparar contra um cálculo de referência atualizado e imutável; o snapshot anterior é somente linha de base histórica.
+
+
+## Mapeamento das métricas especiais — 25/09/2026
+
+Foram encontradas cinco regras especiais ativas na competência 09/2026: uma GLOBO (POSITIVACAO_CLIENTES), três HERBAMED (POSITIVACAO_CLIENTES, POSITIVACAO_GERAL, FATURAMENTO_LABORATORIO) e uma BRG/Integral (PONTUACAO_PRODUTO).
+
+Fontes oficiais rastreadas no GS:
+- GLOBO: abas `METRICA_GLOBO` (meta individual e prêmio) e `GLOBO_CLIENTES` (cliente único, competência, canal e positivação válida). Linha com cliente/data ausente é ignorada, não contamina toda a base.
+- HERBAMED: `HERBAMED_REGRAS`, `HERB_COM` (responsável + competência + canal e cliente único, COD CLIENTE/CNPJ), mais `FATURAMENTO_GERAL_MANUAL` e `POSITIVACAO_GERAL_MANUAL`. Ambos os indicadores manuais existem em `public.dismepe_config` no PostgreSQL. Não inventar zero se o indicador estiver ausente; preservar a leitura por competência e os registros históricos fechados.
+- Integral Médica/BRG: `INT_PONTOS` (movimentos faturados por data, canal, SKU, quantidade), `INTEGRAL_PRODUTOS` (pontos por SKU) e `INTEGRAL_FAIXAS` (faixas de premiação). A normalização unifica BRG SUPLEMENTOS e INTEGRALMEDICA. Linhas incompletas devem ser tratadas individualmente conforme a regra de origem, sem zerar indevidamente a base.
+- Regras auxiliares ainda necessitam ser reproduzidas fielmente na geração de `metricasParcial`, `metricasDetalhes`, `metricaPendente` e Resumo de Ganhos. Nenhuma regra especial pode ser premiada como zero silenciosamente.
+
+A aba administrativa BASES DISMEPE ONE está acessível via conector Google Drive e contém METRICA_GLOBO (31 linhas), GLOBO_CLIENTES (1044), HERBAMED_REGRAS (3), HERB_COM (1504), INTEGRAL_PRODUTOS (10), INTEGRAL_FAIXAS (4) e INT_PONTOS (345). A conferência de cabeçalhos das sete abas foi positiva. Existem registros incompletos nas fontes GLOBO_CLIENTES e HERB_COM; a validação permite ignorar linhas individualmente, mas rejeita base inteira inválida. Esse teste do conector **não** demonstra acesso pela Service Account em execução no Render.
+
+O módulo `api/monthly_auxiliary_sources.py` realiza validação estrutural e leitura somente-leitura das sete abas pela Service Account; `api/monthly_render_shadow.py` exige `DISMEPE_MONTHLY_AUXILIARY_SHEET_ID` no ambiente de teste e produz somente resumo das fontes e cobertura de regras, sem registrar nomes, documentos ou valores de clientes em logs. O módulo ainda não está instalado no serviço Render de produção, que segue branch main, e tampouco realiza o cálculo integral das métricas especiais.
+
+A validação unitária isolada usa GitHub Actions em `.github/workflows/monthly-shadow-validation.yml` na branch de desenvolvimento. Resultados de CI atestam apenas sintaxe e casos simulados, **não** paridade financeira de todas as premiações nem execução com credenciais no Render. O próximo passo técnico é implementar as fórmulas especiais e ler os indicadores manuais do SQL com controle de revisão, depois comparar fotografias calculadas sobre as mesmas revisões da fonte sem gravar MENSAL/HOME_PUBLICATION.
