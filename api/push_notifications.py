@@ -263,6 +263,15 @@ async def app_icon_v2_192():
                                  "X-Content-Type-Options": "nosniff"})
 
 
+@router.get("/app-icon-ios-white-20260925.png", include_in_schema=False)
+async def app_icon_ios_white():
+    # URL nova para instalações iOS que conservaram a imagem do atalho antigo.
+    # Servir exatamente o mesmo arquivo oficial já validado pelos usuários.
+    return FileResponse(ROOT / "frontend" / "app-icon-v2-192.png", media_type="image/png",
+                        headers={"Cache-Control": "no-store, max-age=0",
+                                 "X-Content-Type-Options": "nosniff"})
+
+
 @router.get("/manifest.webmanifest", include_in_schema=False)
 async def manifest():
     return FileResponse(ROOT / "frontend" / "push-manifest.webmanifest",
