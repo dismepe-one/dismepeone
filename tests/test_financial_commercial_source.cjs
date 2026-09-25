@@ -34,6 +34,11 @@ const data=records(),reference=JSON.stringify(data);
 const financial=sourceFrom(data);
 assert.equal(financial.ativa,true);
 assert.equal(financial.competencia,comp);
+assert.equal(ctx.v225PremioConferirRevisao_(financial,k=>data[k]),true);
+const inFlight=records();
+const inFlightSource=sourceFrom(inFlight);
+inFlight.MENSAL_COMERCIAL.atualizado_em='2026-09-25T11:18:15.025Z';
+mustFail(()=>ctx.v225PremioConferirRevisao_(inFlightSource,k=>inFlight[k]),'PREMIO_SQL_FONTE_ALTERADA_DURANTE_CALCULO');
 let annotateCalls=0;
 const context={
  dadosVendedores:[row()],dadosTelevendas:[row('TELEVENDAS')],
@@ -83,4 +88,4 @@ const identity=records();identity.MENSAL_COMERCIAL.payload.dadosVendedores[0].__
 mustFail(()=>sourceFrom(identity),'PREMIO_SQL_IDENTIDADE_DIVERGENTE');
 mustFail(()=>ctx.v225PremioContexto_(context,'08/2026',k=>data[k],x=>x),'PREMIO_SQL_COMPETENCIA_CALCULO_DIVERGENTE');
 assert.ok(!/['\"]CACHE_SET['\"]|['\"]OPCACHE_ATUALIZAR['\"]|fetch\s*\(|UrlFetchApp\.fetch\s*\(/i.test(source),'Adapter must never call cache writes or HTTP endpoints');
-console.log('PASS: 12 financial-source validation groups; original financial context and SQL snapshots preserved.');
+console.log('PASS: 13 financial-source validation groups; original financial context and SQL snapshots preserved.');
