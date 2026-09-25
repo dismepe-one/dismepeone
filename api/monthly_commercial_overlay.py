@@ -5,7 +5,8 @@ import copy
 from decimal import Decimal
 
 from .cache_reads import CacheReadError, cache_get
-from .monthly_commercial_live import CHANNELS, current_source, CommercialSyncError
+from .monthly_commercial_live import (CHANNELS, current_source, CommercialSyncError,
+                                      commercial_identity, commercial_identity_map)
 
 
 def _rows_for_comp(snapshot, key, competence):
@@ -22,6 +23,7 @@ def _commercial_copy(previous, incoming, key, comp):
         raise ValueError("Identidade de linha divergente.")
     row.update({
         "__COMPETENCIA": comp, "competencia": comp,
+        "__linha": incoming["__linha"], "__aba": incoming["__aba"],
         "__COLABORADOR": incoming["__COLABORADOR"], "__LAB": incoming["__LAB"],
         "__OBJETIVO": objective, "__VENDA": sale,
         "__TEM_FOCO": incoming["__TEM_FOCO"],
@@ -62,17 +64,16 @@ def overlay_commercial(original, original_row, commercial, commercial_row, basel
         if any(not isinstance(row, dict) or row.get("__COMPETENCIA") != comp for row in incoming):
             return original, original_row
         old = _rows_for_comp(data, key, comp)
-        mapped = {str(row.get("__linha")): row for row in old}
         result = []
-        used = set()
         try:
+            mapped = commercial_identity_map(old, key, comp)
+            incoming_mapped = commercial_identity_map(incoming, key, comp)
+            if len(incoming_mapped) != len(incoming):
+                return original, original_row
             for row in incoming:
-                line = str(row["__linha"])
-                if line in used:
-                    return original, original_row
-                used.add(line)
-                result.append(_commercial_copy(mapped.get(line), row, key, comp))
-        except (KeyError, TypeError, ValueError, ArithmeticError):
+                identity = commercial_identity(row, key, comp)
+                result.append(_commercial_copy(mapped.get(identity), row, key, comp))
+        except (CommercialSyncError, KeyError, TypeError, ValueError, ArithmeticError):
             return original, original_row
         data[key] = [row for row in data[key]
                      if str(row.get("__COMPETENCIA") or row.get("competencia") or "") != comp] + result
