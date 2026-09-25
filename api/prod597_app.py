@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 import jwt
 from fastapi import Cookie, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from . import main as main_module
 from . import prod4_app as prod4
@@ -46,6 +46,82 @@ app.include_router(stock_schedule_router)
 # Pilot of confidentiality agreement: endpoints only, no access guard until Drive verified.
 app.include_router(terms_responsibility_router)
 app.include_router(terms_storage_router)
+
+# Aceite obrigatório limitado à conta JOSE. Todas as demais contas seguem sem
+# alteração. O estado vem do registro confirmado no PostgreSQL, nunca do JS.
+# Cache apenas de aceites positivos para evitar consultar o banco a cada asset.
+_TERMS_JOSE_POSITIVE = {}
+
+@app.middleware("http")
+async def jose_confidentiality_term_guard(request: Request, call_next):
+    session = request.cookies.get(settings.cookie_name)
+    if not session:
+        return await call_next(request)
+    try:
+        profile = decode_session_token(
+            session, secret=settings.jwt_secret, issuer=settings.jwt_issuer,
+        )
+    except Exception:
+        return await call_next(request)
+    if str(profile.get("usuario") or profile.get("sub") or "").strip().upper() != "JOSE":
+        return await call_next(request)
+
+    # Uma exigência já existente de troca de senha tem precedência. Após
+    # a troca, JOSE será direcionado ao termo antes de ver dados comerciais.
+    perms = profile.get("permissoes")
+    if isinstance(perms, dict) and perms.get(PASSWORD_CHANGE_REQUIRED) is True:
+        return await call_next(request)
+
+    path = request.url.path
+    public_paths = {
+        "/health", "/auth/login", "/auth/me", "/auth/logout",
+        "/termo/assinar", "/termo/api/status", "/termo/api/assinar",
+    }
+    if path in public_paths:
+        return await call_next(request)
+    # Recursos estáticos não contêm dados comerciais; APIs e páginas
+    # autenticadas continuam fechadas enquanto não houver aceite.
+    static = request.method == "GET" and path.lower().endswith((
+        ".js", ".css", ".png", ".jpg", ".jpeg", ".svg", ".ico",
+        ".webp", ".woff", ".woff2", ".ttf", ".webmanifest",
+    )) and not path.startswith(("/api/", "/admin/", "/data/"))
+    if static:
+        return await call_next(request)
+
+    import time as _time
+    from .terms_storage_routes import storage_call
+    key = hashlib.sha256(session.encode("utf-8")).hexdigest()
+    now = _time.monotonic()
+    if _TERMS_JOSE_POSITIVE.get(key, 0) <= now:
+        try:
+            result = await storage_call("STATUS", "JOSE")
+        except Exception:
+            return JSONResponse(
+                status_code=503,
+                content={"detail": {"codigo": "TERMO_STATUS_INDISPONIVEL",
+                                    "mensagem": "Não foi possível verificar o Termo. Tente novamente."}},
+                headers={"Cache-Control": "no-store, private"},
+            )
+        if result.get("assinado") is True:
+            if len(_TERMS_JOSE_POSITIVE) > 1024:
+                _TERMS_JOSE_POSITIVE.clear()
+            _TERMS_JOSE_POSITIVE[key] = now + 30
+        else:
+            if request.method == "GET" and (
+                path in {"/", "/portal-v2-homolog.html"}
+                or "text/html" in request.headers.get("accept", "").lower()
+            ):
+                return RedirectResponse(url="/termo/assinar", status_code=303,
+                                        headers={"Cache-Control": "no-store, private"})
+            return JSONResponse(
+                status_code=428,
+                content={"detail": {"codigo": "TERMO_RESPONSABILIDADE_OBRIGATORIO",
+                                    "mensagem": "Assine o Termo de Responsabilidade antes de continuar.",
+                                    "destino": "/termo/assinar"}},
+                headers={"Cache-Control": "no-store, private"},
+            )
+    return await call_next(request)
+
 LEGACY_COOKIE_PREFIX = "dismepe_legacy_"
 LEGACY_COOKIE_MAX_AGE = 3 * 60 * 60
 
