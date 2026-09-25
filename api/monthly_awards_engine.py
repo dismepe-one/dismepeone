@@ -104,14 +104,15 @@ def group_rows(rows: list[dict[str,Any]]) -> list[dict[str,Any]]:
 
 def simple_award(group: dict[str,Any], rules: list[dict[str,Any]]) -> Decimal:
     """Premio de referencia apenas para regras simples, jamais publica resultado."""
+    lab = laboratory(group["laboratorio"])
     selected=[r for r in rules if isinstance(r,dict) and r.get("ativo") is not False
               and str(r.get("competencia") or "")==group["competencia"]
-              and laboratory(r.get("laboratorio"))==group["laboratorio"]
+              and laboratory(r.get("laboratorio"))==lab
               and channel(r.get("canal")) in ("TODOS",group["canal"])]
     specific=[r for r in selected if channel(r.get("canal"))==group["canal"]]
     if specific: selected=specific
     if not selected:return Decimal(0)
-    if group["laboratorio"] in ("HERBAMED","GLOBO","INTEGRALMEDICA"):
+    if lab in ("HERBAMED","GLOBO","INTEGRALMEDICA"):
         raise MonthlyAwardUnsupported("Premiacao especial depende de bases auxiliares.")
     if any(metric(r.get("metrica")) not in SIMPLE_METRICS or
            prize_type(r.get("tipo") or r.get("tipoPremiacao")) not in SIMPLE_TYPES or
@@ -128,10 +129,10 @@ def simple_award(group: dict[str,Any], rules: list[dict[str,Any]]) -> Decimal:
         m=metric(r.get("metrica"))
         base={"FATURAMENTO":venda,"OBJETIVO":meta,"ATINGIMENTO":ating}[m]
         minimum=amount(r.get("minAtingimento"))
-        if group["laboratorio"]=="UNIPHAR":
+        if lab=="UNIPHAR":
             if meta<=0 or venda<meta:continue
             base=meta
-        if group["competencia"]=="08/2026" and group["laboratorio"]=="ARTE NATIVA" and group["canal"]=="VENDEDOR" and m=="FATURAMENTO":
+        if group["competencia"]=="08/2026" and lab=="ARTE NATIVA" and group["canal"]=="VENDEDOR" and m=="FATURAMENTO":
             if meta<=0 or venda<meta or minimum<meta:continue
         maximum=r.get("maxAtingimento")
         if base>=minimum and (maximum is None or base<=amount(maximum)):
