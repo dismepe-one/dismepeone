@@ -72,5 +72,5 @@ def test_browser_stops_legacy_wait_after_confirmed_commercial_sql():
           "home-publication-prod59823.js").read_text(encoding="utf-8")
     assert "syncResult==='COMERCIAL_SQL_PUBLICADO'" in js
     assert "syncResult==='SEM_ALTERACAO'" in js
-    assert js.index("syncResult==='COMERCIAL_SQL_PUBLICADO'") < js.index("waitForMonthlyPersistence(publishedSignature")
+    assert js.index("syncResult==='COMERCIAL_SQL_PUBLICADO'") < js.index("let state=await waitForMonthlyPersistence(publishedSignature")
     assert "actual<expected" in js
