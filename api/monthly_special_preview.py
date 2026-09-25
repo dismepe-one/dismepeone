@@ -24,7 +24,8 @@ REQUIRED = ("METRICA_GLOBO", "GLOBO_CLIENTES", "HERBAMED_REGRAS",
 
 def preview_special_awards(
     snapshot: dict[str, Any], matrices: dict[str, list[list[Any]]],
-    indicators: dict[str, Any], competence: str,
+    indicators: dict[str, Any], competence: str, *,
+    uses_old_participants: bool = True,
 ) -> dict[str, Any]:
     """Resumo sem nome de vendedor ou valor individual; jamais prova paridade."""
     if not isinstance(snapshot, dict) or not isinstance(matrices, dict):
@@ -99,7 +100,7 @@ def preview_special_awards(
         "competencia": competence,
         "componentesPorLaboratorio": dict(sorted(out.items())),
         "componentesPendentesPorLaboratorio": dict(sorted(pending.items())),
-        "usaParticipantesDaFotografiaAnterior": True,
+        "usaParticipantesDaFotografiaAnterior": uses_old_participants,
         "premiacoesComparadasComMesmaRevisao": False,
         "publicacaoAutorizada": False,
     }
