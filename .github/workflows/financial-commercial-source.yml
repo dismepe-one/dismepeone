@@ -12,6 +12,8 @@ jobs:
     timeout-minutes: 7
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -21,4 +23,4 @@ jobs:
         run: node tests/test_financial_commercial_source.cjs
       - name: Ensure commercial update and HOME files were not changed
         run: |
-          git diff --exit-code 'HEAD~3' HEAD -- api/main.py api/prod597_app.py api/home_publication.py api/monthly_commercial_live.py api/monthly_commercial_overlay.py frontend/home-publication-prod59823.js frontend/monthly-sync-prod597.js
+          git diff --exit-code '220939afbd17d00a9b9b970b7a9a270a609dc78a' HEAD -- api/main.py api/prod597_app.py api/home_publication.py api/monthly_commercial_live.py api/monthly_commercial_overlay.py frontend/home-publication-prod59823.js frontend/monthly-sync-prod597.js
