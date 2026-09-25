@@ -38,7 +38,7 @@ def main():
         raise SystemExit("Conexao de leitura SQL ou identificador da planilha nao configurado.")
     import psycopg
     try:
-        with psycopg.connect(database, connect_timeout=8) as conn:
+        with psycopg.connect(database, host=os.environ.get('DISMEPE_MONTHLY_POOLER_HOST'), user=os.environ.get('DISMEPE_MONTHLY_POOLER_USER'), connect_timeout=8) as conn:
             with conn.cursor() as cur:
                 cur.execute("BEGIN READ ONLY")
                 cur.execute("SET LOCAL statement_timeout = '15s'")
