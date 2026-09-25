@@ -29,6 +29,7 @@ from .update_center import (
 from .home_publication import router as home_publication_router
 from .stock_schedule_admin import router as stock_schedule_router
 from .terms_responsibility import router as terms_responsibility_router
+from .terms_storage_routes import router as terms_storage_router
 
 
 BUILD = "2.0.0-phase2i2-prod5.9.7.3-legacy-cookie"
@@ -44,6 +45,7 @@ app.include_router(home_publication_router)
 app.include_router(stock_schedule_router)
 # Pilot of confidentiality agreement: endpoints only, no access guard until Drive verified.
 app.include_router(terms_responsibility_router)
+app.include_router(terms_storage_router)
 
 LEGACY_COOKIE_PREFIX = "dismepe_legacy_"
 LEGACY_COOKIE_MAX_AGE = 3 * 60 * 60
