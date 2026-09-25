@@ -30,3 +30,13 @@ O código usa transação SQL `BEGIN READ ONLY` e consulta apenas `MENSAL` e os 
 5. Para paridade financeira, calcular todos os campos e o Resumo de Ganhos com a MESMA revisão das fontes do cálculo de referência; contagens e prévia dos especiais não substituem essa prova.
 
 Não realizar merge em main nem acionar deploy do serviço de produção até que os bloqueios de paridade sejam resolvidos.
+
+
+## Estado efetivamente configurado após a primeira implantação
+
+- Views exclusivas `dismepe_monthly_homolog.monthly_snapshot` e `dismepe_monthly_homolog.manual_indicators` criadas; SELECT concedido ao papel `dismepe_monthly_homolog_ro`.
+- Login independente `dismepe_monthly_homolog_login` criado com privilégio de leitura herdado, sem permissão nas duas tabelas públicas originais e sem permissão de escrita nas views. A credencial foi instalada diretamente na variável privada do serviço de homologação, sem ser exibida.
+- A tentativa de conexão do Render ao host direto `db.[ref].supabase.co:5432` falhou com `OperationalError`. O serviço oficial não foi alterado. O Render não suporta conexão direta IPv6 em condições comuns; o próximo teste requer o host **exato** do pooler em modo sessão (porta 5432) fornecido pelo painel Connect do projeto Supabase. O índice de cluster não pode ser inferido da região; não adivinhar ou usar host de outro projeto.
+- Ao trocar o endereço, preservar a senha já instalada no Render: a substituição deverá ocorrer por atualização segura da variável, sem exibir a URL completa. No pooler, o nome do login será `dismepe_monthly_homolog_login.[PROJECT_REF]` (não usar nome curto).
+- Uma conta de serviço Google exclusivamente leitora ainda precisa ser criada/autorizada no Google Cloud e receber acesso de leitura às duas planilhas. Não copiar chaves administrativas do serviço oficial.
+- Não executar o cálculo financeiro real enquanto não estiverem confirmados ambos os acessos; a rota /status apenas mostra o resultado agregado da sondagem SQL e não publica.
