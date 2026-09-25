@@ -511,7 +511,11 @@
           if(!applied)throw new Error('A publicacao foi gravada, mas a HOME ainda nao confirmou os novos numeros. Nao foi exibido sucesso indevido.');
           monthlyPublished=!!publication.atualizouHorario;
           results.push(state.novosNumeros
-            ?'Campanhas Mensais: novos números publicados.'
+            ?(publication.avisoMetricasEspeciais
+                ?'Campanhas Mensais: novos números de vendas publicados; verificação das positivações não concluída.'
+                :publication.metricasEspeciaisAtualizadas
+                  ?'Campanhas Mensais: novos números de vendas e positivações publicados.'
+                  :'Campanhas Mensais: novos números publicados; não houve alterações nas positivações.')
             :publication.metricasEspeciaisAtualizadas
               ?'Campanhas Mensais: positivações especiais atualizadas; vendas preservadas.'
               :'Campanhas Mensais: voce ja esta na ultima versao atualizada; horario e historico mantidos.');
