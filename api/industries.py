@@ -2404,8 +2404,8 @@ async def industries_page(
                             '<meta name="theme-color" content="#087b51">'
                             '<meta name="apple-mobile-web-app-capable" content="yes">'
                             '<meta name="apple-mobile-web-app-title" content="DISMEPE ONE">'
-                            '<link rel="icon" type="image/png" sizes="192x192" href="/push/app-icon-v2-192.png?v=DISMEPE-ICON-3">'
-                            '<link rel="apple-touch-icon" sizes="192x192" href="/push/app-icon-v2-192.png?v=DISMEPE-ICON-3"></head>', 1)
+                            '<link rel="icon" type="image/png" sizes="192x192" href="/push/app-icon-ios-white-20260925.png">'
+                            '<link rel="apple-touch-icon" sizes="192x192" href="/push/app-icon-ios-white-20260925.png"></head>', 1)
     if html.count("</body>") != 1:
         raise RuntimeError("Fechamento do portal Industrias nao encontrado.")
     html = html.replace(
