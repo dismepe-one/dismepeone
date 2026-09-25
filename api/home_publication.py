@@ -295,7 +295,9 @@ def _special_metrics_changed(previous: dict[str, Any], candidate: dict[str, Any]
                              _partial_value(p.get("premioConfigurado")),
                              _partial_value(p.get("pontosGerais")), p.get("gatilhoGeralOK"))
                             for p in items if isinstance(p, dict) and p.get("metrica") in
-                            ("POSITIVACAO_CLIENTES", "PONTUACAO_PRODUTO")]
+                            ("POSITIVACAO_CLIENTES", "PONTUACAO_PRODUTO")
+                            or (str(row.get("__LAB") or "").upper().startswith("HERBAMED")
+                                and p.get("metrica") in ("FATURAMENTO_LABORATORIO", "POSITIVACAO_GERAL"))]
                 if selected and (str(row.get("__LAB") or "").upper().startswith(
                         ("GLOBO", "HERBAMED", "BRG", "INTEGRAL"))):
                     values.append((key, str(row.get("__COMPETENCIA") or ""),
@@ -685,6 +687,7 @@ async def _home_publication_publish_locked(
                     "Os numeros comerciais, horarios e historico foram preservados. "
                     "Confira o acesso do leitor Google mensal as abas auxiliares."
                 ) from exc
+            mensal_publicado = await enrich_herbamed_monthly_payload(mensal_publicado)
             special_changed = _special_metrics_changed(current, mensal_publicado)
             partials_changed = special_changed
             if not special_changed:
@@ -726,6 +729,7 @@ async def _home_publication_publish_locked(
                     "atualizadas. A publicacao comercial foi preservada."
                 )
             sales_changed = _partial_sales_changed(current, mensal_publicado)
+            mensal_publicado = await enrich_herbamed_monthly_payload(mensal_publicado)
             special_changed = not special_warning and _special_metrics_changed(
                 current, mensal_publicado
             )
@@ -760,14 +764,14 @@ async def _home_publication_publish_locked(
         # Publicar a parcial Mensal não altera o horário próprio de Extras.
         display_times = {
             "mensal": {
-                "iso": now_iso if partials_changed else mensal_iso,
-                "display": now_display if partials_changed else str(
+                "iso": now_iso if body.atualizarHorario and partials_changed else mensal_iso,
+                "display": now_display if body.atualizarHorario and partials_changed else str(
                     mensal_old.get("display") or _format_time(mensal_iso)
                 ),
             },
             "extras": {
-                "iso": now_iso if extras_changed else extras_iso,
-                "display": now_display if extras_changed else str(
+                "iso": now_iso if body.atualizarHorario and extras_changed else extras_iso,
+                "display": now_display if body.atualizarHorario and extras_changed else str(
                     extras_old.get("display") or _format_time(extras_iso)
                 ),
             },
@@ -783,7 +787,7 @@ async def _home_publication_publish_locked(
             "publicadoEm": now_iso,
             "publicadoEmFormatado": now_display,
             "publicadoPor": username,
-            "horarioHomeAlterado": partials_changed,
+            "horarioHomeAlterado": bool(body.atualizarHorario and partials_changed),
             "fonteMensal": monthly_source_meta,
             "fonteExtras": _source_meta(extras_row),
         }
@@ -807,8 +811,8 @@ async def _home_publication_publish_locked(
             "publicationId": publication_id,
             "publicadoEm": now_iso,
             "publicadoPor": username,
-            "atualizouHorario": partials_changed,
-            "atualizouHorarioExtras": extras_changed,
+            "atualizouHorario": bool(body.atualizarHorario and partials_changed),
+            "atualizouHorarioExtras": bool(body.atualizarHorario and extras_changed),
             "inseriuHistorico": bool(body.inserirHistorico),
             "displayTimes": display_times,
             "fontes": {
@@ -933,8 +937,8 @@ async def _home_publication_publish_locked(
             "publicationId": publication_id,
             "publicadoEm": now_iso,
             "publicadoEmFormatado": now_display,
-            "atualizouHorario": partials_changed,
-            "atualizouHorarioExtras": extras_changed,
+            "atualizouHorario": bool(body.atualizarHorario and partials_changed),
+            "atualizouHorarioExtras": bool(body.atualizarHorario and extras_changed),
             "inseriuHistorico": bool(body.inserirHistorico),
             "displayTimes": display_times,
             "historico": history,
