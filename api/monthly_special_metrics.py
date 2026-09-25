@@ -238,6 +238,16 @@ def calculate(payload: dict, sources: dict) -> dict:
                 total = sum((number(p.get("premio", 0)) for p in detail["componentes"]), Decimal(0))
                 detail["valor"] = float(total)
                 detail["pendente"] = any(p.get("pendente") is True for p in detail["componentes"])
+                detail["motivo"] = " | ".join(
+                    str(p.get("motivo") or "") for p in detail["componentes"] if p.get("pendente")
+                )
+                if len(detail["componentes"]) == 1:
+                    metric = detail["componentes"][0]
+                    detail["realizado"] = metric.get("realizado")
+                    target = number(metric.get("meta"))
+                    detail["atingimento"] = (
+                        float(number(metric.get("realizado")) / target * 100) if target else 0
+                    )
                 rule = detail.get("regra")
                 if isinstance(rule, dict):
                     rule["valor"] = float(total)
