@@ -39,7 +39,7 @@ async def notify_scheduled_stock_import(sha256: str) -> bool:
         "criadoPor": "Atualização automática do Mapa",
         "publicarEm": now.isoformat(), "expiraEm": "",
         "importante": False, "exibirUmaVez": False,
-        "destino": {"modulo": "INDUSTRIAS", "tela": "MAPA", "fornecedor": ""},
+        "destino": {"modulo": "HOME", "tela": "INICIO", "fornecedor": ""},
         "pushStatus": "AGENDADO", "origem": "MAPA_AUTO_CIENCIA_ADMIN",
         "sha256": digest,
     }
