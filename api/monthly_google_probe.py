@@ -9,12 +9,16 @@ def google_reader_configured():
 
 
 def probe_google_sources():
+    import logging
     import os
     from google.oauth2.service_account import Credentials
     from googleapiclient.discovery import build
 
     info = monthly_google_reader_info()
     if not info:
+        logging.getLogger("uvicorn.error").warning(
+            "MONTHLY_HOMOLOG_GOOGLE_DETAIL=CREDENTIAL_NOT_LOADED"
+        )
         return False
     service = build(
         "sheets", "v4",
@@ -32,6 +36,10 @@ def probe_google_sources():
     for variable, required in sources:
         spreadsheet_id = os.getenv(variable, "").strip()
         if not spreadsheet_id:
+            stage = "CURRENT" if variable == "DISMEPE_MONTHLY_CURRENT_SHEET_ID" else "AUXILIARY"
+            logging.getLogger("uvicorn.error").warning(
+                "MONTHLY_HOMOLOG_GOOGLE_DETAIL=%s_ID_NOT_LOADED", stage
+            )
             return False
         data = service.spreadsheets().get(
             spreadsheetId=spreadsheet_id,
@@ -39,5 +47,10 @@ def probe_google_sources():
         ).execute(num_retries=1)
         found = {item["properties"]["title"] for item in data.get("sheets", [])}
         if not required.issubset(found):
+            stage = "CURRENT" if variable == "DISMEPE_MONTHLY_CURRENT_SHEET_ID" else "AUXILIARY"
+            logging.getLogger("uvicorn.error").warning(
+                "MONTHLY_HOMOLOG_GOOGLE_DETAIL=%s_REQUIRED_TABS_MISSING count=%s",
+                stage, len(required - found),
+            )
             return False
     return True
