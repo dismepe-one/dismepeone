@@ -1386,7 +1386,7 @@ async def prod597_update_center(
             # Nunca acionar o worker legado como fallback de uma falha Google/SQL.
             # Nao divulgar mensagens de excecoes externas (podem conter dados
             # da requisicao), mas registrar o tipo para diagnostico no Render.
-            logger.exception("Campanhas Mensais: erro inesperado na sincronizacao comercial (%s)", type(exc).__name__)
+            main_module.logger.exception("Campanhas Mensais: erro inesperado na sincronizacao comercial (%s)", type(exc).__name__)
             raise HTTPException(
                 status_code=502,
                 detail="Campanhas Mensais: falha técnica na sincronização comercial. "
