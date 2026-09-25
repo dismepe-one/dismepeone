@@ -46,6 +46,16 @@ app.include_router(stock_schedule_router)
 # Pilot of confidentiality agreement: endpoints only, no access guard until Drive verified.
 app.include_router(terms_responsibility_router)
 app.include_router(terms_storage_router)
+# Temporary diagnostic; removed immediately after checking the Render log.
+@app.on_event("startup")
+async def _term_private_storage_once():
+    import logging
+    from .terms_storage_routes import diagnostic_private
+    result = await diagnostic_private(({"tipo": "ADMINISTRADOR"}, "DANTON"))
+    logger = logging.getLogger("uvicorn.error")
+    logger.info("TERMS_PRIVATE_STORAGE_TEST success=%s operation=%s",
+                result.get("sucesso") is True, result.get("gravarLerExcluirPDF") or result.get("motivo"))
+
 
 LEGACY_COOKIE_PREFIX = "dismepe_legacy_"
 LEGACY_COOKIE_MAX_AGE = 3 * 60 * 60
