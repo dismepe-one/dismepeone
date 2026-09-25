@@ -274,7 +274,7 @@ def _read_current_source(
     preview_snapshot = dict(snapshot, **candidate)
     preview = preview_special_awards(
         preview_snapshot, auxiliary_matrices, manual_indicators,
-        source.competence,
+        source.competence, uses_old_participants=False,
     )
     return {
         "competencia": source.competence,
