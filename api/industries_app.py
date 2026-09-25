@@ -135,7 +135,7 @@ def _portal_response(*, authenticated: bool = False) -> HTMLResponse:
     if head_end >= 0:
         pwa_meta = ('<link rel="manifest" href="/push/manifest.webmanifest?v=DISMEPE-ICON-3">'
                     '<link rel="icon" type="image/png" sizes="192x192" href="/push/app-icon-ios-white-20260925.png">'
-                    '<link rel="apple-touch-icon" sizes="192x192" href="/push/app-icon-ios-white-20260925.png">'
+                    '<link rel="apple-touch-icon" sizes="192x192" href="/apple-touch-icon-dismepe-20260925.png">'
                     '<meta name="theme-color" content="#087b51">'
                     '<meta name="apple-mobile-web-app-capable" content="yes">'
                     '<meta name="apple-mobile-web-app-title" content="DISMEPE ONE">')
@@ -239,6 +239,7 @@ async def industries_route_guard(request: Request, call_next):
         allowed = (
             path.startswith("/industrias")
             or path.startswith("/push/")
+            or path in {"/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/apple-touch-icon-dismepe-20260925.png"}
             or path in {"/auth/me", "/auth/logout", "/health"}
             or (path == "/admin/security/change-required-password"
                 and request.method == "POST"
@@ -271,6 +272,21 @@ async def industries_root_alias(request: Request):
     if profile and (is_industry_profile(profile) or is_buyer_profile(profile)):
         return RedirectResponse(url="/industrias", status_code=303)
     return _portal_response(authenticated=True) if profile else _public_login_response()
+
+
+# Safari iOS pode consultar o ícone na raiz do domínio, mesmo com o
+# manifesto PWA configurado. Usar a mesma imagem oficial, sem redirecionar
+# para a rota antiga em /push/ e sem servir qualquer recurso comercial.
+@app.get("/apple-touch-icon.png", include_in_schema=False)
+@app.get("/apple-touch-icon-precomposed.png", include_in_schema=False)
+@app.get("/apple-touch-icon-dismepe-20260925.png", include_in_schema=False)
+async def ios_home_screen_icon():
+    return FileResponse(
+        ROOT / "frontend" / "app-icon-v2-192.png",
+        media_type="image/png",
+        headers={"Cache-Control": "no-store, max-age=0",
+                 "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @app.get("/industries-router.js", include_in_schema=False)
