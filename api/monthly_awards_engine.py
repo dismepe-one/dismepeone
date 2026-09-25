@@ -45,6 +45,11 @@ def laboratory(value: Any) -> str:
     name=normalized(re.sub(r"\s*-\s*Prod\.\s*Foco\s*\(\d+\)\s*$","",str(value or ""),flags=re.I))
     if name=="AGAPLASTIC" or name.startswith("AGAPLASTIC INDUSTRIA E COMERCIO"): return "AGAPLASTIC"
     if name=="BIOLAB" or name.startswith("BIOLAB "): return "BIOLAB"
+    # V225/V226: BRG e Integral Medica partilham a regra de pontos.
+    if (name=="INTEGRAL" or name.startswith("INTEGRAL MEDICA")
+            or name.startswith("INTEGRALMEDICA")
+            or name.startswith("BRG SUPLEMENTOS")):
+        return "INTEGRALMEDICA"
     return name
 
 def metric(value: Any) -> str:
