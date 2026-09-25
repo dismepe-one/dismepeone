@@ -1,48 +1,127 @@
-<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Termos de Responsabilidade</title><style>body{font:15px system-ui;background:#eff7f2;color:#164632;padding:16px}main{max-width:850px;margin:auto;background:white;padding:25px;border-radius:15px}button,a{background:#087b51;color:white;padding:11px;border:0;border-radius:8px;margin:5px;text-decoration:none;cursor:pointer}table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px solid #ddd;text-align:left}p{line-height:1.5}</style><main><h1>Termos de Responsabilidade</h1><p>Área exclusiva do administrador DANTON. O piloto de assinatura para DANTON e JOSE ainda não bloqueia o acesso ao sistema.</p><a href="/termo/assinar">Abrir termo</a><button id="refresh">Atualizar</button><button id="export" disabled>Exportar PDFs em ZIP</button><button id="archive" disabled>Remover PDFs após confirmar backup</button><p id="status">Carregando...</p><table><thead><tr><th>Usuário</th><th>Assinatura</th><th>PDF</th></tr></thead><tbody id="rows"></tbody></table><p>Após a exportação, guarde o ZIP em local seguro e confira os PDFs. A exclusão dos originais dependerá de confirmação separada. O registro do aceite permanecerá no PostgreSQL.</p></main><script>
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Termos de Responsabilidade | DISMEPE ONE</title>
+<style>
+:root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#193329;background:#f2f6f3}
+*{box-sizing:border-box}body{margin:0;min-height:100vh}button,a{font:inherit}button{cursor:pointer}
+header{background:#fff;border-bottom:1px solid #dfebe3;padding:13px max(18px,calc((100vw - 1180px)/2));display:flex;align-items:center;justify-content:space-between;gap:16px}
+header img{width:clamp(140px,24vw,188px);max-height:62px;object-fit:contain}
+header a{font-weight:800;font-size:13px;color:#17633f;text-decoration:none;border:1px solid #dbe8df;border-radius:10px;padding:10px 13px;white-space:nowrap}
+main{max-width:1180px;margin:0 auto;padding:27px 18px 55px}
+.eyebrow{color:#15824c;font-size:11px;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
+h1{font-size:clamp(25px,4vw,33px);margin:7px 0 5px;letter-spacing:-.025em}p{line-height:1.6}.lead{color:#627768;font-size:13px;margin:0 0 23px}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:18px 0}
+.stat,.panel{background:#fff;border:1px solid #deebe2;border-radius:16px;box-shadow:0 8px 30px #19332908}
+.stat{padding:17px 19px}.stat span{color:#61796c;font-size:11px;font-weight:800;display:block}.stat strong{font-size:29px;line-height:1.5;color:#16553b}
+.panel{padding:23px;margin-top:16px}.panel-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap}.panel h2{font-size:17px;margin:0 0 6px}.muted{color:#63786c;font-size:12px;margin:0 0 12px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.action{display:inline-flex;gap:7px;align-items:center;justify-content:center;padding:11px 14px;border:0;border-radius:10px;background:#12834d;color:#fff;font-size:12px;font-weight:850;text-decoration:none;min-height:40px}
+.action.secondary{background:#eaf4ed;color:#17613d}.action.danger{background:#fff2ee;color:#ad4c36;border:1px solid #f0d8cf}
+.action:disabled{opacity:.45;cursor:not-allowed}
+.table-wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:490px;text-align:left}th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#758579;padding:12px 9px;border-bottom:1px solid #dfe8e1}td{font-size:12px;padding:13px 9px;border-bottom:1px solid #edf2ed;vertical-align:middle}tr:last-child td{border-bottom:0}
+.chip{display:inline-block;padding:5px 9px;border-radius:100px;background:#e7f5ec;color:#197443;font-size:11px;font-weight:800}.chip.pending{background:#fff4e7;color:#96632b}.chip.archived{background:#eff1f0;color:#65766b}
+.link{color:#147548;font-weight:800;text-decoration:none;font-size:12px}
+.note{border:1px solid #f1dfa7;background:#fffbef;color:#775a20;border-radius:12px;padding:13px;font-size:12px;line-height:1.65}
+#status{min-height:20px;font-size:12px;color:#52725c;margin:15px 0 2px}
+@media(max-width:650px){header{padding:12px 14px}header img{width:132px}header a{font-size:11px;padding:9px 10px}main{padding:21px 12px 40px}.grid{gap:7px}.stat{padding:12px 10px}.stat strong{font-size:23px}.stat span{font-size:10px}.panel{padding:17px 13px}.action{flex:1 1 auto}.actions{width:100%}}
+</style></head>
+<body>
+<header><img src="/positivacoes/logo.png" alt="Logo oficial DISMEPE ONE"><a href="/">← Voltar à HOME</a></header>
+<main>
+<div class="eyebrow">Administração · Documentos internos</div>
+<h1>Termos de Responsabilidade</h1>
+<p class="lead">Acompanhe os aceites, consulte os PDFs assinados e gerencie o armazenamento privado.</p>
+<div class="grid" aria-label="Resumo das assinaturas">
+<div class="stat"><span>Usuários no piloto</span><strong id="total">2</strong></div>
+<div class="stat"><span>Assinados</span><strong id="signed">—</strong></div>
+<div class="stat"><span>Pendentes</span><strong id="pending">—</strong></div>
+</div>
+<section class="panel">
+<div class="panel-head"><div><h2>Controle de assinaturas</h2><p class="muted">Acesso exclusivo à conta DANTON · Versão 1.0</p></div>
+<div class="actions"><a class="action secondary" href="/termo/assinar">Meu termo</a><button class="action secondary" id="refresh">Atualizar</button><button class="action" id="export" disabled>Exportar PDFs em ZIP</button></div></div>
+<div class="table-wrap"><table><thead><tr><th>Usuário</th><th>Situação</th><th>Data da assinatura</th><th>Documento</th></tr></thead><tbody id="rows"></tbody></table></div>
+<p id="status" role="status" aria-live="polite">Consultando os registros...</p>
+</section>
+<section class="panel"><h2>Exportação e arquivamento</h2>
+<p class="muted">Os PDFs ficam no armazenamento privado do DISMEPE ONE. O banco mantém o registro mínimo de cada aceite.</p>
+<div class="note">Antes de remover arquivos do sistema, baixe o ZIP, confira todos os PDFs e guarde o backup em local seguro. A remoção é uma ação separada, exige confirmação explícita e não exclui os registros de aceite.</div>
+<div class="actions" style="margin-top:16px"><button id="archive" class="action danger" disabled>Confirmar backup e remover PDFs exportados</button></div>
+<p id="archiveStatus" class="muted">Nenhuma exclusão está autorizada.</p>
+</section>
+</main>
+<script>
+(()=>{'use strict';
 const $=id=>document.getElementById(id);
-let backupToken="";
+let backupToken='';
+const write=message=>$('status').textContent=message;
+const clearBackup=()=>{backupToken='';$('archive').disabled=true;$('archiveStatus').textContent='Nenhuma exclusão está autorizada.'};
 async function load(){
- backupToken="";$("archive").disabled=true;
- try{const r=await fetch("/termo/admin/api/lista",{credentials:"include",cache:"no-store"}),data=await r.json();
- if(!r.ok||!data.sucesso)throw Error("Consulta indisponível.");
- const map=new Map(data.documentos.map(v=>[v.usuario_norm,v]));
- $("rows").replaceChildren();
- for(const name of ["DANTON","JOSE"]){const entry=map.get(name),tr=document.createElement("tr");
- for(const value of [name,entry?new Date(entry.aceito_em).toLocaleString("pt-BR"):"Pendente"]){const td=document.createElement("td");td.textContent=value;tr.appendChild(td)}
- const td=document.createElement("td");
- if(entry&&entry.storage_path&&!entry.arquivo_removido_em){const a=document.createElement("a");a.href="/termo/admin/api/arquivo/"+encodeURIComponent(entry.id);a.textContent="Baixar PDF";td.appendChild(a)}
- else td.textContent=entry?"Arquivado":"—";
- tr.appendChild(td);$("rows").appendChild(tr)}
- $("export").disabled=!data.documentos.some(x=>x.storage_path&&!x.arquivo_removido_em);
- $("status").textContent=data.documentos.length+" aceite(s) registrado(s).";
- }catch(e){$("status").textContent=String(e.message||e)}}
-$("refresh").onclick=load;
-$("export").onclick=async()=>{try{
- const r=await fetch("/termo/admin/api/exportar",{credentials:"include",cache:"no-store"});
- if(!r.ok)throw Error("Exportação não confirmada.");
- backupToken=r.headers.get("X-Dismepe-Backup-Token")||"";
- const zip=await r.blob();if(!backupToken||zip.size<200)throw Error("Backup não confirmado.");
- const url=URL.createObjectURL(zip);const a=document.createElement("a");
- a.href=url;a.download="TERMOS_DISMEPE_ONE_BACKUP.zip";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
- $("archive").disabled=false;
- $("status").textContent="ZIP disponibilizado. Confira os PDFs e guarde o backup em local seguro antes de remover os originais.";
- }catch(e){$("status").textContent=String(e.message||e)}};
-$("archive").onclick=async()=>{
- if(!backupToken)return;
- if(!confirm("Você salvou o ZIP em local seguro e conferiu todos os PDFs? A exclusão dos originais não pode ser revertida automaticamente."))return;
- const confirmation=prompt("Para confirmar o backup e remover os PDFs do sistema, digite exatamente: CONFIRMO BACKUP");
- if(confirmation!=="CONFIRMO BACKUP")return;
- $("archive").disabled=true;
- const token=backupToken;backupToken="";
+ clearBackup();write('Consultando os registros...');$('refresh').disabled=true;
  try{
-  const r=await fetch("/termo/admin/api/arquivar",{
-   method:"POST",credentials:"include",cache:"no-store",
-   headers:{"Content-Type":"application/json"},
-   body:JSON.stringify({token,confirmacao:confirmation})
-  });
-  const data=await r.json();if(!r.ok||!data.sucesso)throw Error("A remoção não foi confirmada. Nenhum novo backup foi validado.");
-  await load();$("status").textContent="Arquivos removidos: "+data.arquivosRemovidos+". Os registros de aceite foram preservados.";
- }catch(e){$("status").textContent=String(e.message||e)+" Verifique a lista antes de qualquer nova tentativa."}
+  const response=await fetch('/termo/admin/api/lista',{credentials:'include',cache:'no-store'});
+  const data=await response.json();
+  if(!response.ok||data.sucesso!==true)throw Error('Não foi possível consultar as assinaturas.');
+  const rows=Array.isArray(data.documentos)?data.documentos:[];
+  const byUser=new Map(rows.filter(r=>r.termo_versao==='1.0').map(r=>[r.usuario_norm,r]));
+  $('rows').replaceChildren();
+  for(const [user,role] of [['DANTON','ADMINISTRADOR'],['JOSE','COMERCIAL']]){
+   const record=byUser.get(user),tr=document.createElement('tr');
+   const identity=document.createElement('td');
+   const name=document.createElement('strong');name.textContent=user;identity.appendChild(name);
+   const roleText=document.createElement('div');roleText.className='muted';roleText.style.margin='3px 0 0';roleText.textContent=role;identity.appendChild(roleText);tr.appendChild(identity);
+   const state=document.createElement('td'),badge=document.createElement('span');badge.className='chip'+(record?(record.arquivo_removido_em?' archived':''):' pending');
+   badge.textContent=record?(record.arquivo_removido_em?'Assinado · arquivado':'Assinado'):'Pendente';
+   state.appendChild(badge);tr.appendChild(state);
+   const date=document.createElement('td');date.textContent=record?new Date(record.aceito_em).toLocaleString('pt-BR'):'—';tr.appendChild(date);
+   const file=document.createElement('td');
+   if(record&&record.storage_path&&!record.arquivo_removido_em){
+    const link=document.createElement('a');link.className='link';link.href='/termo/admin/api/arquivo/'+encodeURIComponent(record.id);
+    link.textContent='Baixar PDF';file.appendChild(link);
+   }else file.textContent=record?'Backup arquivado':'—';
+   tr.appendChild(file);$('rows').appendChild(tr);
+  }
+  const done=['DANTON','JOSE'].filter(user=>byUser.has(user)).length;
+  $('signed').textContent=String(done);$('pending').textContent=String(2-done);
+  const available=rows.filter(r=>r.storage_path&&!r.arquivo_removido_em).length;
+  $('export').disabled=available===0;
+  write(available+' PDF(s) disponível(is) para exportação.');
+ }catch(e){write(e.message||'Falha ao consultar o painel.')}
+ finally{$('refresh').disabled=false;}
+}
+$('refresh').onclick=load;
+$('export').onclick=async()=>{
+ $('export').disabled=true;clearBackup();write('Preparando ZIP e conferindo os documentos...');
+ try{
+  const response=await fetch('/termo/admin/api/exportar',{credentials:'include',cache:'no-store'});
+  if(!response.ok)throw Error('A exportação não foi confirmada.');
+  const token=response.headers.get('X-Dismepe-Backup-Token'),blob=await response.blob();
+  if(!token||blob.size<200)throw Error('O arquivo ZIP não foi confirmado.');
+  const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;
+  link.download='TERMOS_DISMEPE_ONE_BACKUP.zip';document.body.appendChild(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+  backupToken=token;$('archive').disabled=false;
+  $('archiveStatus').textContent='ZIP disponibilizado. Confirme que o arquivo foi salvo e conferido antes de remover os PDFs.';
+  write('ZIP disponível para download. Confira e guarde o backup em local seguro.');
+ }catch(e){write(e.message||'Falha na exportação.');}
+ finally{$('export').disabled=false;}
+};
+$('archive').onclick=async()=>{
+ if(!backupToken)return;
+ if(!confirm('Você salvou o ZIP e conferiu os PDFs? A remoção dos originais não pode ser revertida automaticamente.'))return;
+ const confirmation=prompt('Para confirmar o backup e remover os PDFs, digite exatamente: CONFIRMO BACKUP');
+ if(confirmation!=='CONFIRMO BACKUP')return;
+ $('archive').disabled=true;
+ const token=backupToken;backupToken='';
+ try{
+  const response=await fetch('/termo/admin/api/arquivar',{method:'POST',credentials:'include',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,confirmacao:confirmation})});
+  const result=await response.json();
+  if(!response.ok||!result.sucesso)throw Error('O arquivamento não foi confirmado.');
+  await load();
+  $('archiveStatus').textContent='Arquivamento confirmado: '+result.arquivosRemovidos+' PDF(s) removido(s). Registros de aceite preservados.';
+ }catch(e){write(e.message||'Não foi possível arquivar os documentos.');clearBackup();}
 };
 load();
-</script></html>
+})();
+</script></body></html>
