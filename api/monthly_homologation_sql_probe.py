@@ -12,7 +12,7 @@ def probe_sql_readonly() -> bool:
     if os.getenv("DISMEPE_MONTHLY_WRITE_ENABLED", "0") != "0" or not url:
         return False
     import psycopg
-    with psycopg.connect(url, connect_timeout=6) as connection:
+    with psycopg.connect(url, host=os.environ.get('DISMEPE_MONTHLY_POOLER_HOST'), user=os.environ.get('DISMEPE_MONTHLY_POOLER_USER'), connect_timeout=6) as connection:
         with connection.cursor() as cur:
             cur.execute("BEGIN READ ONLY")
             cur.execute("SET LOCAL statement_timeout = '10s'")
