@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 from .cache_reads import CacheReadError, cache_get
 from .industries_stock_sync import _service_account_info
-from .monthly_source_normalization import candidate_from_sheets
+from .monthly_source_normalization import candidate_from_sheets, normalized
 
 CHANNELS = ("dadosVendedores", "dadosTelevendas")
 SYNC_LOCK = asyncio.Lock()
@@ -79,10 +79,38 @@ def _read_sheets(sheet_id, comp):
     return candidate
 
 
-def _commercial_signature(rows):
-    return [(str(r.get("__linha")), r.get("__COLABORADOR"), r.get("__LAB"),
-             r.get("__OBJETIVO"), r.get("__VENDA"), r.get("__TEM_FOCO"),
-             r.get("__CODIGO_FOCO")) for r in rows]
+def commercial_identity(row, channel, comp):
+    """Identidade de negócio estável mesmo após inserir ou ordenar linhas."""
+    if str(row.get("__COMPETENCIA") or row.get("competencia") or "") != comp:
+        raise CommercialSyncError("Competencia comercial divergente.")
+    employee = normalized(" ".join(str(row.get("__COLABORADOR") or "").split()))
+    lab = normalized(" ".join(str(row.get("__LAB") or "").split()))
+    focus_code = normalized(row.get("__CODIGO_FOCO") or "")
+    if not employee or not lab:
+        raise CommercialSyncError("Registro comercial sem colaborador ou laboratorio.")
+    return comp, channel, employee, lab, focus_code
+
+
+def commercial_identity_map(rows, channel, comp):
+    result = {}
+    for row in rows:
+        identity = commercial_identity(row, channel, comp)
+        if identity in result:
+            raise CommercialSyncError(
+                "Registros comerciais duplicados para o mesmo colaborador, "
+                "laboratorio e produto foco. Revise a planilha antes de publicar."
+            )
+        result[identity] = row
+    return result
+
+
+def _commercial_signature(rows, channel, comp):
+    mapped = commercial_identity_map(rows, channel, comp)
+    return sorted(
+        (identity, row.get("__OBJETIVO"), row.get("__VENDA"),
+         row.get("__TEM_FOCO"), row.get("__CODIGO_FOCO"))
+        for identity, row in mapped.items()
+    )
 
 
 def _current_rows(snapshot, key, comp):
@@ -106,19 +134,18 @@ async def sync_commercial(*, settings, profile, persist):
             old_rows = _current_rows(original, key, comp)
             if not old_rows:
                 raise CommercialSyncError("Base SQL sem registros comerciais da competencia.")
-            old_by_line = {str(row.get("__linha")): row for row in old_rows}
-            for row in candidate[key]:
-                old = old_by_line.get(str(row["__linha"]))
-                if old and (str(old.get("__COLABORADOR") or "").strip() != row["__COLABORADOR"]
-                            or str(old.get("__LAB") or "").strip() != row["__LAB"]):
-                    raise CommercialSyncError("Identidade de linha mudou: exige revisao antes de publicar.")
+            # Nunca comparar __linha: inserir um produto foco desloca linhas
+            # validas. Identidades de negocio repetidas seguem bloqueadas.
+            commercial_identity_map(old_rows, key, comp)
+            commercial_identity_map(candidate[key], key, comp)
         # A read after Sheets prevents publishing over a new legacy calculation.
         confirmed, confirmed_row = await cache_get(modulo="MENSAL", settings=settings)
         initial_time = str(baseline.get("atualizado_em") or "")
         if str(confirmed_row.get("atualizado_em") or "") != initial_time:
             raise CommercialSyncError("Base mensal mudou durante a leitura; tente novamente.")
         differences = any(
-            _commercial_signature(candidate[key]) != _commercial_signature(_current_rows(confirmed, key, comp))
+            _commercial_signature(candidate[key], key, comp)
+            != _commercial_signature(_current_rows(confirmed, key, comp), key, comp)
             for key in CHANNELS
         )
         previous_commercial = None
@@ -131,8 +158,8 @@ async def sync_commercial(*, settings, profile, persist):
                 and previous_commercial.get("competencia") == comp
                 and previous_commercial.get("sheetId") == sheet_id
                 and previous_commercial.get("baseAtualizadoEm") == initial_time
-                and all(_commercial_signature(previous_commercial.get(key, []))
-                        == _commercial_signature(candidate[key]) for key in CHANNELS))):
+                and all(_commercial_signature(previous_commercial.get(key, []), key, comp)
+                        == _commercial_signature(candidate[key], key, comp) for key in CHANNELS))):
             return {"sucesso": True, "resultado": "SEM_ALTERACAO", "competencia": comp,
                     "vendedores": len(candidate["dadosVendedores"]), "televendas": len(candidate["dadosTelevendas"]),
                     "atualizadoEm": initial_time, "financeiro": "LEGADO_PRESERVADO"}
