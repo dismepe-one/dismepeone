@@ -3,6 +3,7 @@ import asyncio
 import copy
 
 from api import monthly_commercial_live as live
+from api.cache_reads import CacheReadError
 from api.monthly_commercial_overlay import overlay_commercial
 
 
@@ -85,6 +86,8 @@ def test_separate_sql_write_only(monkeypatch):
     before = snapshot()
     events = []
     async def fake_get(*, modulo, settings):
+        if modulo == "MENSAL_COMERCIAL":
+            raise CacheReadError("sem fotografia comercial")
         assert modulo == "MENSAL"
         events.append("read")
         return copy.deepcopy(before), {"atualizado_em": "revision-1"}
