@@ -89,7 +89,8 @@ async def _edge(action: str, username: str, **extra):
 
 async def signed(username: str) -> bool:
     # Use SQL as authority even when cookies persist or another device signed.
-    result = await _edge("STATUS", username)
+    from .terms_storage_routes import storage_call
+    result = await storage_call("STATUS", username)
     return result.get("assinado") is True
 
 
