@@ -86,8 +86,8 @@ def parse_auxiliary_tab(name: str, matrix: list[list[Any]]) -> dict[str, Any]:
             "cabecalhoVerificado": True, "calculoConcluido": False}
 
 
-def read_auxiliary_sources(spreadsheet_id: str) -> dict[str, Any]:
-    """Usa Service Account do Render, exigindo acesso a todas as abas."""
+def read_auxiliary_matrices(spreadsheet_id: str) -> dict[str, list[list[Any]]]:
+    """Leitura privada das matrizes, sem persistir dados individuais em logs."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{15,120}", spreadsheet_id or ""):
         raise MonthlyAuxiliaryError("ID administrativo nao configurado.")
     info = _service_account_info()
@@ -108,5 +108,18 @@ def read_auxiliary_sources(spreadsheet_id: str) -> dict[str, Any]:
     values = result.get("valueRanges") or []
     if len(values) != len(AUXILIARY_TABS):
         raise MonthlyAuxiliaryError("Uma ou mais abas auxiliares indisponiveis.")
-    return {name: parse_auxiliary_tab(name, item.get("values") or [])
-            for name, item in zip(AUXILIARY_TABS, values)}
+    matrices = {
+        name: item.get("values") or []
+        for name, item in zip(AUXILIARY_TABS, values)
+    }
+    # Validação de TODAS as fontes antes de executar cálculos.
+    for name, matrix in matrices.items():
+        parse_auxiliary_tab(name, matrix)
+    return matrices
+
+
+def read_auxiliary_sources(spreadsheet_id: str) -> dict[str, Any]:
+    """Resumo sem expor clientes, documentos ou valores individuais."""
+    matrices = read_auxiliary_matrices(spreadsheet_id)
+    return {name: parse_auxiliary_tab(name, matrix)
+            for name, matrix in matrices.items()}
