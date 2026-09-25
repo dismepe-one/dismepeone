@@ -4,7 +4,24 @@ from pathlib import Path
 
 from api import home_publication
 from api import monthly_commercial_overlay
-from tests.test_monthly_commercial_sidecar import sample, snapshot
+def sample(sale=100):
+    return {"__COMPETENCIA": "09/2026", "__CANAL": "VENDEDOR",
+            "__COLABORADOR": "ANA", "__LAB": "LAB A", "__linha": 4,
+            "__aba": "CAMPANHA VEND", "__OBJETIVO": 100, "__VENDA": sale,
+            "__TEM_FOCO": False, "__CODIGO_FOCO": "",
+            "__OBJETIVO_FOCO": 0, "__VENDA_FOCO": 0}
+
+
+def snapshot():
+    return {"competencias": [{
+        "competencia": "09/2026", "status": "ATUAL",
+        "linkDrive": "https://docs.google.com/spreadsheets/d/17JuuFiUoYAQyYJ1rOIiydxhVIPGZbXGH7fy4WQYyhD4/edit",
+    }],
+        "dadosVendedores": [dict(sample(), **{"Premiação": 55})],
+        "dadosTelevendas": [dict(sample(), **{"__CANAL": "TELEVENDAS"})],
+        "regrasPremiacao": [{"regra": "LEGADO"}],
+    }
+
 
 
 def test_home_monthly_status_uses_commercial_overlay(monkeypatch):
