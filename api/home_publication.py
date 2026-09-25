@@ -537,6 +537,46 @@ async def home_publication_status(
     }
 
 
+@router.get("/admin/home-publication/monthly-status")
+async def home_publication_monthly_status(
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    """Consulta leve e autenticada: sem Extras, histórico ou cálculo legado.
+
+    O front usa o carimbo persistido do MENSAL para identificar também
+    cálculos concluídos sem alteração de vendas. Não inicia novo worker.
+    """
+    _authorized(session)
+    (monthly, monthly_row), (publication, _publication_row) = await asyncio.gather(
+        _source_snapshot("MENSAL"),
+        _read_publication(),
+    )
+    publication = publication or {}
+    published_monthly = publication.get("mensal")
+    published_monthly = published_monthly if isinstance(published_monthly, dict) else {}
+    published_sources = publication.get("fontes")
+    published_sources = published_sources if isinstance(published_sources, dict) else {}
+    published_source = published_sources.get("mensal")
+    published_source = published_source if isinstance(published_source, dict) else {}
+    source_ok = all(
+        isinstance(monthly.get(key), list) and bool(monthly[key])
+        for key in ("dadosVendedores", "dadosTelevendas")
+    )
+    return {
+        "sucesso": True,
+        "fonteValida": source_ok,
+        "fonteAtualizadoEm": str(monthly_row.get("atualizado_em") or ""),
+        "fontePublicadaEm": str(published_source.get("atualizadoEm") or ""),
+        "fonteAssinatura": _partial_signature(monthly) if source_ok else "",
+        "publicadaAssinatura": (
+            _partial_signature(published_monthly)
+            if all(isinstance(published_monthly.get(key), list) and published_monthly[key]
+                   for key in ("dadosVendedores", "dadosTelevendas"))
+            else ""
+        ),
+    }
+
+
 _MONTHLY_PUBLISH_LOCK = asyncio.Lock()
 
 
