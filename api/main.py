@@ -223,7 +223,8 @@ async def login(
 
     try:
         mensal_payload, mensal_row = await mensal_task
-        if os.getenv('DISMEPE_MONTHLY_COMMERCIAL_ENABLED', '0') == '1':
+        if (os.getenv('DISMEPE_MONTHLY_COMMERCIAL_ENABLED', '0') == '1'
+                and not str(mensal_row.get('versao') or '').endswith('_HOME_PUBLICATION')):
             mensal_payload, mensal_row = await monthly_commercial_overlay(
                 payload=mensal_payload, row=mensal_row, settings=settings)
 
@@ -426,7 +427,8 @@ async def bootstrap_dashboard(
 
     try:
         mensal_payload, mensal_row = await mensal_task
-        if os.getenv('DISMEPE_MONTHLY_COMMERCIAL_ENABLED', '0') == '1':
+        if (os.getenv('DISMEPE_MONTHLY_COMMERCIAL_ENABLED', '0') == '1'
+                and not str(mensal_row.get('versao') or '').endswith('_HOME_PUBLICATION')):
             mensal_payload, mensal_row = await monthly_commercial_overlay(
                 payload=mensal_payload, row=mensal_row, settings=settings)
         scoped = scope_mensal_dashboard(
