@@ -9,3 +9,5 @@ pypdf>=5.0,<7
 openpyxl>=3.1,<4
 pywebpush==2.5.0
 webauthn==2.7.0
+
+psycopg[binary]>=3.2,<4
