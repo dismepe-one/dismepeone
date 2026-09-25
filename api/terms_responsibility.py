@@ -217,9 +217,14 @@ def _upload_and_verify(pdf: bytes, filename: str):
 
 
 def _probe_drive():
+    sample = _pdf("DANTON", "ADMINISTRADOR", datetime.now(ZoneInfo("America/Recife")), None)
+    from pypdf import PdfReader
+    parsed = PdfReader(io.BytesIO(sample))
+    content = "\n".join(page.extract_text() or "" for page in parsed.pages)
+    if not parsed.pages or "TERMO DE RESPONSABILIDADE" not in content or "DANTON" not in content.upper():
+        raise RuntimeError("PDF_NAO_GERADO")
     service = _google_service()
     _folder(service)
-    sample = _pdf("DANTON", "ADMINISTRADOR", datetime.now(ZoneInfo("America/Recife")), None)
     filename = "TESTE_TECNICO_TERMO_" + uuid.uuid4().hex + ".pdf"
     file_id = None
     try:
