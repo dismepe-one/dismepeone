@@ -471,30 +471,36 @@
         setMessage('Conferindo e atualizando as parciais de Vendedores e Televendas...','neutral');
         try{
           const state=await refreshSourceCaches();
-          if(state.novosNumeros){
-            setMessage('Novos números confirmados. Publicando na HOME...','neutral');
-            const publication=await request('/admin/home-publication/publish',{
-              method:'POST',body:JSON.stringify({inserirHistorico,notificarVendas})
-            });
-            if(publication.notificacaoSolicitada&&!publication.notificacaoRegistrada){
-              errors.push('Notificação automática: '+(publication.avisoNotificacao||'O aviso não foi confirmado no banco.'));
-            }
-            const expectedMonthlyISO=String(publication?.displayTimes?.mensal?.iso||'');
-            const applied=await applyFreshHome(expectedMonthlyISO);
-            if(!applied)throw new Error('A publicacao foi gravada, mas a HOME ainda nao confirmou os novos numeros. Nao foi exibido sucesso indevido.');
-            monthlyPublished=!!publication.atualizouHorario;
-            results.push(monthlyPublished
-              ?'Campanhas Mensais: novos números publicados.'
+          setMessage(state.novosNumeros
+            ?'Novos números confirmados. Publicando na HOME...'
+            :'Conferindo positivações especiais de GLOBO, HERBAMED e Integral/BRG...','neutral');
+          // Mesmo quando as vendas não mudaram, as fontes de positivação podem
+          // ter novos clientes ou produtos. Publicar revalida só essas métricas;
+          // o servidor preserva horários e histórico quando nada mudou.
+          const publication=await request('/admin/home-publication/publish',{
+            method:'POST',body:JSON.stringify({inserirHistorico,notificarVendas})
+          });
+          if(publication.notificacaoSolicitada&&!publication.notificacaoRegistrada){
+            errors.push('Notificação automática: '+(publication.avisoNotificacao||'O aviso não foi confirmado no banco.'));
+          }
+          if(publication.avisoMetricasEspeciais){
+            errors.push('Positivações especiais: '+publication.avisoMetricasEspeciais);
+          }
+          const expectedMonthlyISO=String(publication?.displayTimes?.mensal?.iso||'');
+          const applied=await applyFreshHome(expectedMonthlyISO);
+          if(!applied)throw new Error('A publicacao foi gravada, mas a HOME ainda nao confirmou os novos numeros. Nao foi exibido sucesso indevido.');
+          monthlyPublished=!!publication.atualizouHorario;
+          results.push(state.novosNumeros
+            ?'Campanhas Mensais: novos números publicados.'
+            :publication.metricasEspeciaisAtualizadas
+              ?'Campanhas Mensais: positivações especiais atualizadas; vendas preservadas.'
               :'Campanhas Mensais: voce ja esta na ultima versao atualizada; horario e historico mantidos.');
+          if(monthlyPublished){
             try{
               if(typeof window.hist39RefreshHistoryList==='function'){
                 await window.hist39RefreshHistoryList({preserveSelection:false,force:true});
               }
             }catch(e){}
-          }else{
-            results.push(state.snapshotRegravado
-              ?'Campanhas Mensais: voce ja esta na ultima versao atualizada; calculo conferido no PostgreSQL, horario e historico mantidos.'
-              :'Campanhas Mensais: voce ja esta na ultima versao atualizada; horario e historico mantidos.');
           }
         }catch(e){
           const message=String(e.message||e).replace(/^(?:Campanhas Mensais:\s*)+/i,'').trim();
