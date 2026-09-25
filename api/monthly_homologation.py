@@ -6,6 +6,7 @@ não abre conexão SQL e não executa o worker legado por requisição HTTP.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 
 from .monthly_homologation_sql_probe import probe_sql_readonly
@@ -27,8 +28,16 @@ async def _verify_sql_readonly() -> None:
         return
     try:
         app.state.sql_readonly_validated = await asyncio.to_thread(probe_sql_readonly)
-    except Exception:
-        # Não registrar credenciais, mensagens SQL ou endereços no Render.
+        logging.getLogger("uvicorn.error").info(
+            "MONTHLY_HOMOLOG_SQL_PROBE=%s",
+            "OK" if app.state.sql_readonly_validated else "NOT_VALIDATED",
+        )
+    except Exception as exc:
+        # Registra apenas o tipo da falha; nunca mensagem, hostname ou credenciais.
+        logging.getLogger("uvicorn.error").warning(
+            "MONTHLY_HOMOLOG_SQL_PROBE=NOT_VALIDATED error_type=%s",
+            type(exc).__name__,
+        )
         app.state.sql_readonly_validated = False
 
 
