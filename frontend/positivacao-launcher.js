@@ -21,11 +21,43 @@
    event.stopImmediatePropagation();
    window.location.assign(POSITIVACOES_URL);
  }
+ // Padroniza apenas a legenda legada de Positivação com a tipografia
+ // das demais legendas da HOME, sem alterar titulo, acesso ou comportamento.
+ function normalizeHomeSubtitle(){
+   const host=document.getElementById('homeCards');
+   if(!host)return;
+   const other=[...host.querySelectorAll('.home-card .text-slate-500')]
+     .find(el=>!el.closest('#homePositivacaoGeral, #homePositivacoesDev9')
+       && el.textContent.trim()!=='Visão geral e atualização para todos');
+   const style=other?window.getComputedStyle(other):null;
+   for(const card of host.querySelectorAll('.home-card')){
+     if(card.id!=='homePositivacaoGeral'&&card.id!=='homePositivacoesDev9'
+        && !/positiva(?:ç|c)(?:ões|oes|ão|ao)/i.test(card.textContent||''))continue;
+     const subtitle=[...card.querySelectorAll('span,p,small,div')]
+       .find(el=>el.textContent.trim()==='Visão geral e atualização para todos');
+     if(!subtitle)continue;
+     subtitle.classList.add('block','text-[11px]','leading-4','text-slate-500','mt-0.5');
+     if(style){
+       subtitle.style.fontFamily=style.fontFamily;
+       subtitle.style.fontSize=style.fontSize;
+       subtitle.style.fontWeight=style.fontWeight;
+       subtitle.style.lineHeight=style.lineHeight;
+       subtitle.style.letterSpacing=style.letterSpacing;
+     }else{
+       subtitle.style.fontFamily='inherit';
+       subtitle.style.fontSize='11px';
+       subtitle.style.fontWeight='400';
+       subtitle.style.lineHeight='1rem';
+       subtitle.style.letterSpacing='normal';
+     }
+   }
+ }
  function paint(){
    const host=document.getElementById('homeCards');
    if(!host)return;
    const existing=document.getElementById('homePositivacaoGeral');
    if(!admin){existing?.remove();return;}
+   normalizeHomeSubtitle();
    if(existing)return;
    const button=document.createElement('button');
    button.type='button';button.id='homePositivacaoGeral';
@@ -44,7 +76,7 @@
    window.addEventListener('click',routeHomeCard,true);
    check();
    const host=document.getElementById('homeCards');
-   if(host){new MutationObserver(()=>{if(document.getElementById('homePositivacaoGeral'))return;if(admin)paint();else check();}).observe(host,{childList:true});}
+   if(host){new MutationObserver(()=>{normalizeHomeSubtitle();if(document.getElementById('homePositivacaoGeral'))return;if(admin)paint();else check();}).observe(host,{childList:true});}
    const old=window.renderHomeCards;
    if(typeof old==='function'&&!old.__positivacaoWrapped){
       const wrapped=function(){const v=old.apply(this,arguments);check();return v;};
