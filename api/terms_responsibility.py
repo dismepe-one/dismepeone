@@ -104,10 +104,16 @@ def _google_service():
 
 
 def _folder(service):
-    meta = service.files().get(
-        fileId=FOLDER_ID, fields="id,mimeType,capabilities(canAddChildren)",
-        supportsAllDrives=True,
-    ).execute()
+    try:
+        meta = service.files().get(
+            fileId=FOLDER_ID, fields="id,mimeType,capabilities(canAddChildren)",
+            supportsAllDrives=True,
+        ).execute()
+    except Exception as exc:
+        from googleapiclient.errors import HttpError
+        if isinstance(exc, HttpError) and exc.resp.status in {403, 404}:
+            raise RuntimeError("PASTA_INACESSIVEL_CONTA_TECNICA") from exc
+        raise
     if meta.get("mimeType") != "application/vnd.google-apps.folder":
         raise RuntimeError("PASTA_INVALIDA")
     if meta.get("capabilities", {}).get("canAddChildren") is not True:
