@@ -10,6 +10,7 @@ import logging
 import os
 
 from .monthly_homologation_sql_probe import probe_sql_readonly
+from .monthly_google_probe import probe_google_sources
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
@@ -24,6 +25,7 @@ app = FastAPI(
 @app.on_event("startup")
 async def _verify_sql_readonly() -> None:
     app.state.sql_readonly_validated = False
+    app.state.google_readonly_validated = False
     if os.getenv("DISMEPE_MONTHLY_HOMOLOGATION") != "1":
         return
     try:
@@ -39,6 +41,19 @@ async def _verify_sql_readonly() -> None:
             type(exc).__name__,
         )
         app.state.sql_readonly_validated = False
+
+    if app.state.sql_readonly_validated:
+        try:
+            app.state.google_readonly_validated = await asyncio.to_thread(probe_google_sources)
+            logging.getLogger("uvicorn.error").info(
+                "MONTHLY_HOMOLOG_GOOGLE_PROBE=%s",
+                "OK" if app.state.google_readonly_validated else "NOT_CONFIGURED",
+            )
+        except Exception as exc:
+            logging.getLogger("uvicorn.error").warning(
+                "MONTHLY_HOMOLOG_GOOGLE_PROBE=NOT_VALIDATED error_type=%s",
+                type(exc).__name__,
+            )
 
 
 @app.get("/health", include_in_schema=False)
@@ -61,8 +76,8 @@ async def status() -> JSONResponse:
             "calculoEmProdução": False,
             "publicacaoAutorizada": False,
             "sqlLeituraValidada": bool(getattr(app.state, "sql_readonly_validated", False)),
-            "googleContaExclusivaConfirmada": False,
-            "integracaoComFontes": "PENDENTE_DE_CREDENCIAIS_GOOGLE_EXCLUSIVAS",
+            "googleContaExclusivaConfirmada": bool(getattr(app.state, "google_readonly_validated", False)),
+            "integracaoComFontes": "LEITURA_CONFIRMADA" if getattr(app.state, "google_readonly_validated", False) else "PENDENTE_DE_CREDENCIAIS_GOOGLE_EXCLUSIVAS",
             "paridadeFinanceira": "NAO_VALIDADA",
         },
         headers={"Cache-Control": "no-store"},
