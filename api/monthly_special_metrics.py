@@ -83,7 +83,7 @@ def read_sources() -> dict[str, list[list[Any]]]:
     from googleapiclient.discovery import build
     cred = Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
     client = build("sheets", "v4", credentials=cred, cache_discovery=False)
-    sid = os.getenv("DISMEPE_GLOBO_SHEET_ID", _SHEET).strip() or _SHEET
+    sid = os.getenv("DISMEPE_SPECIAL_METRICS_SHEET_ID", _SHEET).strip() or _SHEET
     result = client.spreadsheets().values().batchGet(
         spreadsheetId=sid,
         ranges=[f"'{name}'!{spec[0]}" for name, spec in _RANGES.items()],
