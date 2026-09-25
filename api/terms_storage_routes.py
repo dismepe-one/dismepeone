@@ -115,6 +115,43 @@ def _parse_token(value):
         raise HTTPException(422, "A confirmação do backup expirou. Exporte novamente os PDFs.") from exc
 
 
+async def sign_private(body, request, pilot):
+    from .terms_responsibility import _signature, LOCK, TERM_HASH
+    import asyncio
+    import base64
+    import hashlib
+    import uuid
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    profile, username = pilot
+    if request.headers.get("origin", "").rstrip("/") not in {
+        "https://dismepeone.com.br", "https://www.dismepeone.com.br",
+        "https://dismepeone.onrender.com",
+    }:
+        raise HTTPException(403, "Origem de assinatura não autorizada.")
+    if body.confirmado is not True:
+        raise HTTPException(422, "Confirme a leitura e concordância.")
+    signature = _signature(body.assinatura)
+    async with LOCK:
+        current = await storage_call("STATUS", username)
+        if current.get("assinado") is True:
+            return {"sucesso": True, "assinado": True, "jaExistia": True}
+        now = datetime.now(ZoneInfo("America/Recife"))
+        document = await asyncio.to_thread(
+            _pdf, username, str(profile.get("tipo") or ""), now, signature
+        )
+        name = f"TERMO_DISMEPE_ONE_{username}_{now:%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:12]}.pdf"
+        saved = await storage_call(
+            "SAVE", username, aceito_em=now.isoformat(), arquivo_nome=name,
+            pdf_sha256=hashlib.sha256(document).hexdigest(), termo_sha256=TERM_HASH,
+            pdf_base64=base64.b64encode(document).decode("ascii"),
+        )
+        if saved.get("assinado") is not True:
+            raise HTTPException(503, "PDF não confirmado no armazenamento.")
+        return {"sucesso": True, "assinado": True,
+                "jaExistia": saved.get("jaExistia") is True}
+
+
 @router.get("/admin")
 async def admin_page(admin=Depends(_admin)):
     from pathlib import Path
