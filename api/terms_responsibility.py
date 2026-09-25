@@ -245,7 +245,8 @@ def _probe_drive():
 @router.get("/api/status")
 async def term_status(pilot=Depends(_pilot)):
     profile, username = pilot
-    db = await _edge("STATUS", username)
+    from .terms_storage_routes import storage_call
+    db = await storage_call("STATUS", username)
     return {
         "sucesso": True, "usuario": username, "nome": PILOT[username],
         "cargo": str(profile.get("tipo") or ""), "versao": VERSION,
