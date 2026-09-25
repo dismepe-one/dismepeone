@@ -687,6 +687,18 @@ async def _home_publication_publish_locked(
                 ) from exc
             special_changed = _special_metrics_changed(current, mensal_publicado)
             partials_changed = special_changed
+            if not special_changed:
+                # No-op means NO SQL write, NO timestamp and NO history entry.
+                # The frontend can still refresh the existing HOME as before.
+                return {
+                    "sucesso": True,
+                    "metricasEspeciaisAtualizadas": False,
+                    "somenteMetricasEspeciais": True,
+                    "displayTimes": current.get("displayTimes") or {},
+                    "atualizouHorario": False,
+                    "inseriuHistorico": False,
+                    "mensagem": "As positivacoes especiais ja estavam atualizadas.",
+                }
         elif body.somenteExtras:
             if not isinstance(current.get("mensal"), dict):
                 raise RuntimeError("A parcial Mensal ainda não foi publicada.")
