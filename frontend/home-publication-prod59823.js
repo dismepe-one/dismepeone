@@ -310,13 +310,21 @@
   // Uma nova gravacao no SQL pode manter as mesmas vendas. Nesse caso nao
   // atualizar o horario comercial nem criar historico; apenas confirmar a escrita.
   function monthlyPersistenceDecision(status,previousSourceISO){
-    const source=String(status?.parciais?.fonteAssinatura||'');
-    const published=String(status?.parciais?.publicadaAssinatura||'');
-    const sourceISO=String(status?.fontes?.mensal?.atualizadoEm||'');
-    if(source&&published&&source!==published){
+    if(status?.fonteValida!==true)return null;
+    const source=String(status?.fonteAssinatura||'');
+    const published=String(status?.publicadaAssinatura||'');
+    const sourceISO=String(status?.fonteAtualizadoEm||'');
+    const publishedISO=String(status?.fontePublicadaEm||'');
+    if(!source||!published||!sourceISO)return null;
+    if(source!==published){
       return {novosNumeros:true,status};
     }
-    if(previousSourceISO&&sourceISO&&sourceISO!==previousSourceISO&&source&&source===published){
+    if(sourceISO&&publishedISO&&sourceISO!==publishedISO){
+      // Sincronizar dados complementares e a referencia SQL na HOME.
+      // Vendas iguais nao geram novo horario, historico ou notificacao.
+      return {novosNumeros:true,sincronizarSemMudanca:true,status};
+    }
+    if(previousSourceISO&&sourceISO!==previousSourceISO){
       return {novosNumeros:false,snapshotRegravado:true,status};
     }
     return null;
@@ -326,7 +334,7 @@
     let lastError=null;
     while(true){
       try{
-        const status=await request('/admin/home-publication/status?_sync='+Date.now());
+        const status=await request('/admin/home-publication/monthly-status?_sync='+Date.now());
         const decision=monthlyPersistenceDecision(status,previousSourceISO);
         if(decision)return decision;
         lastError=null;
@@ -339,16 +347,19 @@
   }
 
   async function refreshSourceCaches(){
-    const before=await request('/admin/home-publication/status?_before='+Date.now());
-    const previousSignature=String(before?.parciais?.fonteAssinatura||'');
-    const publishedSignature=String(before?.parciais?.publicadaAssinatura||'');
-    const previousSourceISO=String(before?.fontes?.mensal?.atualizadoEm||'');
-    if(!previousSignature||!publishedSignature||!previousSourceISO){
+    const before=await request('/admin/home-publication/monthly-status?_before='+Date.now());
+    const previousSignature=String(before?.fonteAssinatura||'');
+    const publishedSignature=String(before?.publicadaAssinatura||'');
+    const previousSourceISO=String(before?.fonteAtualizadoEm||'');
+    const publishedSourceISO=String(before?.fontePublicadaEm||'');
+    if(before?.fonteValida!==true||!previousSignature||!publishedSignature||!previousSourceISO){
       throw new Error('Nao foi possivel confirmar os numeros atuais das parciais no banco.');
     }
-    if(previousSignature!==publishedSignature){
-      // Nova base persistida previamente: concluir sua publicacao sem repetir escrita.
-      return {novosNumeros:true};
+    if(previousSignature!==publishedSignature||(
+      publishedSourceISO&&previousSourceISO!==publishedSourceISO
+    )){
+      // Snapshot ja gravado: publicar/sincronizar sem repetir o calculo.
+      return {novosNumeros:true,sincronizarSemMudanca:previousSignature===publishedSignature};
     }
 
     setMessage('Atualizando Campanhas Mensais (uma unica solicitacao)...','neutral');
@@ -368,7 +379,7 @@
     // O worker recorrente do Apps Script não termina durante a requisição
     // HTTP. Consultar somente o SQL; jamais repetir OPCACHE_ATUALIZAR.
     let state=await waitForMonthlyPersistence(publishedSignature,previousSourceISO,
-      queued?300000:(updateError?70000:25000));
+      300000);
     if(state.novosNumeros||state.snapshotRegravado)return state;
     if(updateError){
       throw new Error('A comunicacao com a Central foi interrompida ('
@@ -389,11 +400,12 @@
         +(errors.join(' | ')||result?.erro||result?.error||sync||'Falha na fonte legada.'));
     }
     // Nenhum numero novo: nao gerar horario, historico ou notificacao.
-    const finalStatus=await request('/admin/home-publication/status?_final='+Date.now());
-    const source=String(finalStatus?.parciais?.fonteAssinatura||'');
-    const published=String(finalStatus?.parciais?.publicadaAssinatura||'');
-    if(source&&source!==published)return {novosNumeros:true,status:finalStatus};
-    if(source&&source===publishedSignature&&source===published){
+    const finalStatus=await request('/admin/home-publication/monthly-status?_final='+Date.now());
+    const finalDecision=monthlyPersistenceDecision(finalStatus,previousSourceISO);
+    if(finalDecision)return finalDecision;
+    const source=String(finalStatus?.fonteAssinatura||'');
+    const published=String(finalStatus?.publicadaAssinatura||'');
+    if(finalStatus?.fonteValida===true&&source&&source===publishedSignature&&source===published){
       return {novosNumeros:false,status:finalStatus};
     }
     throw new Error('Nao foi possivel confirmar a base Mensal no PostgreSQL; nenhuma publicacao foi anunciada.');
@@ -448,7 +460,7 @@
             monthlyPublished=!!publication.atualizouHorario;
             results.push(monthlyPublished
               ?'Campanhas Mensais: novos números publicados.'
-              :'Campanhas Mensais: números já publicados; horário mantido.');
+              :'Campanhas Mensais: voce ja esta na ultima versao atualizada; horario e historico mantidos.');
             try{
               if(typeof window.hist39RefreshHistoryList==='function'){
                 await window.hist39RefreshHistoryList({preserveSelection:false,force:true});
@@ -456,8 +468,8 @@
             }catch(e){}
           }else{
             results.push(state.snapshotRegravado
-              ?'Campanhas Mensais: calculo gravado no PostgreSQL; vendas sem alteracao, horario e historico mantidos.'
-              :'Campanhas Mensais: parciais já atualizadas; horário mantido.');
+              ?'Campanhas Mensais: voce ja esta na ultima versao atualizada; calculo conferido no PostgreSQL, horario e historico mantidos.'
+              :'Campanhas Mensais: voce ja esta na ultima versao atualizada; horario e historico mantidos.');
           }
         }catch(e){
           const message=String(e.message||e).replace(/^(?:Campanhas Mensais:\s*)+/i,'').trim();
