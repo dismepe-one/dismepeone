@@ -90,6 +90,10 @@ def overlay_commercial(original, original_row, commercial, commercial_row, basel
 
 
 async def monthly_commercial_overlay(*, payload, row, settings):
+    # A HOME já publicada é a fonte visível ao usuário e tem horário próprio.
+    # Nunca substituí-la com a gravação comercial (ainda que seja anterior ou posterior).
+    if str((row or {}).get("versao") or "").endswith("_HOME_PUBLICATION"):
+        return payload, row
     try:
         commercial, commercial_row = await cache_get(modulo="MENSAL_COMERCIAL", settings=settings)
         baseline, baseline_row = await cache_get(modulo="MENSAL", settings=settings)
