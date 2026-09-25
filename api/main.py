@@ -4,6 +4,7 @@ import asyncio
 import copy
 import hashlib
 import logging
+import os
 import time
 import uuid
 
@@ -23,6 +24,7 @@ from .extras_reads import extras_api_response
 from .access_reads import AccessReadError, access_user, list_accesses
 from .history_reads import HistoryReadError, history_get, history_list
 from .monthly_rule_reads import monthly_rule_options
+from .monthly_commercial_overlay import monthly_commercial_overlay
 from .home_publication import home_publication_cache_get
 
 
@@ -221,6 +223,9 @@ async def login(
 
     try:
         mensal_payload, mensal_row = await mensal_task
+        if os.getenv('DISMEPE_MONTHLY_COMMERCIAL_ENABLED', '0') == '1':
+            mensal_payload, mensal_row = await monthly_commercial_overlay(
+                payload=mensal_payload, row=mensal_row, settings=settings)
 
         try:
             extras_payload_login, extras_row = await extras_task
@@ -421,6 +426,9 @@ async def bootstrap_dashboard(
 
     try:
         mensal_payload, mensal_row = await mensal_task
+        if os.getenv('DISMEPE_MONTHLY_COMMERCIAL_ENABLED', '0') == '1':
+            mensal_payload, mensal_row = await monthly_commercial_overlay(
+                payload=mensal_payload, row=mensal_row, settings=settings)
         scoped = scope_mensal_dashboard(
             mensal_payload,
             profile,
