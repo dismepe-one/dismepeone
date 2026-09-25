@@ -260,19 +260,41 @@ async def term_diagnostic(pilot=Depends(_pilot)):
     _, username = pilot
     if username != "DANTON":
         raise HTTPException(403, "Diagnóstico restrito ao administrador.")
+    # Retornar somente o endereço público de identificação da conta de
+    # serviço; nunca expor JSON de credenciais, token ou chave privada.
+    info = _service_account_info() or {}
+    sa_email = str(info.get("client_email") or "").strip()
+    if not sa_email.endswith(".gserviceaccount.com"):
+        sa_email = ""
     try:
         await asyncio.to_thread(_probe_drive)
         return {"sucesso": True, "contaTecnica": "CONFIGURADA",
+                "emailContaTecnica": sa_email,
                 "pasta": "ACESSIVEL", "gravarLerExcluirPDF": "CONFIRMADO",
                 "obrigatoriedadeAtiva": ENFORCE}
     except Exception as exc:
-        # Do not expose Google exception messages, service email, keys, or identifiers.
+        # Categorizar o erro sem revelar mensagens da API, tokens ou credenciais.
         kind = str(exc) if str(exc) in {
             "CONTA_TECNICA_NAO_CONFIGURADA", "PASTA_INVALIDA",
             "SEM_PERMISSAO_DE_GRAVACAO", "LOGO_OFICIAL_AUSENTE",
             "PDF_NAO_GERADO", "GRAVACAO_NAO_CONFIRMADA", "PDF_NO_DRIVE_DIVERGENTE"
         } else "FALHA_GOOGLE_DRIVE_OU_PDF"
-        return {"sucesso": False, "motivo": kind, "obrigatoriedadeAtiva": ENFORCE}
+        try:
+            from googleapiclient.errors import HttpError
+            if isinstance(exc, HttpError):
+                status = int(exc.resp.status)
+                raw = bytes(exc.content or b"").decode("utf-8", "replace").lower()
+                if "storagequotaexceeded" in raw or "storage quota" in raw:
+                    kind = "COTA_DRIVE_CONTA_TECNICA"
+                elif status in {401, 403, 404}:
+                    kind = "ACESSO_DRIVE_CONTA_TECNICA_NEGADO"
+                elif status == 429:
+                    kind = "LIMITE_TEMPORARIO_GOOGLE_DRIVE"
+        except Exception:
+            pass
+        return {"sucesso": False, "motivo": kind,
+                "emailContaTecnica": sa_email,
+                "obrigatoriedadeAtiva": ENFORCE}
 
 
 class SignRequest(BaseModel):
