@@ -1372,12 +1372,24 @@ async def prod597_update_center(
             commercial = await sync_commercial(
                 settings=settings, profile=profile, persist=_cache_set_snapshot,
             )
+        except CommercialSyncError as exc:
+            # Falha de validacao conhecida: a gravacao foi interrompida, nao
+            # existe worker legado pendente para justificar nova espera.
+            # Exibir somente mensagens controladas pelo proprio sincronizador.
+            raise HTTPException(
+                status_code=422,
+                detail="Campanhas Mensais: atualização comercial não confirmada. "
+                       "Fotografia SQL anterior preservada. "
+                       f"Motivo: {str(exc)}",
+            ) from None
         except Exception as exc:
-            # Não acionar o worker legado como fallback de uma falha Google/SQL:
-            # isso causaria duas leituras ou sobrescrita de números diferentes.
+            # Nunca acionar o worker legado como fallback de uma falha Google/SQL.
+            # Nao divulgar mensagens de excecoes externas (podem conter dados
+            # da requisicao), mas registrar o tipo para diagnostico no Render.
+            logger.exception("Campanhas Mensais: erro inesperado na sincronizacao comercial (%s)", type(exc).__name__)
             raise HTTPException(
                 status_code=502,
-                detail="Campanhas Mensais: atualização comercial independente não confirmada. "
+                detail="Campanhas Mensais: falha técnica na sincronização comercial. "
                        "Fotografia SQL anterior preservada. "
                        f"Tipo de falha: {type(exc).__name__}.",
             ) from None
