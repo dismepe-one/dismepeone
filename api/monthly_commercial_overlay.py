@@ -5,7 +5,7 @@ import copy
 from decimal import Decimal
 
 from .cache_reads import CacheReadError, cache_get
-from .monthly_commercial_live import CHANNELS, current_source
+from .monthly_commercial_live import CHANNELS, current_source, CommercialSyncError
 
 
 def _rows_for_comp(snapshot, key, competence):
@@ -92,5 +92,5 @@ async def monthly_commercial_overlay(*, payload, row, settings):
     try:
         commercial, commercial_row = await cache_get(modulo="MENSAL_COMERCIAL", settings=settings)
         return overlay_commercial(payload, row, commercial, commercial_row)
-    except (CacheReadError, ValueError, TypeError, KeyError):
+    except (CacheReadError, CommercialSyncError, ValueError, TypeError, KeyError):
         return payload, row
