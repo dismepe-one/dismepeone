@@ -478,7 +478,9 @@
           // ter novos clientes ou produtos. Publicar revalida só essas métricas;
           // o servidor preserva horários e histórico quando nada mudou.
           const publication=await request('/admin/home-publication/publish',{
-            method:'POST',body:JSON.stringify({inserirHistorico,notificarVendas})
+            method:'POST',body:JSON.stringify(state.novosNumeros
+              ?{inserirHistorico,notificarVendas}
+              :{somenteMetricasEspeciais:true,inserirHistorico:false,notificarVendas:false})
           });
           if(publication.notificacaoSolicitada&&!publication.notificacaoRegistrada){
             errors.push('Notificação automática: '+(publication.avisoNotificacao||'O aviso não foi confirmado no banco.'));
