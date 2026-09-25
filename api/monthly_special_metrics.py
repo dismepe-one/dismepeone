@@ -14,8 +14,7 @@ from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from .industries_stock_sync import _service_account_info
-from .monthly_commercial_live import current_source, CommercialSyncError
+from .monthly_commercial_live import _credentials, current_source, CommercialSyncError
 
 
 class SpecialMetricsError(RuntimeError):
@@ -76,9 +75,16 @@ def integer(value: Any) -> int:
 
 
 def read_sources() -> dict[str, list[list[Any]]]:
-    info = _service_account_info()
-    if not info:
-        raise SpecialMetricsError("Credencial de leitura das bases especiais indisponivel.")
+    # Reuse the exclusive monthly reader already validated in production.
+    # The industries Drive account may be different and cannot be assumed
+    # to have permission to read the administrative campaign workbook.
+    try:
+        info = _credentials()
+    except CommercialSyncError as exc:
+        raise SpecialMetricsError(
+            "O leitor Google mensal exclusivo nao esta configurado para consultar "
+            "as bases auxiliares de positivacao."
+        ) from exc
     from google.oauth2.service_account import Credentials
     from googleapiclient.discovery import build
     cred = Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
