@@ -18,9 +18,11 @@ def _commercial_copy(previous, incoming, key, comp):
     row = copy.deepcopy(previous) if previous else {}
     objective = float(incoming["__OBJETIVO"])
     sale = float(incoming["__VENDA"])
-    if previous and (str(previous.get("__COLABORADOR") or "") != incoming["__COLABORADOR"]
-                     or str(previous.get("__LAB") or "") != incoming["__LAB"]):
-        raise ValueError("Identidade de linha divergente.")
+    # A identidade foi resolvida por chave de negocio, nao pela posicao
+    # fisica na planilha. Espacos duplicados no nome nao devem descartar
+    # toda a fotografia, mas qualquer identidade realmente distinta bloqueia.
+    if previous and commercial_identity(previous, key, comp) != commercial_identity(incoming, key, comp):
+        raise ValueError("Identidade comercial divergente.")
     row.update({
         "__COMPETENCIA": comp, "competencia": comp,
         "__linha": incoming["__linha"], "__aba": incoming["__aba"],
