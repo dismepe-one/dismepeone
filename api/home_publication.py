@@ -882,26 +882,30 @@ async def _home_publication_publish_locked(
                     uuid.UUID(publication_id), "TELEVENDAS").hex),
                 ("DANTON", "HOME", "ONE-PUSH-" + uuid.uuid5(
                     uuid.UUID(publication_id), "DANTON_CIENCIA_PARCIAIS").hex),
+                ("JOSE", "HOME", "ONE-PUSH-" + uuid.uuid5(
+                    uuid.UUID(publication_id), "JOSE_CIENCIA_PARCIAIS").hex),
             ):
-                administrator = role == "DANTON"
+                management_notice = role in {"DANTON", "JOSE"}
+                recipient_name = "Danton" if role == "DANTON" else "José"
                 notice = {
                     "id": recipient_id, "tipo": "AVISO", "status": "ATIVO",
-                    "titulo": ("⚠️ Danton · Parciais atualizadas"
-                               if administrator else "⚠️ Parcial atualizada!"),
-                    "mensagem": ("Danton, as parciais de Vendedores e Televendas foram "
-                                 "atualizadas. Confira o desempenho da equipe."
-                                 if administrator else
+                    "titulo": (f"⚠️ {recipient_name} · Parciais atualizadas"
+                               if management_notice else "⚠️ Parcial atualizada!"),
+                    "mensagem": (f"{recipient_name}, as parciais de Vendedores e "
+                                 "Televendas foram atualizadas. Confira o "
+                                 "desempenho da equipe."
+                                 if management_notice else
                                  "Confira seus resultados e acompanhe seu desempenho."),
                     "publico": {
-                        "todos": False, "perfis": [] if administrator else [role],
-                        "setores": [], "usuarios": ["DANTON"] if administrator else [],
+                        "todos": False, "perfis": [] if management_notice else [role],
+                        "setores": [], "usuarios": [role] if management_notice else [],
                     },
                     "criadoEpoch": int(now.timestamp() * 1000),
                     "criadoEm": now.strftime("%d/%m/%Y %H:%M"),
                     "criadoPor": username, "publicarEm": now_iso, "expiraEm": "",
                     "importante": False, "exibirUmaVez": False,
                     "destino": {"modulo": module,
-                                "tela": "INICIO" if administrator else "PARCIAL",
+                                "tela": "INICIO" if management_notice else "PARCIAL",
                                 "fornecedor": ""},
                     "pushStatus": "AGENDADO",
                     "origem": "HOME_PUBLICATION_MENSAL",
@@ -923,16 +927,16 @@ async def _home_publication_publish_locked(
                         "A campanha e o historico foram publicados, mas nao foi "
                         "possivel confirmar o aviso automatico para todos os perfis."
                     )
-            if len(notice_ids) == 3:
+            if len(notice_ids) == 4:
                 notice_id = notice_ids[0]
             await _audit(
                 profile,
-                action=("NOTIFICACAO_MENSAL_REGISTRADA" if len(notice_ids) == 3
+                action=("NOTIFICACAO_MENSAL_REGISTRADA" if len(notice_ids) == 4
                         else "NOTIFICACAO_MENSAL_FALHOU"),
                 identifier=publication_id,
                 details={"notificacaoId": notice_id, "notificacaoIds": notice_ids,
-                         "enviadaPara": ["VENDEDOR", "TELEVENDAS", "DANTON"],
-                         "resultado": ("AVISOS_REGISTRADOS" if len(notice_ids) == 3
+                         "enviadaPara": ["VENDEDOR", "TELEVENDAS", "DANTON", "JOSE"],
+                         "resultado": ("AVISOS_REGISTRADOS" if len(notice_ids) == 4
                                        else "AVISOS_NAO_CONFIRMADOS")},
             )
 
@@ -964,7 +968,7 @@ async def _home_publication_publish_locked(
             "somenteMetricasEspeciais": body.somenteMetricasEspeciais,
             "avisoMetricasEspeciais": special_warning,
             "notificacaoSolicitada": notice_requested,
-            "notificacaoRegistrada": len(notice_ids) == 3 if notice_requested else False,
+            "notificacaoRegistrada": len(notice_ids) == 4 if notice_requested else False,
             "notificacaoId": notice_id,
             "notificacaoIds": notice_ids,
             "avisoNotificacao": notice_error,
