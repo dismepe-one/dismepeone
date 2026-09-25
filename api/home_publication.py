@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from .cache_reads import CacheReadError, cache_get as raw_cache_get
 from .config import get_settings
 from .herbamed_auto_metrics import enrich_herbamed_monthly_payload
+from .monthly_special_metrics import enrich_special_metrics, SpecialMetricsError
 from .monthly_business_days import enrich_monthly_payload
 from .security import decode_session_token
 from .push_notifications import deliver_notice
@@ -276,6 +277,30 @@ def _partial_numbers(payload: dict[str, Any], key: str) -> list[str]:
         )
         for row in rows if isinstance(row, dict)
     )
+
+
+def _special_metrics_changed(previous: dict[str, Any], candidate: dict[str, Any]) -> bool:
+    # Compare ONLY special realized values and awards; never source-read timestamps.
+    # This does not change the established sales/targets publication comparator.
+    def signature(payload):
+        values = []
+        for key in ("dadosVendedores", "dadosTelevendas"):
+            for row in payload.get(key, []):
+                if not isinstance(row, dict):
+                    continue
+                items = (row.get("metricasParcial") or {}).get("componentes", [])
+                selected = [(str(p.get("metrica") or ""), _partial_value(p.get("realizado")),
+                             _partial_value(p.get("premio")), _partial_value(p.get("pontosGerais")))
+                            for p in items if isinstance(p, dict) and p.get("metrica") in
+                            ("POSITIVACAO_CLIENTES", "PONTUACAO_PRODUTO")]
+                if selected and (str(row.get("__LAB") or "").upper().startswith(
+                        ("GLOBO", "HERBAMED", "BRG", "INTEGRAL"))):
+                    values.append((key, str(row.get("__COMPETENCIA") or ""),
+                                   str(row.get("__linha") or ""), str(row.get("__COLABORADOR") or ""),
+                                   tuple(selected)))
+        return sorted(values, key=str)
+    old = previous.get("mensal")
+    return isinstance(old, dict) and signature(old) != signature(candidate)
 
 
 def _partial_sales_changed(previous: dict[str, Any], candidate: dict[str, Any]) -> bool:
@@ -651,7 +676,11 @@ async def _home_publication_publish_locked(
                 mensal_publicado = await enrich_herbamed_monthly_payload(mensal_publicado)
             except Exception:
                 pass
-            partials_changed = _partial_sales_changed(current, mensal_publicado)
+            # Special indicators are independently refreshed; the commercial reader,
+            # legacy SQL financial snapshot and its existing comparison stay untouched.
+            mensal_publicado = await enrich_special_metrics(mensal_publicado)
+            partials_changed = (_partial_sales_changed(current, mensal_publicado)
+                                or _special_metrics_changed(current, mensal_publicado))
 
         extras_publicado = copy.deepcopy(extras_payload)
         previous_sources = current.get("fontes") if isinstance(current.get("fontes"), dict) else {}
