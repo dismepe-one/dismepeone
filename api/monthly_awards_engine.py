@@ -42,7 +42,7 @@ def channel(value: Any) -> str:
     raise MonthlyAwardUnsupported("Canal invalido.")
 
 def laboratory(value: Any) -> str:
-    name=normalized(re.sub(r"\\s*-\\s*Prod\\.\\s*Foco\\s*\\(\\d+\\)\\s*$","",str(value or ""),flags=re.I))
+    name=normalized(re.sub(r"\s*-\s*Prod\.\s*Foco\s*\(\d+\)\s*$","",str(value or ""),flags=re.I))
     if name=="AGAPLASTIC" or name.startswith("AGAPLASTIC INDUSTRIA E COMERCIO"): return "AGAPLASTIC"
     if name=="BIOLAB" or name.startswith("BIOLAB "): return "BIOLAB"
     return name
@@ -82,7 +82,7 @@ def group_rows(rows: list[dict[str,Any]]) -> list[dict[str,Any]]:
         name=normalized(r.get("__COLABORADOR") or r.get("colab"))
         lab=laboratory(r.get("__LAB") or r.get("lab"))
         c=channel(r.get("__CANAL") or r.get("canal"))
-        if not re.fullmatch(r"(?:0[1-9]|1[0-2])/20\\d{2}",comp) or not name or not lab or c=="TODOS":
+        if not re.fullmatch(r"(?:0[1-9]|1[0-2])/20\d{2}",comp) or not name or not lab or c=="TODOS":
             raise MonthlyAwardUnsupported("Linha mensal sem chave comercial valida.")
         k=(comp,name,lab,c)
         g=groups.setdefault(k,dict(competencia=comp,colaborador=name,laboratorio=lab,canal=c,
