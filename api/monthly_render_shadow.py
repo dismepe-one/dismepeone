@@ -152,9 +152,14 @@ def audit_source_rows(
     for line, record in enumerate(matrix[header + 1:], start=header + 2):
         if not any(str(item).strip() for item in record):
             continue
-        if len(record) <= max(objective, sale):
-            raise MonthlyShadowError(f"Linha incompleta na aba {tab}.")
-        current[line] = (_number(record[objective]), _number(record[sale]))
+        if len(record) <= objective or record[objective] is None or record[objective] == "":
+            raise MonthlyShadowError(f"Objetivo ausente na linha da aba {tab}.")
+        # A API Sheets omite celulas vazias ao final da linha. Venda em branco
+        # equivale a zero na fotografia legada, sem descartar o colaborador.
+        current[line] = (
+            _number(record[objective]),
+            _number(record[sale] if len(record) > sale else None),
+        )
     expected = {}
     for record in official_rows:
         if not isinstance(record, dict):
