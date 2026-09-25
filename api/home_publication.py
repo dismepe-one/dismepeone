@@ -4,6 +4,7 @@ import asyncio
 import copy
 import hashlib
 import json
+from decimal import Decimal
 import os
 import time
 import uuid
@@ -245,6 +246,17 @@ async def _source_snapshot(module: str) -> tuple[dict[str, Any], dict[str, Any]]
         ) from exc
 
 
+def _partial_value(value: Any) -> Any:
+    # The SQL Edge Function parses and serializes JSON via JavaScript:
+    # 100.0 becomes 100. Numeric values remain equal even when their JSON
+    # representations differ. Preserve strings/booleans exactly, including IDs.
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        numeric = Decimal(str(value))
+        if numeric.is_finite():
+            return str(numeric.normalize()) if numeric else "0"
+    return value
+
+
 def _partial_numbers(payload: dict[str, Any], key: str) -> list[str]:
     # A parcial é comparada pelos valores de venda e identificadores estáveis,
     # sem usar timestamps ou dias úteis que mudam sem novas vendas.
@@ -259,7 +271,7 @@ def _partial_numbers(payload: dict[str, Any], key: str) -> list[str]:
         return []
     return sorted(
         json.dumps(
-            {field: row[field] for field in fields if field in row},
+            {field: _partial_value(row[field]) for field in fields if field in row},
             ensure_ascii=False, sort_keys=True, default=str,
         )
         for row in rows if isinstance(row, dict)
