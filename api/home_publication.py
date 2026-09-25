@@ -41,6 +41,7 @@ class HomePublishRequest(BaseModel):
     atualizarHorario: bool = True
     inserirHistorico: bool = True
     somenteExtras: bool = False
+    somenteMetricasEspeciais: bool = False
     notificarVendas: bool = False
 
 
@@ -666,7 +667,27 @@ async def _home_publication_publish_locked(
         sales_changed = False
         special_warning = ""
         special_changed = False
-        if body.somenteExtras:
+        if body.somenteMetricasEspeciais:
+            # Independent recheck: use exactly the currently published HOME
+            # sales and financial context, never run a new commercial update.
+            if body.somenteExtras or body.notificarVendas:
+                raise HTTPException(422, "Atualizacao especial nao permite Extras ou notificacoes de vendas.")
+            if not isinstance(current.get("mensal"), dict):
+                raise HTTPException(409, "A HOME mensal ainda nao possui fotografia publicada.")
+            mensal_publicado = copy.deepcopy(current["mensal"])
+            try:
+                mensal_publicado = await enrich_special_metrics(mensal_publicado)
+            except Exception as exc:
+                # Never show "already up to date" when auxiliary Google
+                # sources could not be read, or write an unverified snapshot.
+                raise HTTPException(
+                    503, "A verificacao das positivacoes especiais falhou. "
+                    "Os numeros comerciais, horarios e historico foram preservados. "
+                    "Confira o acesso do leitor Google mensal as abas auxiliares."
+                ) from exc
+            special_changed = _special_metrics_changed(current, mensal_publicado)
+            partials_changed = special_changed
+        elif body.somenteExtras:
             if not isinstance(current.get("mensal"), dict):
                 raise RuntimeError("A parcial Mensal ainda não foi publicada.")
             mensal_publicado = copy.deepcopy(current["mensal"])
@@ -698,15 +719,19 @@ async def _home_publication_publish_locked(
             )
             partials_changed = sales_changed or special_changed
 
-        extras_publicado = copy.deepcopy(extras_payload)
+        extras_publicado = copy.deepcopy(
+            current["extras"] if body.somenteMetricasEspeciais
+            and isinstance(current.get("extras"), dict) else extras_payload
+        )
         previous_sources = current.get("fontes") if isinstance(current.get("fontes"), dict) else {}
         monthly_source_meta = (
             previous_sources.get("mensal")
-            if body.somenteExtras and isinstance(previous_sources.get("mensal"), dict)
+            if (body.somenteExtras or body.somenteMetricasEspeciais)
+            and isinstance(previous_sources.get("mensal"), dict)
             else _source_meta(mensal_row)
         )
         extras_old_payload = current.get("extras") if isinstance(current.get("extras"), dict) else {}
-        extras_changed = any(
+        extras_changed = not body.somenteMetricasEspeciais and any(
             extras_publicado.get(key) != extras_old_payload.get(key)
             for key in ("campanhas", "vendasPorCampanha")
         )
@@ -750,7 +775,7 @@ async def _home_publication_publish_locked(
             "fonteMensal": monthly_source_meta,
             "fonteExtras": _source_meta(extras_row),
         }
-        if body.inserirHistorico and partials_changed:
+        if body.inserirHistorico and partials_changed and not body.somenteMetricasEspeciais:
             # O histórico Mensal é a fonte da lista de três atualizações.
             # Ao publicar 22/09, preserva 21/09 e 18/09 sem reusar 17/09.
             await _ensure_monthly_publication_history(
@@ -897,12 +922,19 @@ async def _home_publication_publish_locked(
             "displayTimes": display_times,
             "historico": history,
             "metricasEspeciaisAtualizadas": special_changed,
+            "somenteMetricasEspeciais": body.somenteMetricasEspeciais,
             "avisoMetricasEspeciais": special_warning,
             "notificacaoSolicitada": notice_requested,
             "notificacaoRegistrada": bool(notice_id),
             "notificacaoId": notice_id,
             "avisoNotificacao": notice_error,
-            "mensagem": "Novos números publicados na HOME.",
+            "mensagem": (
+                "Positivacoes especiais verificadas e publicadas na HOME."
+                if body.somenteMetricasEspeciais and special_changed
+                else "Positivacoes especiais ja estavam atualizadas na HOME."
+                if body.somenteMetricasEspeciais
+                else "Novos numeros publicados na HOME."
+            ),
         }
 
     except HTTPException:
