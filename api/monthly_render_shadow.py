@@ -19,9 +19,10 @@ from urllib.parse import parse_qs, urlparse
 
 from .cache_reads import cache_get
 from .config import get_settings
-from .monthly_auxiliary_sources import read_auxiliary_sources
+from .monthly_auxiliary_sources import read_auxiliary_matrices, parse_auxiliary_tab
 from .monthly_awards_engine import rule_coverage
 from .monthly_manual_indicators import read_manual_indicators
+from .monthly_special_preview import preview_special_awards
 from .industries_stock_sync import _service_account_info
 
 
@@ -200,7 +201,12 @@ def audit_source_rows(
     }
 
 
-def _read_current_source(source: MonthlySource, snapshot: dict[str, Any]) -> dict[str, Any]:
+def _read_current_source(
+    source: MonthlySource,
+    snapshot: dict[str, Any],
+    admin_id: str,
+    manual_indicators: dict[str, Any],
+) -> dict[str, Any]:
     # Usa a mesma conta de serviço já configurada para o portal de indústrias.
     # Não imprime, persiste ou expõe os campos sensíveis da conta.
     info = _service_account_info()
@@ -252,11 +258,21 @@ def _read_current_source(source: MonthlySource, snapshot: dict[str, Any]) -> dic
     ).execute(num_retries=2)
     if str(end_meta.get("modifiedTime") or "") != str(metadata.get("modifiedTime") or ""):
         raise MonthlyShadowError("Planilha alterada durante a leitura; teste cancelado.")
+    auxiliary_matrices = read_auxiliary_matrices(admin_id)
+    auxiliary_summary = {
+        name: parse_auxiliary_tab(name, matrix)
+        for name, matrix in auxiliary_matrices.items()
+    }
+    preview = preview_special_awards(
+        snapshot, auxiliary_matrices, manual_indicators, source.competence,
+    )
     return {
         "competencia": source.competence,
         "modificadoEm": str(metadata.get("modifiedTime") or ""),
         "abas": counts,
         "auditoria": audits,
+        "fontesAuxiliares": auxiliary_summary,
+        "previaEspeciais": preview,
     }
 
 
@@ -264,14 +280,15 @@ async def run_shadow_comparison() -> dict[str, Any]:
     """Lê fontes e fotografia, sem CACHE_SET nem HOME_PUBLICATION/publish."""
     snapshot, row = await cache_get(modulo="MENSAL", settings=get_settings())
     source = _current_source(snapshot)
-    source_stats = await asyncio.to_thread(_read_current_source, source, snapshot)
     admin_id = os.environ.get("DISMEPE_MONTHLY_AUXILIARY_SHEET_ID", "").strip()
     if not admin_id:
         raise MonthlyShadowError(
             "ID da fonte administrativa nao configurado para o teste independente."
         )
-    auxiliary = await asyncio.to_thread(read_auxiliary_sources, admin_id)
     manual_indicators = await read_manual_indicators(get_settings())
+    source_stats = await asyncio.to_thread(
+        _read_current_source, source, snapshot, admin_id, manual_indicators,
+    )
     rules = rule_coverage(snapshot.get("regrasPremiacao"))
     official = {}
     for channel, key in (("VENDEDORES", "dadosVendedores"), ("TELEVENDAS", "dadosTelevendas")):
@@ -293,7 +310,8 @@ async def run_shadow_comparison() -> dict[str, Any]:
         "linhasFonte": source_stats["abas"],
         "linhasSnapshot": official,
         "auditoriaFonteVsFotografia": source_stats["auditoria"],
-        "fontesAuxiliares": auxiliary,
+        "fontesAuxiliares": source_stats["fontesAuxiliares"],
+        "previaPremiacoesEspeciais": source_stats["previaEspeciais"],
         "coberturaPremiacao": rules,
         "indicadoresManuaisNoSQL": all(key in manual_indicators for key in (
             "FATURAMENTO_GERAL_MANUAL", "POSITIVACAO_GERAL_MANUAL",
