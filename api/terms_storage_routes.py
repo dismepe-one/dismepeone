@@ -167,6 +167,16 @@ async def sign_private(body, request, pilot):
                 "jaExistia": saved.get("jaExistia") is True}
 
 
+@router.get("/admin/mais.js", include_in_schema=False)
+async def terms_more_script(admin=Depends(_admin)):
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+    script = Path(__file__).resolve().parents[1] / "frontend" / "termo-mais.js"
+    return FileResponse(script, media_type="application/javascript",
+                        headers={"Cache-Control": "no-store, private",
+                                 "X-Content-Type-Options": "nosniff"})
+
+
 @router.get("/admin")
 async def admin_page(admin=Depends(_admin)):
     from pathlib import Path
