@@ -1,0 +1,23 @@
+name: Monthly HOME numeric confirmation
+on:
+  push:
+    branches:
+      - fix/monthly-home-numeric-snapshot-confirm-20260925
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt pytest
+      - name: Compile modified backend
+        run: python -m compileall -q api/home_publication.py
+      - name: HOME numeric confirmation and commercial SQL regression tests
+        run: python -m pytest -q tests/test_monthly_home_numeric_confirmation.py tests/test_monthly_commercial_sidecar.py tests/test_monthly_commercial_home_confirmation.py tests/test_bootstrap_scope.py
