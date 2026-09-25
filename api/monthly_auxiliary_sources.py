@@ -9,7 +9,7 @@ import re
 import unicodedata
 from typing import Any
 
-from .industries_stock_sync import _service_account_info
+from .monthly_google_reader import monthly_google_reader_info
 
 AUXILIARY_TABS = {
     "METRICA_GLOBO": ("VENDEDOR_TELEVENDAS", "TIPO", "META_CLIENTES", "PREMIO"),
@@ -90,7 +90,7 @@ def read_auxiliary_matrices(spreadsheet_id: str) -> dict[str, list[list[Any]]]:
     """Leitura privada das matrizes, sem persistir dados individuais em logs."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{15,120}", spreadsheet_id or ""):
         raise MonthlyAuxiliaryError("ID administrativo nao configurado.")
-    info = _service_account_info()
+    info = monthly_google_reader_info()
     if not info:
         raise MonthlyAuxiliaryError("Service Account nao configurada no Render.")
     from google.oauth2.service_account import Credentials
