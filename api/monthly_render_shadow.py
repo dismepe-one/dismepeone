@@ -21,6 +21,7 @@ from .cache_reads import cache_get
 from .config import get_settings
 from .monthly_auxiliary_sources import read_auxiliary_sources
 from .monthly_awards_engine import rule_coverage
+from .monthly_manual_indicators import read_manual_indicators
 from .industries_stock_sync import _service_account_info
 
 
@@ -270,6 +271,7 @@ async def run_shadow_comparison() -> dict[str, Any]:
             "ID da fonte administrativa nao configurado para o teste independente."
         )
     auxiliary = await asyncio.to_thread(read_auxiliary_sources, admin_id)
+    manual_indicators = await read_manual_indicators(get_settings())
     rules = rule_coverage(snapshot.get("regrasPremiacao"))
     official = {}
     for channel, key in (("VENDEDORES", "dadosVendedores"), ("TELEVENDAS", "dadosTelevendas")):
@@ -293,7 +295,10 @@ async def run_shadow_comparison() -> dict[str, Any]:
         "auditoriaFonteVsFotografia": source_stats["auditoria"],
         "fontesAuxiliares": auxiliary,
         "coberturaPremiacao": rules,
-        "indicadoresManuaisNoSQL": False,
+        "indicadoresManuaisNoSQL": all(key in manual_indicators for key in (
+            "FATURAMENTO_GERAL_MANUAL", "POSITIVACAO_GERAL_MANUAL",
+        )),
+        "revisaoIndicadoresManuaisConfirmada": False,
         # Fonte viva e fotografia antiga podem ter revisoes diferentes:
         # igualdade de contagem nao autoriza recalculo de premios.
         "paridadeNumericaConfirmada": False,
