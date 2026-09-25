@@ -880,20 +880,29 @@ async def _home_publication_publish_locked(
                 ("VENDEDOR", "VENDEDORES", "ONE-PUSH-" + uuid.UUID(publication_id).hex),
                 ("TELEVENDAS", "TELEVENDAS", "ONE-PUSH-" + uuid.uuid5(
                     uuid.UUID(publication_id), "TELEVENDAS").hex),
+                ("DANTON", "HOME", "ONE-PUSH-" + uuid.uuid5(
+                    uuid.UUID(publication_id), "DANTON_CIENCIA_PARCIAIS").hex),
             ):
+                administrator = role == "DANTON"
                 notice = {
                     "id": recipient_id, "tipo": "AVISO", "status": "ATIVO",
-                    "titulo": "⚠️ Parcial atualizada!",
-                    "mensagem": "Confira seus resultados e acompanhe seu desempenho.",
+                    "titulo": ("⚠️ Danton · Parciais atualizadas"
+                               if administrator else "⚠️ Parcial atualizada!"),
+                    "mensagem": ("Danton, as parciais de Vendedores e Televendas foram "
+                                 "atualizadas. Confira o desempenho da equipe."
+                                 if administrator else
+                                 "Confira seus resultados e acompanhe seu desempenho."),
                     "publico": {
-                        "todos": False, "perfis": [role],
-                        "setores": [], "usuarios": [],
+                        "todos": False, "perfis": [] if administrator else [role],
+                        "setores": [], "usuarios": ["DANTON"] if administrator else [],
                     },
                     "criadoEpoch": int(now.timestamp() * 1000),
                     "criadoEm": now.strftime("%d/%m/%Y %H:%M"),
                     "criadoPor": username, "publicarEm": now_iso, "expiraEm": "",
                     "importante": False, "exibirUmaVez": False,
-                    "destino": {"modulo": module, "tela": "PARCIAL", "fornecedor": ""},
+                    "destino": {"modulo": module,
+                                "tela": "INICIO" if administrator else "PARCIAL",
+                                "fornecedor": ""},
                     "pushStatus": "AGENDADO",
                     "origem": "HOME_PUBLICATION_MENSAL",
                     "publicationId": publication_id,
@@ -914,16 +923,16 @@ async def _home_publication_publish_locked(
                         "A campanha e o historico foram publicados, mas nao foi "
                         "possivel confirmar o aviso automatico para todos os perfis."
                     )
-            if len(notice_ids) == 2:
+            if len(notice_ids) == 3:
                 notice_id = notice_ids[0]
             await _audit(
                 profile,
-                action=("NOTIFICACAO_MENSAL_REGISTRADA" if len(notice_ids) == 2
+                action=("NOTIFICACAO_MENSAL_REGISTRADA" if len(notice_ids) == 3
                         else "NOTIFICACAO_MENSAL_FALHOU"),
                 identifier=publication_id,
                 details={"notificacaoId": notice_id, "notificacaoIds": notice_ids,
-                         "enviadaPara": ["VENDEDOR", "TELEVENDAS"],
-                         "resultado": ("AVISOS_REGISTRADOS" if len(notice_ids) == 2
+                         "enviadaPara": ["VENDEDOR", "TELEVENDAS", "DANTON"],
+                         "resultado": ("AVISOS_REGISTRADOS" if len(notice_ids) == 3
                                        else "AVISOS_NAO_CONFIRMADOS")},
             )
 
@@ -955,7 +964,7 @@ async def _home_publication_publish_locked(
             "somenteMetricasEspeciais": body.somenteMetricasEspeciais,
             "avisoMetricasEspeciais": special_warning,
             "notificacaoSolicitada": notice_requested,
-            "notificacaoRegistrada": len(notice_ids) == 2 if notice_requested else False,
+            "notificacaoRegistrada": len(notice_ids) == 3 if notice_requested else False,
             "notificacaoId": notice_id,
             "notificacaoIds": notice_ids,
             "avisoNotificacao": notice_error,
