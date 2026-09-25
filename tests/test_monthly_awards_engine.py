@@ -91,3 +91,16 @@ def test_laboratorio_produto_foco():
 
 def test_valor_brasileiro():
     assert amount("R$ 1.234,56") == Decimal("1234.56")
+
+
+
+def test_brg_integral_alias_nao_e_tratado_como_regra_ausente():
+    rule = _rule(laboratorio="INTEGRALMEDICA", metrica="PONTUACAO_PRODUTO")
+    with pytest.raises(MonthlyAwardUnsupported):
+        simple_award(_group(lab="BRG SUPLEMENTOS NUTRICIONAIS LTDA"), [rule])
+
+
+def test_laboratorio_foco_brg_usa_regra_integral():
+    rule = _rule(laboratorio="INTEGRALMEDICA", metrica="PONTUACAO_PRODUTO")
+    with pytest.raises(MonthlyAwardUnsupported):
+        simple_award(_group(lab="BRG SUPLEMENTOS - Prod. Foco (6183)"), [rule])
