@@ -87,9 +87,16 @@
         <div style="padding:16px 18px;">
           <div id="hp59823Sources" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;"></div>
 
-          <div style="padding:12px;border:1px solid #dbeafe;border-radius:13px;background:#f8fbff;">
-            <strong style="display:block;font-size:12px;color:#0f172a;">Horário da HOME vinculado às parciais</strong>
-            <span style="display:block;margin-top:2px;font-size:10px;line-height:15px;color:#64748b;">O horário muda automaticamente somente quando novos números de Vendedores ou Televendas forem publicados e confirmados no banco.</span>
+          <div role="group" aria-label="Como publicar os números na HOME" style="padding:12px;border:1px solid #dbeafe;border-radius:13px;background:#f8fbff;display:grid;gap:9px;">
+            <strong style="display:block;font-size:12px;color:#0f172a;">Como deseja publicar os novos números?</strong>
+            <label style="display:flex;gap:9px;align-items:flex-start;font-size:11px;color:#0f172a;cursor:pointer;">
+              <input type="radio" name="hp59823TimeMode" value="atualizar" checked style="margin-top:2px;">
+              <span><strong>Publicar números e atualizar o horário da HOME</strong><br><span style="font-size:10px;color:#64748b;">O horário muda somente se novos números forem confirmados.</span></span>
+            </label>
+            <label style="display:flex;gap:9px;align-items:flex-start;font-size:11px;color:#0f172a;cursor:pointer;">
+              <input type="radio" name="hp59823TimeMode" value="manter" style="margin-top:2px;">
+              <span><strong>Publicar somente os números, mantendo o horário da HOME</strong><br><span style="font-size:10px;color:#64748b;">Os valores são atualizados para os usuários; a data e o horário exibidos permanecem iguais. O registro técnico da publicação continua disponível.</span></span>
+            </label>
           </div>
 
           <label style="display:flex;gap:12px;align-items:flex-start;padding:12px;border:1px solid #d1fae5;border-radius:13px;background:#f8fffb;cursor:pointer;margin-top:9px;">
@@ -471,6 +478,7 @@
     }
     const inserirHistorico=!!document.getElementById('hp59823History')?.checked;
     const notificarVendas=!!document.getElementById('hp59823NotifySales')?.checked;
+    const atualizarHorario=document.querySelector('input[name="hp59823TimeMode"]:checked')?.value!=='manter';
     if(notificarVendas&&(!mensal||!inserirHistorico)){
       setMessage('Para notificar Vendedores e Televendas, selecione Campanhas Mensais e inserir no histórico.','error');
       return;
@@ -497,8 +505,8 @@
           // o servidor preserva horários e histórico quando nada mudou.
           const publication=await request('/admin/home-publication/publish',{
             method:'POST',body:JSON.stringify(state.novosNumeros
-              ?{inserirHistorico,notificarVendas}
-              :{somenteMetricasEspeciais:true,inserirHistorico:false,notificarVendas:false})
+              ?{inserirHistorico,notificarVendas,atualizarHorario}
+              :{somenteMetricasEspeciais:true,inserirHistorico:false,notificarVendas:false,atualizarHorario})
           });
           if(publication.notificacaoSolicitada&&!publication.notificacaoRegistrada){
             errors.push('Notificação automática: '+(publication.avisoNotificacao||'O aviso não foi confirmado no banco.'));
@@ -509,7 +517,10 @@
           const expectedMonthlyISO=String(publication?.displayTimes?.mensal?.iso||'');
           const applied=await applyFreshHome(expectedMonthlyISO);
           if(!applied)throw new Error('A publicacao foi gravada, mas a HOME ainda nao confirmou os novos numeros. Nao foi exibido sucesso indevido.');
-          monthlyPublished=!!publication.atualizouHorario;
+          monthlyPublished=!!(state.novosNumeros||publication.metricasEspeciaisAtualizadas);
+          if(monthlyPublished&&!atualizarHorario){
+            results.push('Horário da HOME mantido conforme sua escolha.');
+          }
           results.push(state.novosNumeros
             ?(publication.avisoMetricasEspeciais
                 ?'Campanhas Mensais: novos números de vendas publicados; verificação das positivações não concluída.'
@@ -544,7 +555,7 @@
             if(state.extrasPublicacaoPendente===true){
               setMessage('Publicando as Campanhas Extras atualizadas na HOME...','neutral');
               const published=await request('/admin/home-publication/publish',{
-                method:'POST',body:JSON.stringify({inserirHistorico:false,somenteExtras:true})
+                method:'POST',body:JSON.stringify({inserirHistorico:false,somenteExtras:true,atualizarHorario})
               });
               if(published.atualizouHorario===true){
                 throw new Error('Publicação Extras inesperadamente alterou a parcial Mensal; confira a HOME.');
