@@ -23,3 +23,11 @@ O snapshot MENSAL existente contém dadosVendedores, dadosTelevendas, competenci
 6. Integrar o novo caminho ao botão da Central somente depois de uma aprovação de paridade. Manter rollback e snapshot anterior; nunca repetir o cálculo automaticamente após resultado incerto.
 
 A migração **não está pronta para ativação**. A branch de desenvolvimento foi criada a partir de uma referência anterior à HEAD de main, portanto qualquer integração deve reconciliar primeiro as alterações posteriores de produção.
+
+## Primeira auditoria de fontes (sem publicação)
+
+Na competência 09/2026, a leitura conectada do Google Sheets encontrou 335 linhas de vendedores e 315 linhas de televendas, iguais às respectivas quantidades do snapshot no PostgreSQL. A comparação comercial por número de linha detectou **uma única divergência nas vendas dos vendedores** (linha 308 da aba CAMPANHA VEND, célula E308): fonte atual R$ 3.931.852,00; fotografia SQL anterior R$ 3.931,64. A venda vem de XLOOKUP sobre BASE VENDEDOR. O usuário confirmou que a mudança no valor da fonte é real. As demais 649 linhas tinham vendas e objetivos correspondentes no momento da conferência. Isso representa mudança de versão da fonte, e não erro a corrigir substituindo a célula.
+
+O leitor-sombra agora audita objetivos e vendas por linha de origem, reporta divergências de forma agregada sem nomes de colaboradores e revalida a revisão do Google Drive após a leitura. `tests/test_monthly_source_audit.py` contém casos de divergência real, linhas novas, fonte inválida e cabeçalho ambíguo. **Estes testes foram adicionados, mas ainda não foram executados no ambiente Render.** A leitura realizada pelo conector Google Drive não substitui prova de acesso pela Service Account configurada no Render.
+
+**Nunca comparar premiações de revisões diferentes como se fossem uma regressão do motor.** O motor novo deve primeiro ler a mesma revisão de todas as fontes da referência ou comparar contra um cálculo de referência atualizado e imutável; o snapshot anterior é somente linha de base histórica.
