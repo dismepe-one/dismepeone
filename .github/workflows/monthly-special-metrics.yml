@@ -1,0 +1,23 @@
+name: Monthly special positivity regression
+on:
+  push:
+    branches:
+      - fix/monthly-special-positivations-20260925
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt pytest
+      - name: Validate Python syntax
+        run: python -m compileall -q api/monthly_special_metrics.py api/home_publication.py
+      - name: Test metrics and protected commercial publication
+        run: python -m pytest -q tests/test_monthly_special_metrics.py tests/test_monthly_commercial_sidecar.py tests/test_monthly_commercial_home_confirmation.py tests/test_monthly_home_numeric_confirmation.py tests/test_monthly_home_bootstrap_timestamp.py tests/test_bootstrap_scope.py
