@@ -82,5 +82,5 @@ assert.equal(ctx.v225PremioSomaLab_(focusResult,x=>x,x=>x,x=>x).totais['LAB A'],
 const identity=records();identity.MENSAL_COMERCIAL.payload.dadosVendedores[0].__COLABORADOR='OUTRO';
 mustFail(()=>sourceFrom(identity),'PREMIO_SQL_IDENTIDADE_DIVERGENTE');
 mustFail(()=>ctx.v225PremioContexto_(context,'08/2026',k=>data[k],x=>x),'PREMIO_SQL_COMPETENCIA_CALCULO_DIVERGENTE');
-assert.ok(!/CACHE_SET|OPCACHE_ATUALIZAR|POST\s*\//i.test(source),'Adapter must never write commercial or legacy snapshots');
+assert.ok(!/['\"]CACHE_SET['\"]|['\"]OPCACHE_ATUALIZAR['\"]|fetch\s*\(|UrlFetchApp\.fetch\s*\(/i.test(source),'Adapter must never call cache writes or HTTP endpoints');
 console.log('PASS: 12 financial-source validation groups; original financial context and SQL snapshots preserved.');
