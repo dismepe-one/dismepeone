@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Termo de Responsabilidade | DISMEPE ONE</title>
+<style>
+:root{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#173b2b;background:#f1f7f3}
+*{box-sizing:border-box}body{margin:0;padding:20px 12px 60px}main{max-width:790px;margin:auto;background:white;border-radius:18px;padding:clamp(18px,4vw,36px);box-shadow:0 9px 42px #143c2315}
+header{text-align:center}header img{height:78px;width:78px;object-fit:contain}h1{font-size:clamp(20px,4vw,27px);margin:10px 0}h2{font-size:16px;color:#135a40;margin:22px 0 7px}p{line-height:1.62;font-size:14px}small,.muted{color:#64796d}.alert{padding:12px;border:1px solid #e5c780;background:#fffaf0;border-radius:9px;margin:16px 0}.signature{border:2px solid #93b8a3;border-radius:10px;touch-action:none;width:100%;height:165px;background:#fff;display:block}
+label{display:flex;gap:9px;align-items:flex-start;font-size:13px;line-height:1.5;margin:16px 0}button,.link{padding:12px 17px;border:0;border-radius:9px;background:#087b51;color:white;font-weight:750;cursor:pointer;text-decoration:none;display:inline-block}
+button[disabled]{opacity:.45;cursor:default}.secondary{background:#e4efe8;color:#145039;margin-right:8px}#feedback{min-height:1.8em;line-height:1.5;margin:13px 0;color:#425d4e}#sections{white-space:normal}
+</style></head><body><main>
+<header><img src="/login/logo.png" alt="DISMEPE ONE" onerror="this.src='/apple-touch-icon.png'"><h1>Termo de Responsabilidade e Confidencialidade</h1>
+<p class="muted">DISMEPE ONE · Assinatura eletrônica</p></header>
+<div class="alert" id="state">Verificando sua conta e a versão do termo...</div>
+<p><strong id="company"></strong></p>
+<p>As informações comerciais, incluindo vendas, faturamento, clientes, metas, preços, premiações e estoques, destinam-se exclusivamente ao trabalho autorizado. O compartilhamento não autorizado e o vazamento de dados são proibidos.</p>
+<div id="sections"></div><hr>
+<p><strong>Signatário:</strong> <span id="signer">—</span><br><strong>Versão:</strong> <span id="version">—</span></p>
+<div id="signing" hidden>
+<p><strong>Assine com o dedo ou com o mouse:</strong></p>
+<canvas id="canvas" class="signature" width="720" height="165" aria-label="Área de assinatura manuscrita"></canvas>
+<button type="button" class="secondary" id="clear">Limpar assinatura</button>
+<label><input type="checkbox" id="agree">Li integralmente o Termo e concordo com suas condições, autorizando o registro eletrônico de meu aceite vinculado à conta autenticada.</label>
+<button id="submit" type="button" disabled>Assinar e registrar documento</button>
+</div>
+<p id="feedback" role="status" aria-live="polite"></p>
+<a class="link secondary" href="/" id="back">Voltar ao DISMEPE ONE</a>
+</main><script>
+(()=>{'use strict';
+const $=id=>document.getElementById(id);
+const canvas=$('canvas'),context=canvas.getContext('2d',{willReadFrequently:true});
+context.lineWidth=2.5;context.lineCap='round';context.lineJoin='round';context.strokeStyle='#163d2c';
+let drawn=false,busy=false;
+const status=(msg,ok=false)=>{$('feedback').textContent=msg;$('feedback').style.color=ok?'#117049':'#aa402d'};
+const point=ev=>{const r=canvas.getBoundingClientRect();return {x:(ev.clientX-r.left)*canvas.width/r.width,y:(ev.clientY-r.top)*canvas.height/r.height}};
+let tracing=false;
+canvas.addEventListener('pointerdown',ev=>{ev.preventDefault();const p=point(ev);tracing=true;context.beginPath();context.moveTo(p.x,p.y);context.lineTo(p.x+.15,p.y+.15);context.stroke();drawn=true;canvas.setPointerCapture(ev.pointerId);refresh()});
+canvas.addEventListener('pointermove',ev=>{if(!tracing)return;ev.preventDefault();const p=point(ev);context.lineTo(p.x,p.y);context.stroke()});
+canvas.addEventListener('pointerup',()=>{tracing=false;refresh()});
+canvas.addEventListener('pointercancel',()=>{tracing=false;refresh()});
+$('clear').onclick=()=>{context.clearRect(0,0,canvas.width,canvas.height);drawn=false;refresh()};
+$('agree').onchange=refresh;
+function refresh(){$('submit').disabled=busy||!drawn||!$('agree').checked}
+async function request(url,opts){const r=await fetch(url,{credentials:'include',cache:'no-store',...opts});let data={};try{data=await r.json()}catch{}if(!r.ok||data.sucesso!==true)throw Error(data.detail||data.erro||'Não foi possível consultar o termo.');return data}
+async function init(){try{const s=await request('/termo/api/status');
+ $('company').textContent=s.empresa;
+ $('signer').textContent=s.nome+' · '+s.usuario+' · '+s.cargo;
+ $('version').textContent=s.versao;
+ const frag=document.createDocumentFragment();for(const item of s.texto){let h=document.createElement('h2');h.textContent=item.titulo;let p=document.createElement('p');p.textContent=item.texto;frag.append(h,p)}$('sections').replaceChildren(frag);
+ if(s.assinado){$('state').textContent='Termo já assinado nesta versão. Seu registro foi confirmado.';$('signing').hidden=true;return}
+ $('state').textContent=s.obrigatorio?'Assinatura obrigatória para continuar utilizando os módulos comerciais.':'Fase piloto: revise o termo e assine eletronicamente. O acesso continua liberado nesta fase.';
+ $('signing').hidden=false;
+}catch(err){$('state').textContent='Não foi possível consultar o registro do termo. Faça login novamente.';status(String(err.message||err))}}
+$('submit').onclick=async()=>{if(busy||!drawn||!$('agree').checked)return;busy=true;refresh();status('Gerando e verificando o PDF no Google Drive...');
+try{const result=await request('/termo/api/assinar',{method:'POST',headers:{'Content-Type':'application/json'},
+ body:JSON.stringify({confirmado:true,assinatura:canvas.toDataURL('image/png')})});
+ if(result.assinado){$('state').textContent='Assinatura confirmada e registrada.';$('signing').hidden=true;status('Documento registrado com sucesso. Você pode voltar ao DISMEPE ONE.',true)}
+ else throw Error('O aceite ainda não foi confirmado.');
+}catch(err){status(String(err.message||err))}finally{busy=false;refresh()}};
+init();
+})();
+</script></body></html>
