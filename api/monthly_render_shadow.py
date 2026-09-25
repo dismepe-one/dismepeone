@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from decimal import Decimal, InvalidOperation
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -110,7 +111,87 @@ def _source_stats(matrix: list[list[Any]], tab: str) -> dict[str, Any]:
     return {"linhas": rows, "linhaCabecalho": header + 1}
 
 
-def _read_current_source(source: MonthlySource) -> dict[str, Any]:
+def _number(value: Any) -> Decimal:
+    """Google Sheets UNFORMATTED_VALUE devolve numero, nao moeda formatada."""
+    if value is None or value == "":
+        return Decimal(0)
+    if isinstance(value, bool):
+        raise MonthlyShadowError("Coluna financeira com valor booleano.")
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise MonthlyShadowError("Coluna financeira nao numerica.") from exc
+    if not number.is_finite():
+        raise MonthlyShadowError("Coluna financeira nao finita.")
+    return number
+
+
+def audit_source_rows(
+    matrix: list[list[Any]],
+    official_rows: list[dict[str, Any]],
+    tab: str,
+    competence: str,
+) -> dict[str, Any]:
+    """Auditoria por linha, sem nomes: divergencias reais nao sao descartadas.
+
+    A origem oficial pode estar mais antiga do que a planilha viva. Nesse caso,
+    as divergencias significam revisoes diferentes, nao falha do motor novo.
+    """
+    if not isinstance(official_rows, list) or not official_rows:
+        raise MonthlyShadowError("Fotografia oficial sem linhas verificaveis.")
+    header = _header_index(matrix, tab)
+    names = [_norm(cell) for cell in matrix[header]]
+    def index(aliases: tuple[str, ...]) -> int:
+        hits = [i for i, name in enumerate(names) if name in aliases]
+        if len(hits) != 1:
+            raise MonthlyShadowError(f"Coluna comercial ambigua ou ausente em {tab}.")
+        return hits[0]
+    objective = index(("OBJETIVO", "META"))
+    sale = index(("VENDA", "REALIZADO", "FATURAMENTO"))
+    current = {}
+    for line, record in enumerate(matrix[header + 1:], start=header + 2):
+        if not any(str(item).strip() for item in record):
+            continue
+        if len(record) <= max(objective, sale):
+            raise MonthlyShadowError(f"Linha incompleta na aba {tab}.")
+        current[line] = (_number(record[objective]), _number(record[sale]))
+    expected = {}
+    for record in official_rows:
+        if not isinstance(record, dict):
+            raise MonthlyShadowError("Fotografia oficial contem linha invalida.")
+        if str(record.get("__COMPETENCIA") or record.get("competencia") or "").strip() != competence:
+            continue
+        try:
+            line = int(record.get("__linha"))
+        except (ValueError, TypeError) as exc:
+            raise MonthlyShadowError("Fotografia oficial sem numero de linha.") from exc
+        if line in expected:
+            raise MonthlyShadowError("Numero de linha duplicado na fotografia oficial.")
+        expected[line] = (_number(record.get("__OBJETIVO")), _number(record.get("__VENDA")))
+    if not current or not expected:
+        raise MonthlyShadowError(f"Sem linhas comparaveis em {tab}.")
+    changed = []
+    missing = sorted(set(expected) - set(current))
+    added = sorted(set(current) - set(expected))
+    for line in sorted(set(current) & set(expected)):
+        meta, venda = current[line]
+        old_meta, old_venda = expected[line]
+        if abs(meta - old_meta) > Decimal("0.015") or abs(venda - old_venda) > Decimal("0.015"):
+            changed.append(line)
+    return {
+        "linhasFonte": len(current),
+        "linhasFotografia": len(expected),
+        "linhasAlteradas": len(changed),
+        "numerosLinhasAlteradas": changed[:30],
+        "linhasAusentes": len(missing),
+        "linhasAdicionadas": len(added),
+        "vendaFonte": str(sum((x[1] for x in current.values()), Decimal(0))),
+        "vendaFotografia": str(sum((x[1] for x in expected.values()), Decimal(0))),
+        "valoresConferidos": not (changed or missing or added),
+    }
+
+
+def _read_current_source(source: MonthlySource, snapshot: dict[str, Any]) -> dict[str, Any]:
     # Usa a mesma conta de serviço já configurada para o portal de indústrias.
     # Não imprime, persiste ou expõe os campos sensíveis da conta.
     info = _service_account_info()
@@ -145,12 +226,28 @@ def _read_current_source(source: MonthlySource) -> dict[str, Any]:
     if len(matrices) != len(CHANNEL_TABS):
         raise MonthlyShadowError("Faltam abas operacionais da competência atual.")
     counts = {}
-    for tab, item in zip(CHANNEL_TABS, matrices):
-        counts[tab] = _source_stats(item.get("values") or [], tab)
+    audits = {}
+    for tab, item, key in zip(
+        CHANNEL_TABS, matrices, ("dadosVendedores", "dadosTelevendas")
+    ):
+        matrix = item.get("values") or []
+        counts[tab] = _source_stats(matrix, tab)
+        audits[tab] = audit_source_rows(
+            matrix, snapshot.get(key), tab, source.competence,
+        )
+    # Rele metadata: fonte editada durante a leitura invalida a comparacao.
+    end_meta = drive.files().get(
+        fileId=source.file_id,
+        fields="id,modifiedTime",
+        supportsAllDrives=True,
+    ).execute(num_retries=2)
+    if str(end_meta.get("modifiedTime") or "") != str(metadata.get("modifiedTime") or ""):
+        raise MonthlyShadowError("Planilha alterada durante a leitura; teste cancelado.")
     return {
         "competencia": source.competence,
         "modificadoEm": str(metadata.get("modifiedTime") or ""),
         "abas": counts,
+        "auditoria": audits,
     }
 
 
@@ -158,7 +255,7 @@ async def run_shadow_comparison() -> dict[str, Any]:
     """Lê fontes e fotografia, sem CACHE_SET nem HOME_PUBLICATION/publish."""
     snapshot, row = await cache_get(modulo="MENSAL", settings=get_settings())
     source = _current_source(snapshot)
-    source_stats = await asyncio.to_thread(_read_current_source, source)
+    source_stats = await asyncio.to_thread(_read_current_source, source, snapshot)
     official = {}
     for channel, key in (("VENDEDORES", "dadosVendedores"), ("TELEVENDAS", "dadosTelevendas")):
         rows = snapshot.get(key)
@@ -178,6 +275,9 @@ async def run_shadow_comparison() -> dict[str, Any]:
         "snapshotAtualizadoEm": str(row.get("atualizado_em") or ""),
         "linhasFonte": source_stats["abas"],
         "linhasSnapshot": official,
+        "auditoriaFonteVsFotografia": source_stats["auditoria"],
+        # Fonte viva e fotografia antiga podem ter revisoes diferentes:
+        # igualdade de contagem nao autoriza recalculo de premios.
         "paridadeNumericaConfirmada": False,
         "publicacaoAutorizada": False,
     }
