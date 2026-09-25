@@ -218,11 +218,20 @@
     // após o clique, a nova página retoma a espera pelo worker.
     savePending(baseline,startedAt);
 
+    let noChange=false;
     try{
-      return await previousPostApi.apply(this,arguments);
+      const result=await previousPostApi.apply(this,arguments);
+      noChange=String(result?.mensalSync||'')==='SEM_ALTERACAO';
+      return result;
     }finally{
-      // Mesmo se a resposta chegar perto de um reload, a espera fica salva.
-      watchMonthly(baseline,startedAt);
+      // Sem novas vendas, não manter uma publicação pendente por dez minutos.
+      if(noChange){
+        generation++;
+        clearPending();
+      }else{
+        // Mesmo se houver reload, o SQL confirma o horário da publicação real.
+        watchMonthly(baseline,startedAt);
+      }
     }
   };
 
