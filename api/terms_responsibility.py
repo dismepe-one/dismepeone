@@ -329,6 +329,12 @@ async def term_sign(body: SignRequest, request: Request, pilot=Depends(_pilot)):
         try:
             fid = await asyncio.to_thread(_upload_and_verify, document, filename)
         except Exception as exc:
+            if str(exc) == "PASTA_INACESSIVEL_CONTA_TECNICA":
+                raise HTTPException(
+                    503, "A conta técnica ainda não consegue acessar a pasta de termos. "
+                         "Na conta DANTON, abra o diagnóstico e confira qual endereço "
+                         "precisa de acesso de Editor à pasta. Nenhum aceite foi registrado."
+                ) from exc
             raise HTTPException(503, "O Drive não confirmou o arquivo assinado. Nenhum aceite foi registrado.") from exc
         try:
             result = await _edge(
