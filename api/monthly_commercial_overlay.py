@@ -77,7 +77,7 @@ def overlay_commercial(original, original_row, commercial, commercial_row):
                      if str(row.get("__COMPETENCIA") or row.get("competencia") or "") != comp] + result
     data["fonteDadosComerciais"] = "POSTGRESQL_MENSAL_COMERCIAL"
     data["financeiro"] = "CALCULO_LEGADO_PRESERVADO"
-    data["financeiroPendente"] = True
+    data["financeiroPendente"] = commercial.get("temDivergenciaComercial") is True
     data["versaoDadosComerciais"] = "MENSAL_COMERCIAL_SQL_V1"
     timestamp = str(commercial_row.get("atualizado_em") or "")
     if not timestamp:
