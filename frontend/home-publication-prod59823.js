@@ -402,16 +402,34 @@
     const queued=syncResult==='AGUARDANDO_WORKER'
       ||result?.mensalPublicacaoPendente===true
       ||(result?.processamentoAssincrono===true&&result?.agendado===true);
-    // Somente o fluxo legado assíncrono precisa aguardar o worker.
+    // A sincronizacao comercial e sincrona: uma resposta de erro nao agenda
+    // worker. Fazer uma unica leitura do SQL para descartar resposta perdida
+    // apos gravacao, mas nunca bloquear a tela por cinco minutos.
+    if(updateError){
+      let confirmed=null;
+      try{
+        confirmed=await request('/admin/home-publication/monthly-status?_error='+Date.now());
+      }catch(e){}
+      const decision=confirmed&&monthlyPersistenceDecision(confirmed,previousSourceISO);
+      if(decision)return decision;
+      throw new Error(String(updateError.message||updateError)
+        + ' Nenhuma nova gravacao comercial foi confirmada. '
+        + 'A fotografia anterior foi preservada.');
+    }
+    // Somente o fluxo legado realmente agendado deve aguardar o worker.
+    if(!queued){
+      const current=await request('/admin/home-publication/monthly-status?_final='+Date.now());
+      const decision=monthlyPersistenceDecision(current,previousSourceISO);
+      if(decision)return decision;
+      // O sucesso sem alteracao nao pode ficar em um loop de espera.
+      if(current?.fonteValida===true&&current?.fonteAssinatura===publishedSignature){
+        return {novosNumeros:false,status:current};
+      }
+      throw new Error('A atualizacao mensal nao foi confirmada no PostgreSQL. A fotografia anterior foi preservada.');
+    }
     let state=await waitForMonthlyPersistence(publishedSignature,previousSourceISO,
       300000);
     if(state.novosNumeros||state.snapshotRegravado)return state;
-    if(updateError){
-      throw new Error('A comunicacao com a Central foi interrompida ('
-        +String(updateError.message||updateError)
-        +'). Ainda nao foi possivel confirmar uma nova gravacao no PostgreSQL. '
-        +'Nao clique novamente em Publicar; consulte o estado da atualizacao.');
-    }
     if(queued){
       throw new Error('A atualizacao foi agendada, mas o worker ainda nao confirmou novos numeros no PostgreSQL. '
         +'A fotografia anterior foi preservada. Nao solicite uma segunda atualizacao; consulte o estado da publicacao.');
