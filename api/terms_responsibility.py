@@ -313,6 +313,8 @@ class SignRequest(BaseModel):
 
 @router.post("/api/assinar")
 async def term_sign(body: SignRequest, request: Request, pilot=Depends(_pilot)):
+    from .terms_storage_routes import sign_private
+    return await sign_private(body, request, pilot)
     profile, username = pilot
     origin = request.headers.get("origin", "").rstrip("/")
     if origin not in {"https://dismepeone.com.br", "https://www.dismepeone.com.br",
