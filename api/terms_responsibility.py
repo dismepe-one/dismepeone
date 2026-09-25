@@ -282,6 +282,7 @@ async def term_diagnostic(pilot=Depends(_pilot)):
         # Categorizar o erro sem revelar mensagens da API, tokens ou credenciais.
         kind = str(exc) if str(exc) in {
             "CONTA_TECNICA_NAO_CONFIGURADA", "PASTA_INVALIDA",
+            "PASTA_INACESSIVEL_CONTA_TECNICA",
             "SEM_PERMISSAO_DE_GRAVACAO", "LOGO_OFICIAL_AUSENTE",
             "PDF_NAO_GERADO", "GRAVACAO_NAO_CONFIRMADA", "PDF_NO_DRIVE_DIVERGENTE"
         } else "FALHA_GOOGLE_DRIVE_OU_PDF"
