@@ -373,11 +373,36 @@
     // Em especial: "Leitura DADOS do legado indisponivel" pode ocorrer
     // depois que a Central ja iniciou a gravacao. Confirmar a fonte antes
     // de considerar a operacao perdida; jamais enviar OPCACHE_ATUALIZAR de novo.
-    const queued=String(result?.mensalSync||'').toUpperCase()==='AGUARDANDO_WORKER'
+    const syncResult=String(result?.mensalSync||'').toUpperCase();
+    if(!updateError&&(
+      syncResult==='COMERCIAL_SQL_PUBLICADO'||syncResult==='SEM_ALTERACAO'
+    )){
+      // O novo leitor já confirmou CACHE_SET + CACHE_GET em MENSAL_COMERCIAL.
+      // Verificar o mesmo snapshot comercial no status da HOME, sem aguardar
+      // cinco minutos pela gravação do módulo financeiro legado MENSAL.
+      const confirmed=await request('/admin/home-publication/monthly-status?_commercial='+Date.now());
+      if(confirmed?.fonteValida!==true||!confirmed?.fonteAssinatura||
+          !confirmed?.fonteAtualizadoEm){
+        throw new Error('A gravacao comercial foi confirmada, mas a HOME nao conseguiu ler a fotografia atualizada.');
+      }
+      if(syncResult==='COMERCIAL_SQL_PUBLICADO'){
+        const expected=Date.parse(String(result?.horarioMensalISO||''));
+        const actual=Date.parse(String(confirmed.fonteAtualizadoEm||''));
+        if(!Number.isFinite(expected)||!Number.isFinite(actual)||actual<expected){
+          throw new Error('A HOME ainda nao confirmou a nova gravacao comercial no PostgreSQL.');
+        }
+      }
+      const decision=monthlyPersistenceDecision(confirmed,previousSourceISO);
+      if(decision)return decision;
+      if(confirmed.fonteAssinatura===confirmed.publicadaAssinatura){
+        return {novosNumeros:false,status:confirmed};
+      }
+      throw new Error('A fotografia comercial foi gravada, mas a HOME nao confirmou os novos numeros.');
+    }
+    const queued=syncResult==='AGUARDANDO_WORKER'
       ||result?.mensalPublicacaoPendente===true
       ||(result?.processamentoAssincrono===true&&result?.agendado===true);
-    // O worker recorrente do Apps Script não termina durante a requisição
-    // HTTP. Consultar somente o SQL; jamais repetir OPCACHE_ATUALIZAR.
+    // Somente o fluxo legado assíncrono precisa aguardar o worker.
     let state=await waitForMonthlyPersistence(publishedSignature,previousSourceISO,
       300000);
     if(state.novosNumeros||state.snapshotRegravado)return state;
