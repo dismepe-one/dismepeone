@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - fix/monthly-special-positivations-20260925
+      - fix/special-metrics-independent-refresh-20260925
   workflow_dispatch:
 permissions:
   contents: read
@@ -20,4 +21,4 @@ jobs:
       - name: Validate Python syntax
         run: python -m compileall -q api/monthly_special_metrics.py api/home_publication.py
       - name: Test metrics and protected commercial publication
-        run: python -m pytest -q tests/test_monthly_special_metrics.py tests/test_monthly_commercial_sidecar.py tests/test_monthly_commercial_home_confirmation.py tests/test_monthly_home_numeric_confirmation.py tests/test_monthly_home_bootstrap_timestamp.py tests/test_bootstrap_scope.py
+        run: python -m pytest -q tests/test_monthly_special_metrics.py tests/test_special_metrics_independent_publication.py tests/test_monthly_commercial_sidecar.py tests/test_monthly_commercial_home_confirmation.py tests/test_monthly_home_numeric_confirmation.py tests/test_monthly_home_bootstrap_timestamp.py tests/test_bootstrap_scope.py
