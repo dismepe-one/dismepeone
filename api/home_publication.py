@@ -661,6 +661,9 @@ async def _home_publication_publish_locked(
         current, _current_row = current_result
         current = current or {}
 
+        sales_changed = False
+        special_warning = ""
+        special_changed = False
         if body.somenteExtras:
             if not isinstance(current.get("mensal"), dict):
                 raise RuntimeError("A parcial Mensal ainda não foi publicada.")
@@ -678,9 +681,20 @@ async def _home_publication_publish_locked(
                 pass
             # Special indicators are independently refreshed; the commercial reader,
             # legacy SQL financial snapshot and its existing comparison stay untouched.
-            mensal_publicado = await enrich_special_metrics(mensal_publicado)
-            partials_changed = (_partial_sales_changed(current, mensal_publicado)
-                                or _special_metrics_changed(current, mensal_publicado))
+            try:
+                mensal_publicado = await enrich_special_metrics(mensal_publicado)
+            except Exception:
+                # A falha isolada do Google nao interrompe vendas ou altera
+                # as metricas anteriores. O retorno informa a pendencia.
+                special_warning = (
+                    "As positivacoes de GLOBO, HERBAMED e Integral/BRG nao foram "
+                    "atualizadas. A publicacao comercial foi preservada."
+                )
+            sales_changed = _partial_sales_changed(current, mensal_publicado)
+            special_changed = not special_warning and _special_metrics_changed(
+                current, mensal_publicado
+            )
+            partials_changed = sales_changed or special_changed
 
         extras_publicado = copy.deepcopy(extras_payload)
         previous_sources = current.get("fontes") if isinstance(current.get("fontes"), dict) else {}
@@ -792,6 +806,9 @@ async def _home_publication_publish_locked(
                 != _partial_numbers(mensal_publicado, key)
                 for key in ("dadosVendedores", "dadosTelevendas")
             )
+            or (special_changed and _special_metrics_changed(
+                {"mensal": confirmed.get("mensal") or {}}, mensal_publicado
+            ))
         ):
             raise RuntimeError(
                 "O PostgreSQL não confirmou as parciais publicadas; "
@@ -803,7 +820,7 @@ async def _home_publication_publish_locked(
         # publicacoes sem mudanca nao criam avisos.
         notice_requested = bool(
             body.notificarVendas and body.inserirHistorico
-            and partials_changed and not body.somenteExtras
+            and sales_changed and not body.somenteExtras
         )
         notice_id = ""
         notice_error = ""
@@ -877,6 +894,8 @@ async def _home_publication_publish_locked(
             "inseriuHistorico": bool(body.inserirHistorico),
             "displayTimes": display_times,
             "historico": history,
+            "metricasEspeciaisAtualizadas": special_changed,
+            "avisoMetricasEspeciais": special_warning,
             "notificacaoSolicitada": notice_requested,
             "notificacaoRegistrada": bool(notice_id),
             "notificacaoId": notice_id,
