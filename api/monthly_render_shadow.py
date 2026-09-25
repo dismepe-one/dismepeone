@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 from decimal import Decimal, InvalidOperation
 import unicodedata
@@ -18,6 +19,8 @@ from urllib.parse import parse_qs, urlparse
 
 from .cache_reads import cache_get
 from .config import get_settings
+from .monthly_auxiliary_sources import read_auxiliary_sources
+from .monthly_awards_engine import rule_coverage
 from .industries_stock_sync import _service_account_info
 
 
@@ -261,6 +264,13 @@ async def run_shadow_comparison() -> dict[str, Any]:
     snapshot, row = await cache_get(modulo="MENSAL", settings=get_settings())
     source = _current_source(snapshot)
     source_stats = await asyncio.to_thread(_read_current_source, source, snapshot)
+    admin_id = os.environ.get("DISMEPE_MONTHLY_AUXILIARY_SHEET_ID", "").strip()
+    if not admin_id:
+        raise MonthlyShadowError(
+            "ID da fonte administrativa nao configurado para o teste independente."
+        )
+    auxiliary = await asyncio.to_thread(read_auxiliary_sources, admin_id)
+    rules = rule_coverage(snapshot.get("regrasPremiacao"))
     official = {}
     for channel, key in (("VENDEDORES", "dadosVendedores"), ("TELEVENDAS", "dadosTelevendas")):
         rows = snapshot.get(key)
@@ -281,6 +291,9 @@ async def run_shadow_comparison() -> dict[str, Any]:
         "linhasFonte": source_stats["abas"],
         "linhasSnapshot": official,
         "auditoriaFonteVsFotografia": source_stats["auditoria"],
+        "fontesAuxiliares": auxiliary,
+        "coberturaPremiacao": rules,
+        "indicadoresManuaisNoSQL": False,
         # Fonte viva e fotografia antiga podem ter revisoes diferentes:
         # igualdade de contagem nao autoriza recalculo de premios.
         "paridadeNumericaConfirmada": False,
