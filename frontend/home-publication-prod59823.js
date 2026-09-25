@@ -307,24 +307,32 @@
   // O legado pode concluir a escrita antes de o snapshot PostgreSQL ficar visivel.
   // Uma unica requisicao de atualizacao; as demais chamadas sao somente leituras.
   const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-  async function waitForMonthlyPersistence(publishedSignature,timeoutMs){
+  // Uma nova gravacao no SQL pode manter as mesmas vendas. Nesse caso nao
+  // atualizar o horario comercial nem criar historico; apenas confirmar a escrita.
+  function monthlyPersistenceDecision(status,previousSourceISO){
+    const source=String(status?.parciais?.fonteAssinatura||'');
+    const published=String(status?.parciais?.publicadaAssinatura||'');
+    const sourceISO=String(status?.fontes?.mensal?.atualizadoEm||'');
+    if(source&&published&&source!==published){
+      return {novosNumeros:true,status};
+    }
+    if(previousSourceISO&&sourceISO&&sourceISO!==previousSourceISO&&source&&source===published){
+      return {novosNumeros:false,snapshotRegravado:true,status};
+    }
+    return null;
+  }
+  async function waitForMonthlyPersistence(publishedSignature,previousSourceISO,timeoutMs){
     const deadline=Date.now()+timeoutMs;
     let lastError=null;
     while(true){
       try{
         const status=await request('/admin/home-publication/status?_sync='+Date.now());
-        const source=String(status?.parciais?.fonteAssinatura||'');
-        const published=String(status?.parciais?.publicadaAssinatura||'');
-        if(source&&published&&source!==publishedSignature&&source!==published){
-          return {novosNumeros:true,status};
-        }
-        if(source&&source===publishedSignature&&published&&source!==published){
-          // Ja havia uma fotografia mensal confirmada, ainda nao publicada.
-          return {novosNumeros:true,status};
-        }
+        const decision=monthlyPersistenceDecision(status,previousSourceISO);
+        if(decision)return decision;
+        lastError=null;
       }catch(e){lastError=e;}
       if(Date.now()>=deadline)break;
-      setMessage('Aguardando a confirmacao dos novos numeros mensais no PostgreSQL...','neutral');
+      setMessage('Aguardando a confirmacao da gravacao mensal no PostgreSQL...','neutral');
       await sleep(Math.min(2000,Math.max(250,deadline-Date.now())));
     }
     return {novosNumeros:false,lastError};
@@ -334,7 +342,8 @@
     const before=await request('/admin/home-publication/status?_before='+Date.now());
     const previousSignature=String(before?.parciais?.fonteAssinatura||'');
     const publishedSignature=String(before?.parciais?.publicadaAssinatura||'');
-    if(!previousSignature||!publishedSignature){
+    const previousSourceISO=String(before?.fontes?.mensal?.atualizadoEm||'');
+    if(!previousSignature||!publishedSignature||!previousSourceISO){
       throw new Error('Nao foi possivel confirmar os numeros atuais das parciais no banco.');
     }
     if(previousSignature!==publishedSignature){
@@ -358,13 +367,14 @@
       ||(result?.processamentoAssincrono===true&&result?.agendado===true);
     // O worker recorrente do Apps Script não termina durante a requisição
     // HTTP. Consultar somente o SQL; jamais repetir OPCACHE_ATUALIZAR.
-    let state=await waitForMonthlyPersistence(publishedSignature,
+    let state=await waitForMonthlyPersistence(publishedSignature,previousSourceISO,
       queued?300000:(updateError?70000:25000));
-    if(state.novosNumeros)return state;
+    if(state.novosNumeros||state.snapshotRegravado)return state;
     if(updateError){
-      throw new Error('A atualizacao mensal nao foi confirmada no PostgreSQL. '
-        +'A fotografia anterior foi preservada. Detalhe: '
-        +String(updateError.message||updateError));
+      throw new Error('A comunicacao com a Central foi interrompida ('
+        +String(updateError.message||updateError)
+        +'). Ainda nao foi possivel confirmar uma nova gravacao no PostgreSQL. '
+        +'Nao clique novamente em Publicar; consulte o estado da atualizacao.');
     }
     if(queued){
       throw new Error('A atualizacao foi agendada, mas o worker ainda nao confirmou novos numeros no PostgreSQL. '
@@ -445,7 +455,9 @@
               }
             }catch(e){}
           }else{
-            results.push('Campanhas Mensais: parciais já atualizadas; horário mantido.');
+            results.push(state.snapshotRegravado
+              ?'Campanhas Mensais: calculo gravado no PostgreSQL; vendas sem alteracao, horario e historico mantidos.'
+              :'Campanhas Mensais: parciais já atualizadas; horário mantido.');
           }
         }catch(e){
           const message=String(e.message||e).replace(/^(?:Campanhas Mensais:\s*)+/i,'').trim();
