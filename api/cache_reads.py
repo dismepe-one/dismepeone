@@ -867,4 +867,7 @@ def scope_mensal_dashboard(
             result.get("versaoCalculoVendedores") or ""
         ),
         "versaoDadosSql": str(result.get("versaoDadosSql") or ""),
+        "fonteDadosComerciais": str(result.get("fonteDadosComerciais") or ""),
+        "financeiroPendente": result.get("financeiroPendente") is True,
+        "versaoDadosComerciais": str(result.get("versaoDadosComerciais") or ""),
     }
