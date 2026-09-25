@@ -11,6 +11,7 @@ import os
 
 from .monthly_homologation_sql_probe import probe_sql_readonly
 from .monthly_google_probe import probe_google_sources
+from .monthly_commercial_readonly import compare_live_commercial
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
@@ -26,6 +27,7 @@ app = FastAPI(
 async def _verify_sql_readonly() -> None:
     app.state.sql_readonly_validated = False
     app.state.google_readonly_validated = False
+    app.state.commercial_readonly_validated = False
     if os.getenv("DISMEPE_MONTHLY_HOMOLOGATION") != "1":
         return
     try:
@@ -55,6 +57,25 @@ async def _verify_sql_readonly() -> None:
                 type(exc).__name__,
             )
 
+    if app.state.sql_readonly_validated and app.state.google_readonly_validated:
+        try:
+            commercial = await asyncio.to_thread(compare_live_commercial)
+            app.state.commercial_readonly_validated = True
+            logging.getLogger("uvicorn.error").info(
+                "MONTHLY_HOMOLOG_COMERCIAL=OK competencia=%s vendedores=%s televendas=%s divergencias_vendedores=%s divergencias_televendas=%s",
+                commercial["competencia"],
+                commercial["vendedores"]["fonte"],
+                commercial["televendas"]["fonte"],
+                commercial["vendedores"]["numerosDivergentes"],
+                commercial["televendas"]["numerosDivergentes"],
+            )
+        except Exception as exc:
+            app.state.commercial_readonly_validated = False
+            logging.getLogger("uvicorn.error").warning(
+                "MONTHLY_HOMOLOG_COMERCIAL=NOT_VALIDATED error_type=%s",
+                type(exc).__name__,
+            )
+
 
 @app.get("/health", include_in_schema=False)
 async def health() -> dict[str, object]:
@@ -78,6 +99,7 @@ async def status() -> JSONResponse:
             "sqlLeituraValidada": bool(getattr(app.state, "sql_readonly_validated", False)),
             "googleContaExclusivaConfirmada": bool(getattr(app.state, "google_readonly_validated", False)),
             "integracaoComFontes": "LEITURA_CONFIRMADA" if getattr(app.state, "google_readonly_validated", False) else "PENDENTE_DE_CREDENCIAIS_GOOGLE_EXCLUSIVAS",
+            "leituraComercialValidada": bool(getattr(app.state, "commercial_readonly_validated", False)),
             "paridadeFinanceira": "NAO_VALIDADA",
         },
         headers={"Cache-Control": "no-store"},
