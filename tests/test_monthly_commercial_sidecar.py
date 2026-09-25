@@ -40,6 +40,7 @@ def test_overlay_only_commercial_and_maintains_awards():
         "competencia": "09/2026",
         "sheetId": "17JuuFiUoYAQyYJ1rOIiydxhVIPGZbXGH7fy4WQYyhD4",
         "baseAtualizadoEm": "2026-09-25T04:36:54Z",
+        "temDivergenciaComercial": True,
         "dadosVendedores": [source],
         "dadosTelevendas": [dict(source, **{"__CANAL": "TELEVENDAS", "__aba": "CAMPANHAS TLVS"})],
     }
