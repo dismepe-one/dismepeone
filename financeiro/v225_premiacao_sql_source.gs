@@ -159,3 +159,22 @@ function v225PremioSomaLab_(fonte, laboratorioBase, normalizedLab, numero) {
   });
   return {totais:totals, fontes:['MENSAL_COMERCIAL_PREMIACAO_V225']};
 }
+
+/**
+ * Call immediately BEFORE persisting a financial award snapshot. Prevents
+ * publishing calculations based on a commercial snapshot that changed mid-run.
+ * Does not write or start a commercial refresh.
+ */
+function v225PremioConferirRevisao_(fonte, readSql) {
+  if (!fonte || fonte.ativa !== true) return true;
+  if (typeof readSql !== 'function') throw new Error('PREMIO_SQL_LEITOR_INDISPONIVEL');
+  var atual = readSql('MENSAL_COMERCIAL');
+  var mensal = readSql('MENSAL');
+  if (!atual || !atual.payload || !mensal || !mensal.payload ||
+      !v225PremioMesmoInstante_(atual.atualizado_em, fonte.iso) ||
+      !v225PremioMesmoInstante_(mensal.atualizado_em, fonte.baseIso) ||
+      !v225PremioMesmoInstante_(atual.payload.baseAtualizadoEm, mensal.atualizado_em) ||
+      String(atual.payload.competencia || '') !== fonte.competencia)
+    throw new Error('PREMIO_SQL_FONTE_ALTERADA_DURANTE_CALCULO');
+  return true;
+}
