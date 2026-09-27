@@ -113,6 +113,7 @@ def _portal_response(*, authenticated: bool = False, terms_admin: bool = False) 
         f'<script src="/industries-admin.js?v={BUILD}"></script>',
         f'<script src="/monthly-business-days-prod59822.js?v={BUILD}"></script>',
         f'<script src="/herbamed-auto-metrics-prod59822.js?v={BUILD}"></script>',
+        '<script src="/produto-foco-labels.js?v=FOCO-LABELS-1"></script>',
         '<script src="/positivacao-launcher.js?v=POS-GERAL-DEV4-CARD"></script>',
         '<script src="/notificacoes/launcher.js?v=NOTIF-HOME-STABLE-1"></script>',
         '<script src="/push/client.js?v=PUSH-ANDROID-2"></script>',
@@ -295,6 +296,15 @@ async def ios_home_screen_icon():
         media_type="image/png",
         headers={"Cache-Control": "no-store, max-age=0",
                  "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@app.get("/produto-foco-labels.js", include_in_schema=False)
+async def produto_foco_labels_script():
+    return FileResponse(
+        ROOT / "frontend" / "produto-foco-labels.js",
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
     )
 
 
