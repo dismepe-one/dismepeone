@@ -2,14 +2,17 @@
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Termo de Responsabilidade | DISMEPE ONE</title>
 <style>
-:root{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#173b2b;background:#f1f7f3}
-*{box-sizing:border-box}body{margin:0;padding:20px 12px 60px}main{max-width:790px;margin:auto;background:white;border-radius:18px;padding:clamp(18px,4vw,36px);box-shadow:0 9px 42px #143c2315}
-header{text-align:center}header img{height:78px;width:78px;object-fit:contain}h1{font-size:clamp(20px,4vw,27px);margin:10px 0}h2{font-size:16px;color:#135a40;margin:22px 0 7px}p{line-height:1.62;font-size:14px}small,.muted{color:#64796d}.alert{padding:12px;border:1px solid #e5c780;background:#fffaf0;border-radius:9px;margin:16px 0}.signature{border:2px solid #93b8a3;border-radius:10px;touch-action:none;width:100%;height:165px;background:#fff;display:block}
-label{display:flex;gap:9px;align-items:flex-start;font-size:13px;line-height:1.5;margin:16px 0}button,.link{padding:12px 17px;border:0;border-radius:9px;background:#087b51;color:white;font-weight:750;cursor:pointer;text-decoration:none;display:inline-block}
+:root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17332c;background:#f2f6f3;--one-green:#005548;--one-green-dark:#003f36;--one-shell-1:#DFF0E8;--one-shell-2:#E1F0EA;--one-shell-3:#E4EFEB;--one-shell-border:#c8d2cf}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#f2f6f3;padding-bottom:60px}.one-header{width:100%;min-height:64px;padding:9px max(18px,calc((100vw - 1180px)/2));display:flex;align-items:center;justify-content:space-between;gap:16px;background:linear-gradient(135deg,var(--one-shell-1) 0%,var(--one-shell-2) 50%,var(--one-shell-3) 100%);border-bottom:1px solid var(--one-shell-border);box-shadow:0 5px 18px rgba(0,63,54,.10)}.one-header img{width:clamp(138px,23vw,188px);max-height:56px;object-fit:contain;object-position:left center}.one-header a{font-size:12px;font-weight:850;color:var(--one-green);text-decoration:none;border:1px solid rgba(0,85,72,.18);background:rgba(255,255,255,.52);border-radius:9px;padding:9px 12px;white-space:nowrap}main{max-width:790px;margin:26px auto 0;background:#fff;border:1px solid #deebe2;border-radius:18px;padding:clamp(18px,4vw,36px);box-shadow:0 9px 42px #143c2315}.eyebrow{color:var(--one-green);font-size:11px;font-weight:900;letter-spacing:.08em;text-transform:uppercase}h1{font-size:clamp(22px,4vw,30px);margin:7px 0 5px;letter-spacing:-.025em;color:#17332c}h2{font-size:16px;color:var(--one-green);margin:22px 0 7px}p{line-height:1.62;font-size:14px}small,.muted{color:#64796d}.lead{margin:0 0 18px}.alert{padding:12px 13px;border:1px solid #d7e4df;background:#f5faf7;border-radius:10px;margin:16px 0;color:#36594d}.signature{border:2px solid #93b8a3;border-radius:10px;touch-action:none;width:100%;height:165px;background:#fff;display:block}
+label{display:flex;gap:9px;align-items:flex-start;font-size:13px;line-height:1.5;margin:16px 0}button,.link{padding:12px 17px;border:0;border-radius:9px;background:var(--one-green);color:white;font-weight:800;cursor:pointer;text-decoration:none;display:inline-block}button:hover{background:var(--one-green-dark)}
 button[disabled]{opacity:.45;cursor:default}.secondary{background:#e4efe8;color:#145039;margin-right:8px}#feedback{min-height:1.8em;line-height:1.5;margin:13px 0;color:#425d4e}#sections{white-space:normal}
-</style></head><body><main>
-<header><img src="/login/logo.png" alt="DISMEPE ONE" onerror="this.src='/apple-touch-icon.png'"><h1>Termo de Responsabilidade e Confidencialidade</h1>
-<p class="muted">DISMEPE ONE · Assinatura eletrônica</p></header>
+@media(max-width:650px){.one-header{padding:10px 12px;min-height:58px}.one-header img{width:132px}.one-header a{font-size:10.5px;padding:8px 9px}main{margin:14px 10px 0;padding:18px 15px;border-radius:15px}}
+</style></head><body>
+<header class="one-header"><img src="/positivacoes/logo.png" alt="Logo oficial DISMEPE ONE"><a href="/">← Voltar à HOME</a></header>
+<main>
+<div class="eyebrow">Documento oficial · Confidencialidade</div>
+<h1>Termo de Responsabilidade e Confidencialidade</h1>
+<p class="muted lead">DISMEPE ONE · Assinatura eletrônica</p>
 <div class="alert" id="state">Verificando sua conta e a versão do termo...</div>
 <p><strong id="company"></strong></p>
 <p>As informações comerciais, incluindo vendas, faturamento, clientes, metas, preços, premiações e estoques, destinam-se exclusivamente ao trabalho autorizado. O compartilhamento não autorizado e o vazamento de dados são proibidos.</p>
@@ -47,7 +50,7 @@ async function init(){try{const s=await request('/termo/api/status');
  $('version').textContent=s.versao;
  const frag=document.createDocumentFragment();for(const item of s.texto){let h=document.createElement('h2');h.textContent=item.titulo;let p=document.createElement('p');p.textContent=item.texto;frag.append(h,p)}$('sections').replaceChildren(frag);
  if(s.assinado){$('state').textContent='Termo já assinado nesta versão. Seu registro foi confirmado.';$('signing').hidden=true;return}
- $('state').textContent=s.obrigatorio?'Assinatura obrigatória para continuar utilizando os módulos comerciais.':'Fase piloto: revise o termo e assine eletronicamente. O acesso continua liberado nesta fase.';
+ $('state').textContent=s.obrigatorio?'Assinatura obrigatória para continuar utilizando os módulos comerciais.':'Termo oficial disponível para assinatura eletrônica nesta conta.';
  $('signing').hidden=false;
 }catch(err){$('state').textContent='Não foi possível consultar o registro do termo. Faça login novamente.';status(String(err.message||err))}}
 $('submit').onclick=async()=>{if(busy||!drawn||!$('agree').checked)return;busy=true;refresh();status('Gerando e verificando o PDF no armazenamento privado do DISMEPE ONE...');
