@@ -179,5 +179,48 @@ def test_faturamento_percentual_com_meta_individual():
     assert row["objetivo"] == 1000
     assert row["atingimento"] == 120
     assert row["percentualIndividual"] == 5
-    assert row["premiacao"] == 50
+    assert row["premiacao"] == 60
     assert row["status"] == "PREMIADO"
+
+
+def test_faturamento_percentual_individual_usa_meta_como_gatilho_e_venda_como_base():
+    payload = extras_payload()
+    payload["campanhas"][0].update(
+        {
+            "metrica": "FATURAMENTO_INDIVIDUAL_PERCENTUAL",
+            "objetivo": 0,
+            "regra": {
+                "metasIndividuais": [
+                    {
+                        "usuario": "vendteste",
+                        "nome": "VENDEDOR TESTE",
+                        "tipo": "VENDEDOR",
+                        "objetivo": 1000,
+                        "percentual": 5,
+                    }
+                ]
+            },
+        }
+    )
+
+    payload["vendasPorCampanha"]["CE-1"][0]["venda"] = 999
+    abaixo = extras_api_response(
+        extras_payload=payload,
+        users_payload=users_payload(),
+        profile=admin(),
+        campaign_id="CE-1",
+    )["registros"][0]
+    assert abaixo["premiacao"] == 0
+    assert abaixo["status"] == "EM ANDAMENTO"
+
+    payload["vendasPorCampanha"]["CE-1"][0]["venda"] = 5000
+    acima = extras_api_response(
+        extras_payload=payload,
+        users_payload=users_payload(),
+        profile=admin(),
+        campaign_id="CE-1",
+    )["registros"][0]
+    assert acima["objetivo"] == 1000
+    assert acima["atingimento"] == 500
+    assert acima["premiacao"] == 250
+    assert acima["status"] == "PREMIADO"

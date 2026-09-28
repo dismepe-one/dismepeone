@@ -756,7 +756,9 @@ def _partial_for_campaign(
             if metric == "FATURAMENTO_INDIVIDUAL_PERCENTUAL":
                 target = individual_target(str(group.get("colaborador") or ""))
                 campaign_for_calc = copy.deepcopy(campaign)
-                campaign_for_calc["metrica"] = "PERCENTUAL_OBJETIVO"
+                # Meta individual é gatilho; após atingi-la, o percentual
+                # incide sobre toda a venda realizada da campanha.
+                campaign_for_calc["metrica"] = "PERCENTUAL_VENDA"
                 campaign_for_calc["objetivo"] = target["objetivo"]
                 calc_rule = (
                     copy.deepcopy(campaign.get("regra"))
