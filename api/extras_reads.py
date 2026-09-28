@@ -497,6 +497,15 @@ def _calculate_prize(
             if minimum > 0 and amount >= 0 and sale >= minimum:
                 valid.append((minimum, amount))
         prize = max(valid, default=(0, 0), key=lambda x: x[0])[1]
+    elif metric == "PRODUTO_UNIDADE_GATILHO":
+        unit_value = _num(rule.get("valorUnidade") or rule.get("valor"))
+        prize = (
+            focus_qty * unit_value
+            if objective_focus > 0
+            and focus_qty >= objective_focus
+            and unit_value > 0
+            else 0
+        )
     elif metric == "PRODUTO_FOCO":
         prize = (
             _num(rule.get("valor"))
@@ -563,6 +572,31 @@ def _partial_for_campaign(
     focus_code = str(campaign.get("codigoProdutoFoco") or "").strip().upper()
     groups: dict[str, dict[str, Any]] = {}
 
+    def individual_target(collaborator: str) -> dict[str, Any]:
+        rule = campaign.get("regra") if isinstance(campaign.get("regra"), dict) else {}
+        targets = rule.get("metasIndividuais") if isinstance(rule.get("metasIndividuais"), list) else []
+        aliases = _aliases(collaborator)
+        for alias in list(aliases):
+            row = by_alias.get(alias)
+            if row:
+                aliases |= _aliases(row.get("usuario"), row.get("nome"), row.get("vendedor"))
+        for item in targets:
+            if not isinstance(item, dict):
+                continue
+            item_aliases = _aliases(
+                item.get("usuario"),
+                item.get("login"),
+                item.get("nome"),
+                item.get("vendedor"),
+            )
+            if aliases & item_aliases:
+                return {
+                    "objetivo": _num(item.get("objetivo") or item.get("meta")),
+                    "percentual": _num(item.get("percentual")),
+                    "usuario": str(item.get("usuario") or item.get("login") or ""),
+                }
+        return {"objetivo": 0.0, "percentual": 0.0, "usuario": ""}
+
     for row in sales:
         collaborator = str(row.get("colaborador") or "").strip()
         key = _flex(collaborator)
@@ -594,7 +628,7 @@ def _partial_for_campaign(
         group["venda"] += _num(row.get("venda"))
 
         if (
-            metric == "PRODUTO_FOCO"
+            metric in {"PRODUTO_FOCO", "PRODUTO_UNIDADE_GATILHO"}
             and str(row.get("codigoProduto") or "").strip().upper() == focus_code
         ):
             group["quantidadeProdutoFoco"] += _num(row.get("quantidade"))
@@ -670,12 +704,31 @@ def _partial_for_campaign(
             )
     else:
         for group in groups.values():
+            campaign_for_calc = campaign
+            target = None
+            if metric == "FATURAMENTO_INDIVIDUAL_PERCENTUAL":
+                target = individual_target(str(group.get("colaborador") or ""))
+                campaign_for_calc = copy.deepcopy(campaign)
+                campaign_for_calc["metrica"] = "PERCENTUAL_OBJETIVO"
+                campaign_for_calc["objetivo"] = target["objetivo"]
+                calc_rule = (
+                    copy.deepcopy(campaign.get("regra"))
+                    if isinstance(campaign.get("regra"), dict)
+                    else {}
+                )
+                calc_rule["percentual"] = target["percentual"]
+                campaign_for_calc["regra"] = calc_rule
+
             calc = _calculate_prize(
-                campaign,
+                campaign_for_calc,
                 _num(group.get("venda")),
                 _num(group.get("quantidadeProdutoFoco")),
                 _num(sum_info.get("total")),
             )
+            if target is not None:
+                calc["objetivoIndividual"] = target["objetivo"]
+                calc["percentualIndividual"] = target["percentual"]
+                calc["usuarioMetaIndividual"] = target["usuario"]
             records.append(
                 {
                     **group,
