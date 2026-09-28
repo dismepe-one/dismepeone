@@ -4,6 +4,39 @@
   window.__dismepeProdutoFocoLabelsV2=true;
 
   const sortState={key:'lab',dir:'asc'};
+  const productCatalog=new Map();
+  const displayLabelBase=new Map();
+  const pendingCatalogCodes=new Set();
+  let catalogRefreshQueued=false;
+
+  function normalizeCode(value){
+    return String(value||'')
+      .trim()
+      .toLocaleUpperCase('pt-BR')
+      .replace(/[^A-Z0-9]/g,'');
+  }
+
+  function firstSupplierName(value){
+    const clean=String(value||'').trim().replace(/\s+/g,' ');
+    return upperLab(clean.split(' ')[0]||clean);
+  }
+
+  function fallbackProductName(item,code){
+    let raw=String(
+      item?.produtoFocoCampanha||
+      item?.produtoFoco||
+      item?.produto||
+      ''
+    ).trim();
+
+    raw=raw.replace(/^PROD(?:UTO)?\.?\s*FOCO\s*[:\-–—]?\s*/i,'');
+    if(code && raw.toLocaleUpperCase('pt-BR').startsWith(String(code).toLocaleUpperCase('pt-BR'))){
+      raw=raw.slice(String(code).length).replace(/^\s*[-–—:]?\s*/,'');
+    }
+    raw=raw.replace(/\s*[-–—]\s*\d+(?:[.,]\d+)?\s*UNIDADES?\s*$/i,'');
+    return raw.trim();
+  }
+
   const SORTS=[
     ['colab','Colaborador','text'],
     ['lab','Laboratório','text'],
@@ -51,8 +84,20 @@
   function standardized(item,isItemFocus){
     const lab=baseLab(item);
     if(!isItemFocus)return lab;
+
     const code=codeOf(item);
-    return lab+' - Prod Foco'+(code?' (Cod '+code+')':'');
+    const key=normalizeCode(code);
+    const catalog=key?productCatalog.get(key):null;
+    const supplier=firstSupplierName(catalog?.fornecedor||lab)||lab;
+    const product=String(catalog?.descricao||fallbackProductName(item,code)||'').trim();
+
+    const label=
+      supplier+
+      (code?' - COD '+code:'')+
+      (product?' - '+product:'');
+
+    displayLabelBase.set(normalizeText(label),lab);
+    return label;
   }
 
   // Somente apresentação: não altera meta, venda, produto foco ou cálculo.
@@ -140,9 +185,77 @@
   }
 
   function baseLabFromRenderedLabel(text){
+    const normalized=normalizeText(text);
+    const mapped=displayLabelBase.get(normalized);
+    if(mapped)return mapped;
+
     return normalizeText(
       String(text||'').replace(/\s*-\s*PROD\s*FOCO(?:\s*\(\s*COD\s*[^)]*\))?.*$/i,'')
     );
+  }
+
+  function focusCodesFromDom(){
+    const codes=[];
+    document.querySelectorAll(
+      '#detailTableScroll .lab-focus-highlight, #detailMobileCards .p598234-focus'
+    ).forEach(el=>{
+      const match=String(el.textContent||'').match(/\bCOD\s*([A-Z0-9.\-]+)/i);
+      const key=normalizeCode(match?.[1]||'');
+      if(
+        key &&
+        !productCatalog.has(key) &&
+        !pendingCatalogCodes.has(key)
+      ){
+        pendingCatalogCodes.add(key);
+        codes.push(key);
+      }
+    });
+    return codes;
+  }
+
+  async function loadCatalogForRenderedFocus(){
+    const codes=focusCodesFromDom();
+    if(!codes.length)return;
+
+    try{
+      const response=await fetch(
+        '/data/produto-foco-catalogo?codigos='+encodeURIComponent(codes.join(',')),
+        {
+          credentials:'include',
+          cache:'no-store',
+          headers:{'Accept':'application/json'}
+        }
+      );
+
+      if(!response.ok)throw new Error('HTTP '+response.status);
+      const data=await response.json();
+      const produtos=data?.produtos&&typeof data.produtos==='object'
+        ?data.produtos
+        :{};
+
+      let changed=false;
+      Object.entries(produtos).forEach(([code,item])=>{
+        const key=normalizeCode(code);
+        if(!key||!item||typeof item!=='object')return;
+        productCatalog.set(key,{
+          fornecedor:String(item.fornecedor||'').trim(),
+          descricao:String(item.descricao||'').trim()
+        });
+        changed=true;
+      });
+
+      if(changed && !catalogRefreshQueued){
+        catalogRefreshQueued=true;
+        requestAnimationFrame(()=>{
+          catalogRefreshQueued=false;
+          try{window.updateDashboard?.();}catch(_){}
+        });
+      }
+    }catch(error){
+      console.warn('[PRODUTO FOCO] catálogo do Mapa indisponível:',error?.message||error);
+    }finally{
+      codes.forEach(code=>pendingCatalogCodes.delete(code));
+    }
   }
 
   function renderedRowValue(row,key){
@@ -268,6 +381,7 @@
     uppercaseLabOptions();
     reorderTableRows();
     updateSortIndicators();
+    loadCatalogForRenderedFocus();
   }
 
   function wrapRenderers(){
@@ -295,17 +409,17 @@
   const css=document.createElement('style');
   css.id='produto-foco-compacto-v2';
   css.textContent=[
-    '.lab-focus-label.lab-focus-highlight{display:inline-block!important;width:auto!important;max-width:100%!important;padding:3px 7px!important;border:1px solid #fed7aa!important;border-left:3px solid #f97316!important;border-radius:6px!important;background:#fff7ed!important;color:#c2410c!important;font-size:11px!important;font-weight:850!important;line-height:1.2!important;white-space:normal!important;overflow-wrap:anywhere!important;}',
+    '.lab-focus-label.lab-focus-highlight{display:inline-block!important;width:auto!important;max-width:100%!important;padding:2px 6px!important;border:1px solid #fed7aa!important;border-left:3px solid #f97316!important;border-radius:6px!important;background:#fff7ed!important;color:#c2410c!important;font-size:9.5px!important;font-weight:850!important;line-height:1.15!important;white-space:normal!important;overflow-wrap:anywhere!important;}',
     '#detailMobileCards .p598234-lab-value{ text-transform:uppercase!important;}',
-    '#detailMobileCards .p598234-lab-value.p598234-focus{display:inline-block!important;width:auto!important;max-width:100%!important;padding:4px 7px!important;border-left:3px solid #f97316!important;border-radius:6px!important;font-size:10px!important;line-height:1.2!important;text-transform:none!important;}',
+    '#detailMobileCards .p598234-lab-value.p598234-focus{display:inline-block!important;width:auto!important;max-width:100%!important;padding:3px 6px!important;border-left:3px solid #f97316!important;border-radius:6px!important;font-size:9px!important;line-height:1.15!important;text-transform:none!important;}',
     '#detailTableScroll tr.produto-foco-subrow td:nth-child(2){padding-left:22px!important;}',
     '#detailTableScroll tr.produto-foco-subrow td:nth-child(2)::after{content:"";}',
     '.partial-sort-button{display:inline-flex;width:100%;align-items:center;gap:5px;border:0;background:transparent;color:inherit;font:inherit;font-weight:inherit;text-transform:inherit;letter-spacing:inherit;padding:0;cursor:pointer;}',
     '.partial-sort-number{justify-content:flex-end;}',
     '.partial-sort-icon{display:inline-flex;align-items:center;justify-content:center;min-width:14px;color:#005548;font-size:12px;font-weight:950;line-height:1;}',
     '@media(max-width:768px){',
-    '.lab-focus-label.lab-focus-highlight{font-size:10px!important;padding:3px 6px!important;}',
-    '#detailMobileCards .p598234-lab-value.p598234-focus{font-size:9.5px!important;padding:3px 6px!important;}',
+    '.lab-focus-label.lab-focus-highlight{font-size:9px!important;padding:2px 5px!important;}',
+    '#detailMobileCards .p598234-lab-value.p598234-focus{font-size:8.75px!important;padding:2px 5px!important;}',
     '}',
     '@media print{.lab-focus-label.lab-focus-highlight{font-size:9px!important;padding:2px 5px!important;}.partial-sort-icon{display:none!important;}}'
   ].join('');
