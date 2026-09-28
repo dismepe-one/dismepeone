@@ -975,6 +975,104 @@ async def save_extra_campaign_sql(
     return data
 
 
+@app.get("/data/produto-foco-catalogo")
+async def produto_foco_catalogo(
+    response: Response,
+    codigos: str = "",
+    session: str | None = Cookie(
+        default=None,
+        alias=settings.cookie_name,
+    ),
+):
+    """Catálogo mínimo do Mapa de Estoque usado apenas nos rótulos do Produto Foco."""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+
+    if not session:
+        raise HTTPException(status_code=401, detail="Sessão 2.0 ausente.")
+
+    try:
+        decode_session_token(
+            session,
+            secret=settings.jwt_secret,
+            issuer=settings.jwt_issuer,
+        )
+    except jwt.ExpiredSignatureError as exc:
+        raise HTTPException(status_code=401, detail="Sessão 2.0 expirada.") from exc
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=401, detail="Sessão 2.0 inválida.") from exc
+
+    if len(codigos) > 5000:
+        raise HTTPException(status_code=400, detail="Lista de códigos muito extensa.")
+
+    def normalize_code(value) -> str:
+        return "".join(
+            ch for ch in str(value or "").strip().upper()
+            if ch.isalnum()
+        )
+
+    requested = []
+    seen = set()
+    for raw in str(codigos or "").split(","):
+        code = normalize_code(raw)
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        requested.append(code)
+
+    if len(requested) > 120:
+        raise HTTPException(status_code=400, detail="Máximo de 120 códigos por consulta.")
+
+    if not requested:
+        return {"sucesso": True, "produtos": {}, "atualizadoEm": ""}
+
+    try:
+        payload, row = await cache_get(
+            modulo="MAPA_ESTOQUE",
+            settings=settings,
+        )
+    except CacheReadError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    wanted = set(requested)
+    produtos = {}
+    rows = payload.get("linhas") if isinstance(payload, dict) else []
+    if not isinstance(rows, list):
+        rows = []
+
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+
+        code = normalize_code(item.get("codigo"))
+        if not code or code not in wanted or code in produtos:
+            continue
+
+        produtos[code] = {
+            "codigo": str(item.get("codigo") or "").strip(),
+            "fornecedor": str(
+                item.get("fornecedor")
+                or item.get("laboratorio")
+                or item.get("industria")
+                or ""
+            ).strip(),
+            "descricao": str(
+                item.get("descricao")
+                or item.get("produto")
+                or item.get("nome")
+                or ""
+            ).strip(),
+        }
+
+        if len(produtos) >= len(wanted):
+            break
+
+    return {
+        "sucesso": True,
+        "produtos": produtos,
+        "atualizadoEm": str(row.get("atualizado_em") or ""),
+    }
+
+
 @app.get("/data/monthly-rule-options")
 async def monthly_rule_options_snapshot(
     competencia: str = "",
