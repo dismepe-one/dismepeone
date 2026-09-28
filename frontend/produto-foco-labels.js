@@ -216,10 +216,6 @@
       if(icon)icon.textContent=iconFor(key);
       th.setAttribute('aria-sort',sortState.key===key?(sortState.dir==='asc'?'ascending':'descending'):'none');
     });
-    const mobile=document.getElementById('partialSortDirection');
-    if(mobile)mobile.textContent=sortState.dir==='asc'?'↑':'↓';
-    const select=document.getElementById('partialSortField');
-    if(select)select.value=sortState.key;
   }
 
   function applySort(key,forceDirection){
@@ -256,26 +252,6 @@
     updateSortIndicators();
   }
 
-  function installMobileSort(){
-    if(document.getElementById('partialSortMobile'))return;
-    const table=document.getElementById('detailTableScroll');
-    if(!table)return;
-    const bar=document.createElement('div');
-    bar.id='partialSortMobile';
-    bar.innerHTML=
-      '<label for="partialSortField">Ordenar parcial</label>'+
-      '<select id="partialSortField" aria-label="Campo para ordenar a parcial">'+
-      SORTS.map(([key,label])=>'<option value="'+key+'">'+label+'</option>').join('')+
-      '</select>'+
-      '<button id="partialSortDirection" type="button" aria-label="Alternar ordem">↑</button>';
-    table.parentNode.insertBefore(bar,table);
-    const select=bar.querySelector('#partialSortField');
-    const direction=bar.querySelector('#partialSortDirection');
-    select.value=sortState.key;
-    select.addEventListener('change',()=>applySort(select.value,'asc'));
-    direction.addEventListener('click',()=>applySort(sortState.key));
-  }
-
   function uppercaseLabOptions(){
     ['filterLab','overviewFilterLab'].forEach(id=>{
       const select=document.getElementById(id);
@@ -289,7 +265,6 @@
 
   function afterRender(){
     installHeaders();
-    installMobileSort();
     uppercaseLabOptions();
     reorderTableRows();
     updateSortIndicators();
@@ -328,16 +303,11 @@
     '.partial-sort-button{display:inline-flex;width:100%;align-items:center;gap:5px;border:0;background:transparent;color:inherit;font:inherit;font-weight:inherit;text-transform:inherit;letter-spacing:inherit;padding:0;cursor:pointer;}',
     '.partial-sort-number{justify-content:flex-end;}',
     '.partial-sort-icon{display:inline-flex;align-items:center;justify-content:center;min-width:14px;color:#005548;font-size:12px;font-weight:950;line-height:1;}',
-    '#partialSortMobile{display:none;}',
     '@media(max-width:768px){',
     '.lab-focus-label.lab-focus-highlight{font-size:10px!important;padding:3px 6px!important;}',
     '#detailMobileCards .p598234-lab-value.p598234-focus{font-size:9.5px!important;padding:3px 6px!important;}',
-    '#partialSortMobile{display:flex!important;align-items:center;gap:7px;margin:0 0 10px;padding:8px 9px;border:1px solid #dce9e5;border-radius:10px;background:#fff;}',
-    '#partialSortMobile label{font-size:9px;font-weight:900;text-transform:uppercase;color:#60746f;white-space:nowrap;}',
-    '#partialSortMobile select{min-width:0;flex:1;border:1px solid #cfded8;border-radius:8px;background:#fff;color:#17332c;padding:7px 8px;font-size:11px;font-weight:700;}',
-    '#partialSortDirection{width:34px;height:34px;border:1px solid #bfd6ce;border-radius:8px;background:#e9f4ef;color:#005548;font-size:17px;font-weight:950;}',
     '}',
-    '@media print{.lab-focus-label.lab-focus-highlight{font-size:9px!important;padding:2px 5px!important;}.partial-sort-icon,#partialSortMobile{display:none!important;}}'
+    '@media print{.lab-focus-label.lab-focus-highlight{font-size:9px!important;padding:2px 5px!important;}.partial-sort-icon{display:none!important;}}'
   ].join('');
   document.head.appendChild(css);
 
