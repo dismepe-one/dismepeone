@@ -9,6 +9,7 @@ import time
 import uuid
 
 import jwt
+import httpx
 from fastapi import BackgroundTasks, Cookie, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -870,6 +871,108 @@ async def extras_users_snapshot(
         "atualizadoEm": str(row.get("atualizado_em") or ""),
         "snapshotVersao": str(row.get("versao") or ""),
     }
+
+
+
+@app.post("/admin/campanhas-extras/save")
+async def save_extra_campaign_sql(
+    payload: dict,
+    session: str | None = Cookie(
+        default=None,
+        alias=settings.cookie_name,
+    ),
+):
+    if not session:
+        raise HTTPException(status_code=401, detail="Sessão 2.0 ausente.")
+
+    try:
+        profile = decode_session_token(
+            session,
+            secret=settings.jwt_secret,
+            issuer=settings.jwt_issuer,
+        )
+    except jwt.ExpiredSignatureError as exc:
+        raise HTTPException(status_code=401, detail="Sessão 2.0 expirada.") from exc
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=401, detail="Sessão 2.0 inválida.") from exc
+
+    role = str(profile.get("tipo") or "").strip().upper()
+    perms = (
+        profile.get("permissoes")
+        if isinstance(profile.get("permissoes"), dict)
+        else {}
+    )
+    can_manage = role in {"ADMINISTRADOR", "ADMIN"} or any(
+        perms.get(key) is True
+        for key in (
+            "CAMPANHAS_EXTRAS_CRIAR",
+            "CAMPANHAS_EXTRAS_EDITAR",
+        )
+    )
+    if not can_manage:
+        raise HTTPException(
+            status_code=403,
+            detail="Você não possui permissão para salvar Campanhas Extras.",
+        )
+
+    campaign = payload.get("campanha")
+    if not isinstance(campaign, dict):
+        raise HTTPException(status_code=400, detail="Campanha inválida.")
+
+    campaign_id = str(campaign.get("id") or "").strip()
+    if not campaign_id:
+        raise HTTPException(status_code=400, detail="ID da campanha ausente.")
+
+    endpoint = (
+        settings.supabase_url.rstrip("/")
+        + "/functions/v1/dismepe-extras-admin"
+    )
+    headers = {
+        "apikey": settings.supabase_publishable_key,
+        "x-dismepe-token": settings.edge_token,
+        "content-type": "application/json",
+        "accept": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            upstream = await client.post(
+                endpoint,
+                json={
+                    "campanha": campaign,
+                    "atualizado_por": str(profile.get("usuario") or ""),
+                },
+                headers=headers,
+            )
+    except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Não foi possível concluir a gravação SQL da campanha.",
+        ) from exc
+
+    try:
+        data = upstream.json()
+    except ValueError:
+        data = {}
+
+    if upstream.status_code < 200 or upstream.status_code >= 300:
+        raise HTTPException(
+            status_code=502,
+            detail=str(
+                data.get("erro")
+                or f"Gravação SQL respondeu HTTP {upstream.status_code}."
+            ),
+        )
+
+    if data.get("sucesso") is not True:
+        raise HTTPException(
+            status_code=400,
+            detail=str(data.get("erro") or "Campanha não foi gravada no SQL."),
+        )
+
+    _EXTRAS_SNAPSHOT_CACHE.clear()
+    _EXTRAS_RESULT_CACHE.clear()
+    return data
 
 
 @app.get("/data/monthly-rule-options")

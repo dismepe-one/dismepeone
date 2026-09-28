@@ -13306,12 +13306,50 @@ function resetExtraForm(){
       }
 
       const campanhaIdSalva=
-        applyExtraCampaignSavedImmediately(payload,r) ||
         r?.campanha?.id ||
         payload.id ||
         '';
 
-      setExtraSaveState(false,payload.id?'Alterações salvas com sucesso.':'Campanha criada com sucesso.','ok');
+      if(!campanhaIdSalva){
+        throw new Error('O servidor não retornou o ID da campanha salva.');
+      }
+
+      const campanhaSql={
+        ...(r?.campanha||{}),
+        ...payload,
+        id:campanhaIdSalva,
+        regra:{
+          ...(r?.campanha?.regra||{}),
+          ...(payload?.regra||{})
+        }
+      };
+
+      const sqlResponse=await fetch('/admin/campanhas-extras/save',{
+        method:'POST',
+        credentials:'include',
+        cache:'no-store',
+        headers:{
+          'Content-Type':'application/json',
+          'Accept':'application/json'
+        },
+        body:JSON.stringify({campanha:campanhaSql})
+      });
+
+      let sqlData={};
+      try{sqlData=await sqlResponse.json();}catch(_){}
+
+      if(!sqlResponse.ok || sqlData?.sucesso===false){
+        const detail=sqlData?.detail;
+        throw new Error(
+          (typeof detail==='string'&&detail) ||
+          sqlData?.erro ||
+          'A campanha foi recebida pelo servidor antigo, mas as métricas não foram gravadas no SQL.'
+        );
+      }
+
+      applyExtraCampaignSavedImmediately(campanhaSql,sqlData);
+
+      setExtraSaveState(false,payload.id?'Alterações e métricas salvas com sucesso.':'Campanha e métricas salvas com sucesso.','ok');
 
       // A confirmação não espera mais as recargas pesadas do snapshot.
       // Sincroniza em seguida sem bloquear o usuário nem sobrescrever
