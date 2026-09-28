@@ -815,6 +815,30 @@ def _extra_iso_date(value: Any) -> str:
     return text[:10]
 
 
+def _extra_drive_base_item(service: Any) -> dict[str, Any] | None:
+    target_name = "BASE CAMPANHAS EXTRAS"
+    safe_name = target_name.replace("'", "\\'")
+    request = service.files().list(
+        q=f"name = '{safe_name}' and trashed = false",
+        orderBy="modifiedTime desc",
+        pageSize=20,
+        fields="files(id,name,mimeType,modifiedTime)",
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True,
+    )
+    result = request.execute(num_retries=5)
+    for item in result.get("files") or []:
+        mime = str(item.get("mimeType") or "")
+        if str(item.get("name") or "").strip().casefold() != target_name.casefold():
+            continue
+        if mime in {
+            GOOGLE_SHEET_MIME,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }:
+            return item
+    return None
+
+
 async def _extra_sheet_records(
     campaign: dict[str, Any],
     workbook_cache: dict[str, bytes],
@@ -834,7 +858,27 @@ async def _extra_sheet_records(
             "name": "BASE CAMPANHAS EXTRAS",
             "mimeType": GOOGLE_SHEET_MIME,
         }
-        raw_xlsx = await asyncio.to_thread(_download_xlsx, service, item)
+        try:
+            raw_xlsx = await asyncio.to_thread(_download_xlsx, service, item)
+        except Exception as exc:
+            status = getattr(getattr(exc, "resp", None), "status", None)
+            if status not in {403, 404}:
+                raise
+
+            fallback = await asyncio.to_thread(_extra_drive_base_item, service)
+            if not fallback:
+                raise RuntimeError(
+                    "BASE CAMPANHAS EXTRAS não foi encontrada entre os arquivos acessíveis "
+                    "pela conta de serviço do Google Drive."
+                ) from exc
+
+            fallback_id = str(fallback.get("id") or "").strip()
+            raw_xlsx = workbook_cache.get(fallback_id)
+            if raw_xlsx is None:
+                raw_xlsx = await asyncio.to_thread(_download_xlsx, service, fallback)
+                if fallback_id:
+                    workbook_cache[fallback_id] = raw_xlsx
+
         workbook_cache[spreadsheet_id] = raw_xlsx
 
     rows = await asyncio.to_thread(_read_sheet, raw_xlsx, sheet_name)
