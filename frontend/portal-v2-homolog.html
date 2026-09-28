@@ -6179,7 +6179,7 @@ function showV36CreateUserInfo(){
                     'Nenhum dado de produção foi alterado.'
                 );
             }
-            const timeoutMs=(action==='DADOS'||action==='RESUMOPREMIACOES')?110000:(action==='HIST39_LISTAR'?70000:(action==='LOGIN'?60000:40000));
+            const timeoutMs=(action==='DADOS'||action==='RESUMOPREMIACOES'||action==='SALVARCAMPANHAEXTRA')?110000:(action==='HIST39_LISTAR'?70000:(action==='LOGIN'?60000:40000));
 
             // V211.26 — Resumo de Ganhos usa SOMENTE o gateway Supabase.
             // O /exec antigo do Apps Script está retornando HTTP 404 e não deve
