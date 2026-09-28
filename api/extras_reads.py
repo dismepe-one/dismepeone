@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import re
 from datetime import datetime
 from typing import Any
@@ -574,12 +575,36 @@ def _partial_for_campaign(
 
     def individual_target(collaborator: str) -> dict[str, Any]:
         rule = campaign.get("regra") if isinstance(campaign.get("regra"), dict) else {}
-        targets = rule.get("metasIndividuais") if isinstance(rule.get("metasIndividuais"), list) else []
+        raw_targets = (
+            rule.get("metasIndividuais")
+            or rule.get("metas_individuais")
+            or campaign.get("metasIndividuais")
+            or campaign.get("metas_individuais")
+            or []
+        )
+        if isinstance(raw_targets, str):
+            try:
+                parsed_targets = json.loads(raw_targets)
+                raw_targets = parsed_targets if isinstance(parsed_targets, list) else []
+            except (TypeError, ValueError, json.JSONDecodeError):
+                raw_targets = []
+        targets = raw_targets if isinstance(raw_targets, list) else []
+
         aliases = _aliases(collaborator)
+        collaborator_flex = _flex(collaborator)
         for alias in list(aliases):
             row = by_alias.get(alias)
             if row:
-                aliases |= _aliases(row.get("usuario"), row.get("nome"), row.get("vendedor"))
+                aliases |= _aliases(
+                    row.get("usuario"),
+                    row.get("nome"),
+                    row.get("vendedor"),
+                )
+
+        flex_aliases = {_flex(alias) for alias in aliases if _flex(alias)}
+        if collaborator_flex:
+            flex_aliases.add(collaborator_flex)
+
         for item in targets:
             if not isinstance(item, dict):
                 continue
@@ -588,13 +613,35 @@ def _partial_for_campaign(
                 item.get("login"),
                 item.get("nome"),
                 item.get("vendedor"),
+                item.get("colaborador"),
             )
-            if aliases & item_aliases:
-                return {
-                    "objetivo": _num(item.get("objetivo") or item.get("meta")),
-                    "percentual": _num(item.get("percentual")),
-                    "usuario": str(item.get("usuario") or item.get("login") or ""),
-                }
+            item_flex = {_flex(alias) for alias in item_aliases if _flex(alias)}
+            matched = bool(aliases & item_aliases) or bool(flex_aliases & item_flex)
+            if not matched:
+                continue
+
+            objective = _num(
+                item.get("objetivo")
+                or item.get("meta")
+                or item.get("objetivoIndividual")
+                or item.get("metaIndividual")
+            )
+            percentage = _num(
+                item.get("percentual")
+                or item.get("percentualPremiacao")
+                or item.get("percentualPremio")
+            )
+            return {
+                "objetivo": objective,
+                "percentual": percentage,
+                "usuario": str(
+                    item.get("usuario")
+                    or item.get("login")
+                    or item.get("nome")
+                    or item.get("vendedor")
+                    or ""
+                ),
+            }
         return {"objetivo": 0.0, "percentual": 0.0, "usuario": ""}
 
     for row in sales:

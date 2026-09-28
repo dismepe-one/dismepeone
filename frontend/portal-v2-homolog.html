@@ -5418,7 +5418,7 @@ function showV36CreateUserInfo(){
             <div class="overflow-x-auto">
               <table class="w-full min-w-[720px]">
                 <thead class="bg-slate-900/80"><tr class="text-[10px] uppercase tracking-wider text-slate-400">
-                  <th class="p-3 text-left">Colaborador</th><th class="p-3 text-left">Laboratório</th><th class="p-3 text-right">Objetivo</th><th class="p-3 text-right">Venda</th><th class="p-3 text-center">Posição / % Ating.</th><th class="p-3 text-center">Resultado</th>
+                  <th class="p-3 text-left">Colaborador</th><th class="p-3 text-left">Laboratório</th><th class="p-3 text-right">Objetivo</th><th class="p-3 text-right">Realizado</th><th class="p-3 text-center">Posição / % Ating.</th><th class="p-3 text-center">Resultado</th>
                 </tr></thead>
                 <tbody id="extraPartialBody"></tbody>
               </table>
@@ -12607,7 +12607,7 @@ sel.innerHTML=extraCampaigns.length
     document.getElementById('extraPartialBody').innerHTML=rows.map(x=>`<tr class="border-b border-slate-800/60 text-slate-300">
       <td class="p-3 font-semibold text-slate-800">${esc(x.colaborador)}</td>
       <td class="p-3"><div>${esc(x.laboratorio)}</div><div class="text-[10px] text-slate-500">${esc(x.campanha||'')}</div><div class="text-[9px] ${extraDateStatusClass(extraRecordStatus(x))}">${esc(formatPeriodBRExtra(x.periodoInicio,x.periodoFim))}</div>${['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(normalizeExtraMetric(x.metrica))?`<div class="text-[9px] mt-1 text-indigo-600 font-bold">Prod. ${esc(x.codigoProdutoFoco||'')}: ${Number(x.quantidadeProdutoFoco||0).toLocaleString('pt-BR')} / ${Number(x.objetivoProdutoFoco||0).toLocaleString('pt-BR')}</div>`:''}</td>
-      <td class="p-3 text-right">${normalizeExtraMetric(x.metrica)==='RANKING_BRINDE'?'—':extraMoney(x.objetivo)}</td><td class="p-3 text-right">${extraMoney(x.venda)}</td>
+      <td class="p-3 text-right">${['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(normalizeExtraMetric(x.metrica))?`${Number(x.objetivoProdutoFoco||0).toLocaleString('pt-BR')} un.`:(normalizeExtraMetric(x.metrica)==='RANKING_BRINDE'?'—':extraMoney(x.objetivo))}</td><td class="p-3 text-right">${['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(normalizeExtraMetric(x.metrica))?`${Number(x.quantidadeProdutoFoco||0).toLocaleString('pt-BR')} un.`:extraMoney(x.venda)}</td>
       <td class="p-3 text-center font-semibold">${x.posicaoRanking?`<span class="font-black text-indigo-700">${x.posicaoRanking}º</span>`:extraPct(x.atingimento)}</td><td class="p-3 text-center font-black">${(Number(x?.premiacao||0)>0 || String(x?.premioTexto||'').trim())?`<span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-700"><i class="fa-solid fa-circle-check"></i>GANHOU</span>`:`<span class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-slate-600"><i class="fa-solid fa-circle-xmark"></i>NÃO GANHOU</span>`}</td>
     </tr>`).join('') || '<tr><td colspan="6" class="p-6 text-center text-slate-500">Nenhum participante encontrado nesta campanha.</td></tr>';
   };
