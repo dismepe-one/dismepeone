@@ -37,6 +37,7 @@ ROUTER_SCRIPT = ROOT / "frontend" / "industries-router.js"
 ADMIN_SCRIPT = ROOT / "frontend" / "industries-admin.js"
 BUSINESS_DAYS_SCRIPT = ROOT / "frontend" / "monthly-business-days-prod59822.js"
 HERBAMED_AUTO_SCRIPT = ROOT / "frontend" / "herbamed-auto-metrics-prod59822.js"
+HOME_STABILITY_SCRIPT = ROOT / "frontend" / "home-cards-stability-prod599.js"
 
 # PROD4.4 já substituiu scope_mensal_dashboard. Guardamos essa versão e
 # aplicamos um escopo adicional somente quando o perfil for INDÚSTRIA.
@@ -116,6 +117,7 @@ def _portal_response(*, authenticated: bool = False, terms_admin: bool = False) 
         '<script src="/produto-foco-labels.js?v=FOCO-LABELS-1"></script>',
         '<script src="/positivacao-launcher.js?v=POS-GERAL-DEV4-CARD"></script>',
         '<script src="/notificacoes/launcher.js?v=NOTIF-HOME-STABLE-1"></script>',
+        '<script src="/home-cards-stability-prod599.js?v=HOME-STABLE-1"></script>',
         '<script src="/push/client.js?v=PUSH-ANDROID-2"></script>',
     ]
     missing = [tag for tag in tags if tag not in html]
@@ -234,6 +236,7 @@ async def industries_route_guard(request: Request, call_next):
         "/positivacao-launcher.js", "/update-center-prod4.js",
         "/monthly-retention-prod44.js",
         "/notificacoes/launcher.js", "/notificacoes/log.js",
+        "/home-cards-stability-prod599.js",
         "/push/client.js",
     }
     if request.url.path in protected_scripts and not profile:
@@ -330,6 +333,15 @@ async def industries_admin_script():
 async def positivacao_home_launcher_script():
     return FileResponse(
         ROOT / "frontend" / "positivacao-launcher.js",
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
+
+
+@app.get("/home-cards-stability-prod599.js", include_in_schema=False)
+async def home_cards_stability_script():
+    return FileResponse(
+        HOME_STABILITY_SCRIPT,
         media_type="application/javascript",
         headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
     )
