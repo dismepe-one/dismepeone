@@ -803,12 +803,40 @@ def _extra_number(value: Any) -> float:
 
 
 def _extra_iso_date(value: Any) -> str:
-    text = str(value or "").strip()
+    if value in (None, ""):
+        return ""
+
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d")
+
+    if isinstance(value, (int, float)):
+        serial = float(value)
+        if 1 <= serial <= 100000:
+            try:
+                return (
+                    datetime(1899, 12, 30)
+                    + __import__("datetime").timedelta(days=serial)
+                ).strftime("%Y-%m-%d")
+            except Exception:
+                pass
+
+    text = str(value).strip()
     if not text:
         return ""
-    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
+
+    try:
+        serial = float(text.replace(",", "."))
+        if 1 <= serial <= 100000:
+            return (
+                datetime(1899, 12, 30)
+                + __import__("datetime").timedelta(days=serial)
+            ).strftime("%Y-%m-%d")
+    except ValueError:
+        pass
+
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%Y-%m-%d %H:%M:%S"):
         try:
-            return datetime.strptime(text[:10], fmt).strftime("%Y-%m-%d")
+            return datetime.strptime(text[:19], fmt).strftime("%Y-%m-%d")
         except ValueError:
             continue
     return text[:10]
