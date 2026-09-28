@@ -3,13 +3,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_produto_foco_label_usa_catalogo_mapa_e_primeiro_nome_fornecedor():
+def test_produto_foco_label_usa_catalogo_mapa_e_fornecedor_completo():
     js = (ROOT / "frontend" / "produto-foco-labels.js").read_text(encoding="utf-8")
 
     assert "/data/produto-foco-catalogo?codigos=" in js
     assert "catalog?.fornecedor" in js
     assert "catalog?.descricao" in js
-    assert "clean.split(' ')[0]" in js
+    assert "function fullSupplierName" in js
+    assert "clean.split(' ')[0]" not in js
+    assert "focus-label-very-long" in js
     assert "' - COD '+code" in js
 
 
