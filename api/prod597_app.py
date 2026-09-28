@@ -43,6 +43,7 @@ HOME_PUBLICATION_PATCH_FILE = ROOT / "frontend" / "home-publication-prod59823.js
 STOCK_SCHEDULE_PATCH_FILE = ROOT / "frontend" / "stock-schedule-prod59823.js"
 SECURITY_PASSWORD_PATCH_FILE = ROOT / "frontend" / "security-password-prod600.js"
 PASSWORD_CHANGE_REQUIRED = "SEGURANCA_TROCA_SENHA_OBRIGATORIA"
+EXTRAS_SHEET_ID = os.getenv("DISMEPE_EXTRAS_SHEET_ID", "").strip()
 
 app.include_router(home_publication_router)
 app.include_router(stock_schedule_router)
@@ -782,9 +783,7 @@ def _extra_observation(value: Any) -> str:
 
 
 def _extra_sheet_id(campaign: dict[str, Any]) -> str:
-    base_url = str(campaign.get("baseUrl") or "").strip()
-    match = re.search(r"/spreadsheets/d/([A-Za-z0-9_-]+)", base_url)
-    return match.group(1) if match else ""
+    return EXTRAS_SHEET_ID
 
 
 def _extra_number(value: Any) -> float:
@@ -815,28 +814,34 @@ def _extra_iso_date(value: Any) -> str:
     return text[:10]
 
 
-def _extra_drive_base_item(service: Any) -> dict[str, Any] | None:
-    target_name = "BASE CAMPANHAS EXTRAS"
-    safe_name = target_name.replace("'", "\\'")
-    request = service.files().list(
-        q=f"name = '{safe_name}' and trashed = false",
-        orderBy="modifiedTime desc",
-        pageSize=20,
-        fields="files(id,name,mimeType,modifiedTime)",
-        supportsAllDrives=True,
-        includeItemsFromAllDrives=True,
-    )
-    result = request.execute(num_retries=5)
-    for item in result.get("files") or []:
-        mime = str(item.get("mimeType") or "")
-        if str(item.get("name") or "").strip().casefold() != target_name.casefold():
-            continue
-        if mime in {
-            GOOGLE_SHEET_MIME,
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        }:
-            return item
-    return None
+def _extra_client_campaign(campaign: dict[str, Any]) -> dict[str, Any]:
+    item = dict(campaign)
+    item.pop("baseUrl", None)
+    item.pop("base_url", None)
+    return item
+
+
+async def _extra_public_xlsx(spreadsheet_id: str) -> bytes:
+    url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=xlsx"
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(35.0),
+        follow_redirects=True,
+    ) as client:
+        response = await client.get(
+            url,
+            headers={
+                "Accept": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "Cache-Control": "no-store",
+            },
+        )
+    if response.status_code < 200 or response.status_code >= 300:
+        raise RuntimeError(
+            f"Base oficial de Campanhas Extras indisponível para leitura pública "
+            f"(HTTP {response.status_code})."
+        )
+    if not response.content:
+        raise RuntimeError("Base oficial de Campanhas Extras retornou conteúdo vazio.")
+    return response.content
 
 
 async def _extra_sheet_records(
@@ -845,9 +850,13 @@ async def _extra_sheet_records(
 ) -> list[dict[str, Any]]:
     spreadsheet_id = _extra_sheet_id(campaign)
     sheet_name = str(campaign.get("aba") or campaign.get("id") or "").strip()
-    if not spreadsheet_id or not sheet_name:
+    if not spreadsheet_id:
         raise RuntimeError(
-            f"Campanha Extra {campaign.get('id') or ''} sem baseUrl/aba para leitura direta."
+            "Base oficial de Campanhas Extras não configurada no servidor."
+        )
+    if not sheet_name:
+        raise RuntimeError(
+            f"Campanha Extra {campaign.get('id') or ''} sem aba configurada."
         )
 
     raw_xlsx = workbook_cache.get(spreadsheet_id)
@@ -864,20 +873,7 @@ async def _extra_sheet_records(
             status = getattr(getattr(exc, "resp", None), "status", None)
             if status not in {403, 404}:
                 raise
-
-            fallback = await asyncio.to_thread(_extra_drive_base_item, service)
-            if not fallback:
-                raise RuntimeError(
-                    "BASE CAMPANHAS EXTRAS não foi encontrada entre os arquivos acessíveis "
-                    "pela conta de serviço do Google Drive."
-                ) from exc
-
-            fallback_id = str(fallback.get("id") or "").strip()
-            raw_xlsx = workbook_cache.get(fallback_id)
-            if raw_xlsx is None:
-                raw_xlsx = await asyncio.to_thread(_download_xlsx, service, fallback)
-                if fallback_id:
-                    workbook_cache[fallback_id] = raw_xlsx
+            raw_xlsx = await _extra_public_xlsx(spreadsheet_id)
 
         workbook_cache[spreadsheet_id] = raw_xlsx
 
@@ -953,7 +949,7 @@ async def _refresh_extras_snapshot(
             ) from exc
 
     snapshot = {
-        "campanhas": campaigns,
+        "campanhas": [_extra_client_campaign(item) for item in campaigns],
         "vendasPorCampanha": sales_by_campaign,
     }
     if require_change:
@@ -1370,7 +1366,10 @@ async def prod59823_refresh_related(
                         f"Campanha Extra {campaign_id}: falha ao ler a aba da base Google; "
                         f"base anterior preservada. Detalhe: {exc}"
                     ) from exc
-            incoming = {"campanhas": campaigns, "vendasPorCampanha": sales}
+            incoming = {
+                "campanhas": [_extra_client_campaign(item) for item in campaigns],
+                "vendasPorCampanha": sales,
+            }
             if all(incoming[key] == previous.get(key) for key in incoming):
                 return {
                     "sucesso": True, "modulo": module, "resultado": "SEM_ALTERACAO",
