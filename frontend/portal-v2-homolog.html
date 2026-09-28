@@ -5662,9 +5662,12 @@ function showV36CreateUserInfo(){
 
               <div class="flex flex-col-reverse sm:flex-row sm:justify-between gap-2 pt-1">
                 <button onclick="newExtraCampaign()" class="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-bold"><i class="fa-solid fa-plus mr-2"></i>Nova</button>
-                <div class="flex flex-col sm:flex-row gap-2 sm:justify-end">
-                  <button onclick="saveExtraCampaign(false)" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black"><i class="fa-solid fa-floppy-disk mr-2"></i>Salvar campanha</button>
-                  <button onclick="saveExtraCampaign(true)" class="px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-black"><i class="fa-solid fa-bell mr-2"></i>SALVAR E NOTIFICAR</button>
+                <div class="flex flex-col sm:items-end gap-2">
+                  <div class="flex flex-col sm:flex-row gap-2 sm:justify-end">
+                    <button id="extraSaveButton" onclick="saveExtraCampaign(false)" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black disabled:opacity-60 disabled:cursor-wait"><i class="fa-solid fa-floppy-disk mr-2"></i>Salvar campanha</button>
+                    <button id="extraSaveNotifyButton" onclick="saveExtraCampaign(true)" class="px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-black disabled:opacity-60 disabled:cursor-wait"><i class="fa-solid fa-bell mr-2"></i>SALVAR E NOTIFICAR</button>
+                  </div>
+                  <div id="extraSaveStatus" class="hidden text-xs font-bold text-slate-500"></div>
                 </div>
               </div>
 
@@ -13121,6 +13124,63 @@ function resetExtraForm(){
     updateExtraMetricUI();
   };
 
+  function setExtraSaveState(active,message='',kind='loading'){
+    const saveBtn=document.getElementById('extraSaveButton');
+    const notifyBtn=document.getElementById('extraSaveNotifyButton');
+    const status=document.getElementById('extraSaveStatus');
+    [saveBtn,notifyBtn].forEach(btn=>{if(btn)btn.disabled=active;});
+    if(saveBtn){
+      saveBtn.innerHTML=active
+        ? '<i class="fa-solid fa-spinner fa-spin mr-2"></i>Salvando...'
+        : '<i class="fa-solid fa-floppy-disk mr-2"></i>Salvar campanha';
+    }
+    if(notifyBtn){
+      notifyBtn.innerHTML=active
+        ? '<i class="fa-solid fa-spinner fa-spin mr-2"></i>Aguarde...'
+        : '<i class="fa-solid fa-bell mr-2"></i>SALVAR E NOTIFICAR';
+    }
+    if(status){
+      status.classList.toggle('hidden',!message);
+      status.textContent=message||'';
+      status.className='text-xs font-bold '+(
+        kind==='ok'?'text-emerald-600':
+        kind==='error'?'text-rose-600':
+        'text-amber-600'
+      )+(message?'':' hidden');
+    }
+  }
+
+  function applyExtraCampaignSavedImmediately(payload,response){
+    const savedId=String(response?.campanha?.id||payload?.id||'').trim();
+    if(!savedId)return '';
+    const current=(extraCampaigns||[]).find(x=>String(x?.id||'')===savedId)||{};
+    const merged={
+      ...current,
+      ...(response?.campanha||{}),
+      ...payload,
+      id:savedId,
+      regra:{...(current?.regra||{}),...(payload?.regra||{}),...(response?.campanha?.regra||{})},
+      statusExibicao:response?.campanha?.statusExibicao||current?.statusExibicao||payload?.status||'ATIVA'
+    };
+    const idx=(extraCampaigns||[]).findIndex(x=>String(x?.id||'')===savedId);
+    if(idx>=0)extraCampaigns.splice(idx,1,merged);
+    else extraCampaigns.unshift(merged);
+    renderExtraAdminList();
+
+    const sel=document.getElementById('extraCampaignSelect');
+    if(sel){
+      let opt=[...sel.options].find(o=>String(o.value)===savedId);
+      if(!opt){
+        opt=document.createElement('option');
+        opt.value=savedId;
+        sel.appendChild(opt);
+      }
+      opt.textContent=merged.nome||savedId;
+      sel.value=savedId;
+    }
+    return savedId;
+  }
+
   window.saveExtraCampaign=async function(notifyAfterSave=false){
     if(!isAdminExtra()){
       alert('Você não possui permissão para gerenciar Campanhas Extras.');
@@ -13232,6 +13292,8 @@ function resetExtraForm(){
       status:'ATIVA'
     };
 
+    setExtraSaveState(true,payload.id?'Salvando alterações da campanha...':'Criando campanha...');
+
     try{
       const r=
         await callAdminAction(
@@ -13244,38 +13306,36 @@ function resetExtraForm(){
       }
 
       const campanhaIdSalva=
+        applyExtraCampaignSavedImmediately(payload,r) ||
         r?.campanha?.id ||
         payload.id ||
         '';
 
-      await loadCampanhasExtras();
-      await loadExtraAdminData();
+      setExtraSaveState(false,payload.id?'Alterações salvas com sucesso.':'Campanha criada com sucesso.','ok');
 
-      // Mostra imediatamente a campanha salva no painel,
-      // inclusive a caixa "Campanha criada por".
+      // A confirmação não espera mais as recargas pesadas do snapshot.
+      // Sincroniza em seguida sem bloquear o usuário nem sobrescrever
+      // imediatamente a edição com uma fotografia ainda antiga.
+      setTimeout(()=>{
+        Promise.allSettled([
+          loadCampanhasExtras(),
+          loadExtraAdminData()
+        ]).catch(()=>{});
+      },3500);
+
       if(campanhaIdSalva){
         const sel=document.getElementById('extraCampaignSelect');
-
-        if(
-          sel &&
-          [...sel.options].some(
-            o=>String(o.value)===String(campanhaIdSalva)
-          )
-        ){
-          sel.value=campanhaIdSalva;
-          await loadExtraPartial();
-        }
+        if(sel)sel.value=campanhaIdSalva;
       }
-
-      alert(r.mensagem||'Campanha salva.');
 
       // V86: "Salvar e Notificar" apenas abre o fluxo de revisão.
       // O envio só acontece depois de escolher o público e confirmar.
       if(notifyAfterSave===true && campanhaIdSalva){
-        await window.v86OpenExtraCampaignNotification?.(campanhaIdSalva);
+        window.v86OpenExtraCampaignNotification?.(campanhaIdSalva);
       }
 
     }catch(e){
+      setExtraSaveState(false,e?.message||'Não foi possível salvar.','error');
       alert(
         e.message ||
         'Não foi possível salvar.'
