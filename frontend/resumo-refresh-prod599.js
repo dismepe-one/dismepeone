@@ -130,7 +130,7 @@
     button.id='btnResumoAtualizarManual';
     button.type='button';
     button.title='Atualizar fotografia do Resumo de Ganhos';
-    button.className='inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-slate-700 bg-slate-800/70 hover:bg-slate-700 text-[10px] font-semibold text-slate-300 disabled:opacity-60 disabled:cursor-wait';
+    button.className='inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-emerald-500/40 bg-emerald-600 hover:bg-emerald-500 text-[10px] font-bold text-white shadow-sm disabled:opacity-60 disabled:cursor-wait';
     button.innerHTML='<i class="fa-solid fa-rotate"></i><span data-resumo-refresh-label>Atualizar</span>';
     button.addEventListener('click',function(){atualizar(button);});
     wrap.appendChild(button);
