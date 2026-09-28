@@ -42,6 +42,7 @@ MONTHLY_PATCH_FILE = ROOT / "frontend" / "monthly-sync-prod597.js"
 HOME_PUBLICATION_PATCH_FILE = ROOT / "frontend" / "home-publication-prod59823.js"
 STOCK_SCHEDULE_PATCH_FILE = ROOT / "frontend" / "stock-schedule-prod59823.js"
 SECURITY_PASSWORD_PATCH_FILE = ROOT / "frontend" / "security-password-prod600.js"
+RESUMO_REFRESH_PATCH_FILE = ROOT / "frontend" / "resumo-refresh-prod599.js"
 PASSWORD_CHANGE_REQUIRED = "SEGURANCA_TROCA_SENHA_OBRIGATORIA"
 EXTRAS_SHEET_ID = os.getenv("DISMEPE_EXTRAS_SHEET_ID", "").strip()
 
@@ -633,6 +634,92 @@ async def _cache_set_snapshot(
             f"Snapshot {modulo}: leitura do PostgreSQL não confirmou os dados enviados."
         )
     return main_module._format_snapshot_time(raw), raw
+
+
+RESUMO_MANUAL_VERSION = "PROD5.9.8.28_RESUMO_MANUAL_V1"
+
+
+@app.post("/admin/resumo-ganhos/atualizar")
+async def atualizar_resumo_ganhos_manual(
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    """Reconsolida e persiste a fotografia usada pelo Resumo de Ganhos."""
+    if not session:
+        raise HTTPException(status_code=401, detail="Sessão 2.0 ausente.")
+
+    try:
+        profile = decode_session_token(
+            session,
+            secret=settings.jwt_secret,
+            issuer=settings.jwt_issuer,
+        )
+    except jwt.ExpiredSignatureError as exc:
+        raise HTTPException(status_code=401, detail="Sessão 2.0 expirada.") from exc
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=401, detail="Sessão 2.0 inválida.") from exc
+
+    try:
+        # A rota de leitura já aplica a permissão do Resumo e reconcilia
+        # Campanhas Extras com o snapshot EXTRAS mais recente.
+        consolidated = await main_module.resumo_ganhos_snapshot(session=session)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        main_module.logger.exception(
+            "Resumo de Ganhos: falha ao reconsolidar fotografia (%s)",
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Não foi possível recalcular o Resumo de Ganhos agora.",
+        ) from None
+
+    persisted = dict(consolidated)
+    for transient_key in (
+        "sucesso",
+        "modulo",
+        "origem",
+        "banco",
+        "cache",
+        "transporte",
+        "snapshotVersao",
+        "extrasAtualizadoEm",
+        "atualizadoEm",
+        "atualizadoEmFormatado",
+        "atualizacaoManual",
+    ):
+        persisted.pop(transient_key, None)
+
+    persisted["geradoEm"] = datetime.now(timezone.utc).isoformat()
+
+    try:
+        display, iso = await _cache_set_snapshot(
+            modulo="RESUMO_PREMIACOES",
+            payload=persisted,
+            profile=profile,
+            version=RESUMO_MANUAL_VERSION,
+        )
+        refreshed = await main_module.resumo_ganhos_snapshot(session=session)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        main_module.logger.exception(
+            "Resumo de Ganhos: falha ao persistir fotografia (%s)",
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "O resumo foi recalculado, mas a nova fotografia não foi "
+                "confirmada no PostgreSQL. A fotografia anterior foi preservada."
+            ),
+        ) from None
+
+    refreshed["atualizadoEm"] = iso
+    refreshed["atualizadoEmFormatado"] = display
+    refreshed["atualizacaoManual"] = True
+    refreshed["snapshotVersao"] = RESUMO_MANUAL_VERSION
+    return refreshed
 
 
 async def _refresh_monthly_snapshot(
@@ -1323,6 +1410,8 @@ async def prod597_update_center_script():
         + STOCK_SCHEDULE_PATCH_FILE.read_text(encoding="utf-8")
         + "\n\n"
         + SECURITY_PASSWORD_PATCH_FILE.read_text(encoding="utf-8")
+        + "\n\n"
+        + RESUMO_REFRESH_PATCH_FILE.read_text(encoding="utf-8")
     )
     return Response(
         content=content,
