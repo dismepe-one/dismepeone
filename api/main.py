@@ -1050,6 +1050,133 @@ async def resumo_ganhos_snapshot(
     except CacheReadError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    # O consolidado mensal pode estar atualizado e, ao mesmo tempo,
+    # a parte de Campanhas Extras ainda refletir uma fotografia anterior.
+    # Recalcula somente as Extras a partir do snapshot EXTRAS vigente.
+    try:
+        extras_payload, extras_row = await cache_get(
+            modulo="EXTRAS",
+            settings=settings,
+        )
+        users_payload, _ = await cache_get(
+            modulo="USUARIOS",
+            settings=settings,
+        )
+
+        # RESUMO_PREMIACOES já é uma permissão de visão consolidada.
+        # Para o cálculo interno das Extras, habilita apenas a leitura necessária
+        # sem alterar a sessão nem as permissões persistidas do usuário.
+        extras_profile = copy.deepcopy(profile)
+        extras_perms = (
+            copy.deepcopy(extras_profile.get("permissoes"))
+            if isinstance(extras_profile.get("permissoes"), dict)
+            else {}
+        )
+        extras_perms["CAMPANHAS_EXTRAS_VISUALIZAR"] = True
+        extras_profile["permissoes"] = extras_perms
+
+        extras_current = extras_api_response(
+            extras_payload=extras_payload,
+            users_payload=users_payload,
+            profile=extras_profile,
+            campaign_id="ALL",
+        )
+
+        base_records = (
+            scoped.get("registros")
+            if isinstance(scoped.get("registros"), list)
+            else []
+        )
+        monthly_records = [
+            item
+            for item in base_records
+            if isinstance(item, dict)
+            and str(item.get("tipoRegistro") or "").upper()
+            != "CAMPANHA_EXTRA"
+        ]
+
+        extras_records = []
+        for item in extras_current.get("registros") or []:
+            if not isinstance(item, dict):
+                continue
+            try:
+                prize = float(item.get("premiacao") or 0)
+            except (TypeError, ValueError):
+                prize = 0.0
+            prize_text = str(item.get("premioTexto") or "").strip()
+            if prize <= 0 and not prize_text:
+                continue
+
+            extras_records.append(
+                {
+                    **item,
+                    "tipoRegistro": "CAMPANHA_EXTRA",
+                }
+            )
+
+        merged_records = monthly_records + extras_records
+        scoped["registros"] = merged_records
+
+        def _prize_value(item):
+            try:
+                return float(item.get("premiacao") or 0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        def _sum_prizes(rows, sector=None):
+            return round(
+                sum(
+                    _prize_value(item)
+                    for item in rows
+                    if isinstance(item, dict)
+                    and (
+                        sector is None
+                        or str(item.get("setor") or "") == sector
+                    )
+                ),
+                2,
+            )
+
+        awarded = [
+            item
+            for item in merged_records
+            if isinstance(item, dict)
+            and (
+                _prize_value(item) > 0
+                or str(item.get("premioTexto") or "").strip()
+            )
+        ]
+
+        scoped["totais"] = {
+            "total": _sum_prizes(merged_records),
+            "vendedores": _sum_prizes(merged_records, "Vendedor"),
+            "televendas": _sum_prizes(merged_records, "Televendas"),
+            "colaboradores": len(
+                {
+                    (
+                        str(item.get("colaborador") or ""),
+                        str(item.get("setor") or ""),
+                    )
+                    for item in awarded
+                }
+            ),
+            "laboratorios": len(
+                {
+                    str(item.get("laboratorio") or "")
+                    for item in awarded
+                    if str(item.get("laboratorio") or "").strip()
+                }
+            ),
+        }
+        scoped["extrasAtualizadoEm"] = str(
+            extras_row.get("atualizado_em") or ""
+        )
+    except (CacheReadError, PermissionError, ValueError) as exc:
+        logger.warning(
+            "[RESUMO EXTRAS] mantendo snapshot consolidado: %s",
+            str(exc),
+        )
+
     scoped["atualizadoEm"] = (
         scoped.get("atualizadoEm")
         or row.get("atualizado_em")
