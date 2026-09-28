@@ -114,7 +114,7 @@ def _portal_response(*, authenticated: bool = False, terms_admin: bool = False) 
         f'<script src="/industries-admin.js?v={BUILD}"></script>',
         f'<script src="/monthly-business-days-prod59822.js?v={BUILD}"></script>',
         f'<script src="/herbamed-auto-metrics-prod59822.js?v={BUILD}"></script>',
-        '<script src="/produto-foco-labels.js?v=FOCO-LABELS-2"></script>',
+        '<script src="/produto-foco-labels.js?v=FOCO-LABELS-3"></script>',
         '<script src="/positivacao-launcher.js?v=POS-GERAL-DEV4-CARD"></script>',
         '<script src="/notificacoes/launcher.js?v=NOTIF-HOME-STABLE-1"></script>',
         '<script src="/home-cards-stability-prod599.js?v=HOME-STABLE-1"></script>',
