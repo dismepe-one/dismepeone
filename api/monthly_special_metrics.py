@@ -157,6 +157,10 @@ def integral_sources(tables, comp):
 
 def lab_of(row):
     lab = norm(row.get("__LAB") or row.get("lab"))
+    # Produto Foco tem sua propria linha comercial e nao deve repetir
+    # nem participar do recalculo das metricas especiais do laboratorio.
+    if "PRODFOCO" in lab or "PRODUTOFOCO" in lab:
+        return ""
     if lab.startswith("GLOBO"):
         return "GLOBO"
     if lab.startswith("HERBAMED"):
