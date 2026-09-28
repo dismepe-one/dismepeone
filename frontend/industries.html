@@ -241,7 +241,7 @@ function setupInternalLabSearch(){
       option.type='button';option.id='labSearchOption-'+i;option.className='lab-search-option';
       option.setAttribute('role','option');option.setAttribute('aria-selected','false');
       option.textContent=choice.label;
-      option.addEventListener('pointerdown',event=>event.preventDefault());
+      option.addEventListener('pointerdown',event=>{event.preventDefault();choose(choice);});
       option.addEventListener('click',()=>choose(choice));
       results.append(option);
     });
@@ -256,7 +256,7 @@ function setupInternalLabSearch(){
         option.type='button';option.id='labSearchOption-'+i;option.className='lab-search-option';
         option.setAttribute('role','option');option.setAttribute('aria-selected','false');
         option.textContent=choice.label;
-        option.addEventListener('pointerdown',event=>event.preventDefault());
+        option.addEventListener('pointerdown',event=>{event.preventDefault();choose(choice);});
         option.addEventListener('click',()=>choose(choice));
         results.append(option);
       });
