@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -18,6 +19,8 @@ from . import main as main_module
 from . import prod4_app as prod4
 from .cache_reads import CacheReadError, cache_get
 from .monthly_commercial_live import sync_commercial, CommercialSyncError
+from .industries_stock_sync import _build_drive_service
+from .industries_sales_sync import _download_xlsx, _read_sheet, GOOGLE_SHEET_MIME
 from .industries_app import app, settings
 from .legacy_bridge import clear_state, get_state
 from .security import decode_session_token
@@ -778,74 +781,132 @@ def _extra_observation(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _extra_sheet_id(campaign: dict[str, Any]) -> str:
+    base_url = str(campaign.get("baseUrl") or "").strip()
+    match = re.search(r"/spreadsheets/d/([A-Za-z0-9_-]+)", base_url)
+    return match.group(1) if match else ""
+
+
+def _extra_number(value: Any) -> float:
+    if value in (None, ""):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip().replace("R$", "").replace(" ", "")
+    if not text:
+        return 0.0
+    if "," in text:
+        text = text.replace(".", "").replace(",", ".")
+    try:
+        return float(text)
+    except ValueError:
+        return 0.0
+
+
+def _extra_iso_date(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(text[:10], fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return text[:10]
+
+
+async def _extra_sheet_records(
+    campaign: dict[str, Any],
+    workbook_cache: dict[str, bytes],
+) -> list[dict[str, Any]]:
+    spreadsheet_id = _extra_sheet_id(campaign)
+    sheet_name = str(campaign.get("aba") or campaign.get("id") or "").strip()
+    if not spreadsheet_id or not sheet_name:
+        raise RuntimeError(
+            f"Campanha Extra {campaign.get('id') or ''} sem baseUrl/aba para leitura direta."
+        )
+
+    raw_xlsx = workbook_cache.get(spreadsheet_id)
+    if raw_xlsx is None:
+        service = await asyncio.to_thread(_build_drive_service)
+        item = {
+            "id": spreadsheet_id,
+            "name": "BASE CAMPANHAS EXTRAS",
+            "mimeType": GOOGLE_SHEET_MIME,
+        }
+        raw_xlsx = await asyncio.to_thread(_download_xlsx, service, item)
+        workbook_cache[spreadsheet_id] = raw_xlsx
+
+    rows = await asyncio.to_thread(_read_sheet, raw_xlsx, sheet_name)
+    if not rows:
+        return []
+
+    header = [str(x or "").strip().upper() for x in rows[0]]
+    expected = ("NOME DA CAMPANHA", "VENDEDOR/TELEVENDA", "FORNECEDOR", "DATA", "VENDA L")
+    if len(header) < 5 or not all(expected[i] in header[i] for i in range(4)) or "VENDA" not in header[4]:
+        raise RuntimeError(
+            f"Campanha Extra {campaign.get('id') or ''}: cabecalho da aba {sheet_name} invalido."
+        )
+
+    normalized: list[dict[str, Any]] = []
+    campaign_id = str(campaign.get("id") or "").strip()
+    campaign_name = str(campaign.get("nome") or "").strip()
+    campaign_lab = str(campaign.get("laboratorio") or "").strip()
+
+    for row in rows[1:]:
+        collaborator = str(row[1] if len(row) > 1 and row[1] is not None else "").strip()
+        if not collaborator:
+            continue
+        lab = str(row[2] if len(row) > 2 and row[2] is not None else campaign_lab).strip()
+        sale = _extra_number(row[4] if len(row) > 4 else 0)
+        code = str(row[5] if len(row) > 5 and row[5] is not None else "").strip()
+        qty = _extra_number(row[6] if len(row) > 6 else 0)
+        observation = str(row[7] if len(row) > 7 and row[7] is not None else "").strip()
+        normalized.append({
+            "colaborador": collaborator,
+            "laboratorio": lab or campaign_lab,
+            "data": _extra_iso_date(row[3] if len(row) > 3 else ""),
+            "venda": sale,
+            "codigoProduto": code,
+            "quantidade": qty,
+            "observacao": observation,
+            "idCampanha": campaign_id,
+            "campanhaNome": campaign_name,
+        })
+
+    return normalized
+
+
 async def _refresh_extras_snapshot(
     *,
     legacy_token: str,
     profile: dict[str, Any],
     require_change: bool = False,
 ) -> tuple[str, str]:
-    # A configuracao das campanhas ja esta no PostgreSQL e nao deve depender
-    # de LISTARCAMPANHASEXTRAS do Apps Script para reconstruir o snapshot.
-    # O legado permanece apenas como fonte temporaria das parciais/vendas.
+    # A configuracao vem do PostgreSQL. As vendas/parciais sao lidas
+    # diretamente das abas da BASE CAMPANHAS EXTRAS no Google Drive.
     campaigns = await _extras_config_list()
     if not campaigns:
         raise RuntimeError(
             "Configuracao SQL de Campanhas Extras retornou sem campanhas; snapshot anterior preservado."
         )
+
     sales_by_campaign: dict[str, list[dict[str, Any]]] = {}
+    workbook_cache: dict[str, bytes] = {}
 
     for campaign in campaigns:
         campaign_id = str(campaign.get("id") or "").strip()
         if not campaign_id:
             continue
-
-        partial = await _legacy_read(
-            action="PARCIALCAMPANHAEXTRA",
-            legacy_token=legacy_token,
-            extra={
-                "id": campaign_id,
-                "campanhaId": campaign_id,
-                "idCampanha": campaign_id,
-            },
-        )
-        records = partial.get("registros")
-        if not isinstance(records, list):
-            raise RuntimeError(
-                f"Campanha Extra {campaign_id} retornou sem registros; snapshot anterior preservado."
+        try:
+            sales_by_campaign[campaign_id] = await _extra_sheet_records(
+                campaign,
+                workbook_cache,
             )
-
-        focus_code = str(campaign.get("codigoProdutoFoco") or "").strip()
-        normalized: list[dict[str, Any]] = []
-        for row in records:
-            if not isinstance(row, dict):
-                continue
-            qty = row.get("quantidadeProdutoFoco")
-            if qty in (None, ""):
-                qty = row.get("quantidade")
-            normalized.append({
-                "colaborador": str(row.get("colaborador") or "").strip(),
-                "laboratorio": str(
-                    row.get("laboratorio")
-                    or campaign.get("laboratorio")
-                    or ""
-                ).strip(),
-                "data": "",
-                "venda": row.get("venda") or 0,
-                "codigoProduto": str(
-                    row.get("codigoProduto")
-                    or (focus_code if qty not in (None, "", 0, 0.0, "0") else "")
-                ).strip(),
-                "quantidade": qty or 0,
-                "observacao": _extra_observation(
-                    row.get("observacoes")
-                    if row.get("observacoes") is not None
-                    else row.get("observacao")
-                ),
-                "idCampanha": campaign_id,
-                "campanhaNome": str(campaign.get("nome") or "").strip(),
-            })
-
-        sales_by_campaign[campaign_id] = normalized
+        except Exception as exc:
+            raise RuntimeError(
+                f"Campanha Extra {campaign_id}: falha ao ler a aba da base Google; snapshot anterior preservado. Detalhe: {exc}"
+            ) from exc
 
     snapshot = {
         "campanhas": campaigns,
@@ -854,13 +915,13 @@ async def _refresh_extras_snapshot(
     if require_change:
         previous, _row = await cache_get(modulo="EXTRAS", settings=settings)
         if all(snapshot.get(key) == previous.get(key) for key in ("campanhas", "vendasPorCampanha")):
-            raise RuntimeError("LISTARCAMPANHASEXTRAS não trouxe alteração verificável na base extras")
+            raise RuntimeError("Campanhas Extras não trouxeram alteração verificável na base")
+
     return await _cache_set_snapshot(
         modulo="EXTRAS",
         payload=snapshot,
         profile=profile,
     )
-
 
 async def _persisted_cache_time(modulo: str) -> tuple[str, str]:
     try:
