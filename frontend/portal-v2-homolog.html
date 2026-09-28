@@ -12964,6 +12964,28 @@ sel.innerHTML=extraCampaigns.length
     XLSX.writeFile(wb,'Modelo_Metas_Individuais_Campanha_Extra.xlsx');
   };
 
+  function parseExtraImportNumber(value){
+    if(value===null||value===undefined||value==='') return 0;
+    if(typeof value==='number' && Number.isFinite(value)) return value;
+    let text=String(value).trim();
+    if(!text) return 0;
+    text=text.replace(/R\$/gi,'').replace(/%/g,'').replace(/\s+/g,'');
+    if(text.includes(',') && text.includes('.')){
+      if(text.lastIndexOf(',')>text.lastIndexOf('.')){
+        text=text.replace(/\./g,'').replace(',','.');
+      }else{
+        text=text.replace(/,/g,'');
+      }
+    }else if(text.includes(',')){
+      text=text.replace(/\./g,'').replace(',','.');
+    }else{
+      const parts=text.split('.');
+      if(parts.length>2) text=parts.join('');
+    }
+    const n=Number(text);
+    return Number.isFinite(n)?n:0;
+  }
+
   window.importExtraIndividualTargets=function(event){
     const file=event?.target?.files?.[0];
     if(!file)return;
@@ -12980,8 +13002,8 @@ sel.innerHTML=extraCampaigns.length
           const usuario=String(r.USUARIO??r.Usuario??r.usuario??r.LOGIN??r.Login??r.login??'').trim();
           if(!usuario)return;
           byUser.set(normalizarTexto(usuario),{
-            objetivo:Number(String(r.META??r.Meta??r.meta??0).replace(',','.'))||0,
-            percentual:Number(String(r.PERCENTUAL??r.Percentual??r.percentual??r['%']??0).replace(',','.'))||0
+            objetivo:parseExtraImportNumber(r.META??r.Meta??r.meta??0),
+            percentual:parseExtraImportNumber(r.PERCENTUAL??r.Percentual??r.percentual??r['%']??0)
           });
         });
         const rows=extraActiveSalesUsers().map(u=>{
