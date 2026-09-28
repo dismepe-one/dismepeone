@@ -509,6 +509,55 @@ async def _legacy_read(
     return data
 
 
+async def _extras_config_list() -> list[dict[str, Any]]:
+    endpoint = settings.supabase_url.rstrip("/") + "/functions/v1/dismepe-admin"
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(35.0),
+            follow_redirects=True,
+        ) as client:
+            response = await client.post(
+                endpoint,
+                json={"acao": "EXTRAS_CONFIG_LIST"},
+                headers={
+                    "apikey": settings.supabase_publishable_key,
+                    "x-dismepe-token": settings.edge_token,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "Cache-Control": "no-store",
+                },
+            )
+    except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        raise RuntimeError("Configuracao SQL de Campanhas Extras indisponivel.") from exc
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Configuracao SQL de Campanhas Extras retornou resposta invalida (HTTP {response.status_code})."
+        ) from exc
+
+    if (
+        response.status_code < 200
+        or response.status_code >= 300
+        or not isinstance(data, dict)
+        or data.get("sucesso") is not True
+        or not isinstance(data.get("campanhas"), list)
+    ):
+        message = (
+            data.get("erro")
+            if isinstance(data, dict)
+            else ""
+        ) or (
+            data.get("error")
+            if isinstance(data, dict)
+            else ""
+        ) or f"HTTP {response.status_code}"
+        raise RuntimeError(f"Configuracao SQL de Campanhas Extras: {message}")
+
+    return [dict(row) for row in data["campanhas"] if isinstance(row, dict)]
+
+
 async def _cache_set_snapshot(
     *,
     modulo: str,
@@ -735,19 +784,14 @@ async def _refresh_extras_snapshot(
     profile: dict[str, Any],
     require_change: bool = False,
 ) -> tuple[str, str]:
-    listing = await _legacy_read(
-        action="LISTARCAMPANHASEXTRAS",
-        legacy_token=legacy_token,
-    )
-    source = listing.get("todas")
-    if not isinstance(source, list):
-        source = listing.get("campanhas")
-    if not isinstance(source, list):
+    # A configuracao das campanhas ja esta no PostgreSQL e nao deve depender
+    # de LISTARCAMPANHASEXTRAS do Apps Script para reconstruir o snapshot.
+    # O legado permanece apenas como fonte temporaria das parciais/vendas.
+    campaigns = await _extras_config_list()
+    if not campaigns:
         raise RuntimeError(
-            "LISTARCAMPANHASEXTRAS retornou sem campanhas; snapshot anterior preservado."
+            "Configuracao SQL de Campanhas Extras retornou sem campanhas; snapshot anterior preservado."
         )
-
-    campaigns = [dict(row) for row in source if isinstance(row, dict)]
     sales_by_campaign: dict[str, list[dict[str, Any]]] = {}
 
     for campaign in campaigns:
