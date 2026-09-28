@@ -1058,10 +1058,21 @@ async def resumo_ganhos_snapshot(
             modulo="EXTRAS",
             settings=settings,
         )
-        users_payload, _ = await cache_get(
-            modulo="USUARIOS",
-            settings=settings,
-        )
+        # O snapshot USUARIOS é auxiliar para aliases/canal e não pode
+        # bloquear todo o consolidado quando ainda não estiver migrado ao SQL.
+        # As Campanhas Extras continuam calculáveis pelos próprios registros
+        # de EXTRAS; nesse caso, usamos aliases vazios como fallback seguro.
+        try:
+            users_payload, _ = await cache_get(
+                modulo="USUARIOS",
+                settings=settings,
+            )
+        except CacheReadError:
+            users_payload = {}
+            logger.info(
+                "[RESUMO EXTRAS] snapshot USUARIOS ausente; "
+                "calculando Extras com aliases do próprio snapshot."
+            )
 
         # RESUMO_PREMIACOES já é uma permissão de visão consolidada.
         # Para o cálculo interno das Extras, habilita apenas a leitura necessária
