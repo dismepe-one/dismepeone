@@ -1306,51 +1306,26 @@ async def prod59823_refresh_related(
     try:
         previous, previous_row = await cache_get(modulo=module, settings=settings)
         if module == "EXTRAS":
-            # A leitura real compara valores e preserva o horário quando não mudou.
-            listing = await _legacy_read(action="LISTARCAMPANHASEXTRAS", legacy_token=token)
-            source = listing.get("todas")
-            if not isinstance(source, list):
-                source = listing.get("campanhas")
-            if not isinstance(source, list):
-                raise RuntimeError("A fonte de Campanhas Extras não retornou a lista.")
-            campaigns = [dict(x) for x in source if isinstance(x, dict)]
+            # Configuração vem do PostgreSQL; parciais/vendas são lidas
+            # diretamente das abas da BASE CAMPANHAS EXTRAS no Google Drive.
+            campaigns = await _extras_config_list()
+            if not campaigns:
+                raise RuntimeError(
+                    "Configuração SQL de Campanhas Extras retornou sem campanhas; base anterior preservada."
+                )
             sales: dict[str, list[dict[str, Any]]] = {}
+            workbook_cache: dict[str, bytes] = {}
             for item in campaigns:
                 campaign_id = str(item.get("id") or "").strip()
                 if not campaign_id:
                     continue
-                partial = await _legacy_read(
-                    action="PARCIALCAMPANHAEXTRA",
-                    legacy_token=token,
-                    extra={"id": campaign_id, "campanhaId": campaign_id, "idCampanha": campaign_id},
-                )
-                records = partial.get("registros")
-                if not isinstance(records, list):
-                    raise RuntimeError(f"A parcial da campanha {campaign_id} não foi confirmada.")
-                focus = str(item.get("codigoProdutoFoco") or "").strip()
-                normalized = []
-                for row in records:
-                    if not isinstance(row, dict):
-                        continue
-                    qty = row.get("quantidadeProdutoFoco")
-                    if qty in (None, ""):
-                        qty = row.get("quantidade")
-                    normalized.append({
-                        "colaborador": str(row.get("colaborador") or "").strip(),
-                        "laboratorio": str(row.get("laboratorio") or item.get("laboratorio") or "").strip(),
-                        "data": "",
-                        "venda": row.get("venda") or 0,
-                        "codigoProduto": str(
-                            row.get("codigoProduto") or (focus if qty not in (None, "", 0, 0.0, "0") else "")
-                        ).strip(),
-                        "quantidade": qty or 0,
-                        "observacao": _extra_observation(
-                            row.get("observacoes") if row.get("observacoes") is not None else row.get("observacao")
-                        ),
-                        "idCampanha": campaign_id,
-                        "campanhaNome": str(item.get("nome") or "").strip(),
-                    })
-                sales[campaign_id] = normalized
+                try:
+                    sales[campaign_id] = await _extra_sheet_records(item, workbook_cache)
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"Campanha Extra {campaign_id}: falha ao ler a aba da base Google; "
+                        f"base anterior preservada. Detalhe: {exc}"
+                    ) from exc
             incoming = {"campanhas": campaigns, "vendasPorCampanha": sales}
             if all(incoming[key] == previous.get(key) for key in incoming):
                 return {
