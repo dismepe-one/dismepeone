@@ -276,9 +276,21 @@
     direction.addEventListener('click',()=>applySort(sortState.key));
   }
 
+  function uppercaseLabOptions(){
+    ['filterLab','overviewFilterLab'].forEach(id=>{
+      const select=document.getElementById(id);
+      if(!select)return;
+      [...select.options].forEach(option=>{
+        if(String(option.value||'').toUpperCase()==='ALL')return;
+        option.textContent=upperLab(option.textContent);
+      });
+    });
+  }
+
   function afterRender(){
     installHeaders();
     installMobileSort();
+    uppercaseLabOptions();
     reorderTableRows();
     updateSortIndicators();
   }
