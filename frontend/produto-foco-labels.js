@@ -16,9 +16,9 @@
       .replace(/[^A-Z0-9]/g,'');
   }
 
-  function firstSupplierName(value){
+  function fullSupplierName(value){
     const clean=String(value||'').trim().replace(/\s+/g,' ');
-    return upperLab(clean.split(' ')[0]||clean);
+    return upperLab(clean);
   }
 
   function fallbackProductName(item,code){
@@ -88,7 +88,7 @@
     const code=codeOf(item);
     const key=normalizeCode(code);
     const catalog=key?productCatalog.get(key):null;
-    const supplier=firstSupplierName(catalog?.fornecedor||lab)||lab;
+    const supplier=fullSupplierName(catalog?.fornecedor||lab)||lab;
     const product=String(catalog?.descricao||fallbackProductName(item,code)||'').trim();
 
     const label=
@@ -376,11 +376,22 @@
     });
   }
 
+  function applyAdaptiveFocusSize(){
+    document.querySelectorAll(
+      '#detailTableScroll .lab-focus-highlight, #detailMobileCards .p598234-focus'
+    ).forEach(el=>{
+      const len=String(el.textContent||'').trim().length;
+      el.classList.toggle('focus-label-long',len>58);
+      el.classList.toggle('focus-label-very-long',len>82);
+    });
+  }
+
   function afterRender(){
     installHeaders();
     uppercaseLabOptions();
     reorderTableRows();
     updateSortIndicators();
+    applyAdaptiveFocusSize();
     loadCatalogForRenderedFocus();
   }
 
@@ -414,6 +425,10 @@
     '#detailMobileCards .p598234-lab-value.p598234-focus{display:inline-block!important;width:auto!important;max-width:100%!important;padding:3px 6px!important;border-left:3px solid #f97316!important;border-radius:6px!important;font-size:9px!important;line-height:1.15!important;text-transform:none!important;}',
     '#detailTableScroll tr.produto-foco-subrow td:nth-child(2){padding-left:22px!important;}',
     '#detailTableScroll tr.produto-foco-subrow td:nth-child(2)::after{content:"";}',
+    '.lab-focus-label.focus-label-long{font-size:8.75px!important;line-height:1.1!important;}',
+    '.lab-focus-label.focus-label-very-long{font-size:8px!important;line-height:1.08!important;}',
+    '#detailMobileCards .p598234-focus.focus-label-long{font-size:8.25px!important;line-height:1.1!important;}',
+    '#detailMobileCards .p598234-focus.focus-label-very-long{font-size:7.75px!important;line-height:1.08!important;}',
     '.partial-sort-button{display:inline-flex;width:100%;align-items:center;gap:5px;border:0;background:transparent;color:inherit;font:inherit;font-weight:inherit;text-transform:inherit;letter-spacing:inherit;padding:0;cursor:pointer;}',
     '.partial-sort-number{justify-content:flex-end;}',
     '.partial-sort-icon{display:inline-flex;align-items:center;justify-content:center;min-width:14px;color:#005548;font-size:12px;font-weight:950;line-height:1;}',
