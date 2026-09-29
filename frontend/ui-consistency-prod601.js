@@ -104,13 +104,15 @@
 
           if(String(component.metrica||'').toUpperCase()!=='POSITIVACAO_GERAL' || pending)return;
           const actual=Math.max(0,Number(component.realizado)||0);
-          const target=Math.max(0,Number(component.meta)||0);
+          const laboratory=String(item?.lab||item?.laboratorio||'').trim();
+          const laboratoryParam=laboratory?'&laboratorio='+encodeURIComponent(laboratory):'';
+          const contextLabel=laboratory?' de '+laboratory:'';
           const actions=document.createElement('div');
           actions.className='d1-metric-actions';
           actions.innerHTML=
-            '<a class="d1-metric-action" href="/positivacoes?status=positivados" title="Abrir clientes positivados">'+
+            '<a class="d1-metric-action" href="/positivacoes?status=positivados'+laboratoryParam+'" title="Abrir clientes positivados'+contextLabel+'">'+
               actual.toLocaleString('pt-BR')+' positivados ↗</a>'+
-            '<a class="d1-metric-action" href="/positivacoes?status=nao-positivados" title="Abrir clientes ainda não positivados">Ver não positivados ↗</a>';
+            '<a class="d1-metric-action" href="/positivacoes?status=nao-positivados'+laboratoryParam+'" title="Abrir clientes ainda não positivados'+contextLabel+'">Ver não positivados ↗</a>';
           node.appendChild(actions);
         });
         return box.innerHTML;
