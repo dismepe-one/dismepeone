@@ -5499,6 +5499,7 @@ function showV36CreateUserInfo(){
                   <option value="PERCENTUAL_VENDA">% sobre a venda</option>
                   <option value="PRODUTO_FOCO">Meta + Prod Foco</option>
                   <option value="PRODUTO_UNIDADE_GATILHO">Produto por unidade + gatilho</option>
+                  <option value="SOMA_UNIDADES_PRODUTOS_FAIXAS">Soma de unidades de vários produtos + faixas</option>
                   <option value="FATURAMENTO_INDIVIDUAL_PERCENTUAL">Faturamento com meta individual (%)</option>
                   <option value="BRINDE">Brinde</option>
                   <option value="RANKING_BRINDE">Ranking por vendas — brindes</option>
@@ -5511,6 +5512,7 @@ function showV36CreateUserInfo(){
                       <option value="FATURAMENTO">Faturamento</option>
                       <option value="PRODUTO_FOCO">Produto Foco</option>
                       <option value="PRODUTO_UNIDADE_GATILHO">Produto por unidade + gatilho</option>
+                      <option value="SOMA_UNIDADES_PRODUTOS_FAIXAS">Soma de unidades de vários produtos</option>
                       <option value="FATURAMENTO_INDIVIDUAL_PERCENTUAL">Faturamento com metas individuais (%)</option>
                     </select>
                   </div>
@@ -5582,9 +5584,9 @@ function showV36CreateUserInfo(){
                       <div id="extraIndividualTargetsStatus" class="mt-2 text-[10px] text-slate-600"></div>
                     </div>
 
-                    <div id="extraFaixasSection" class="hidden md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div id="extraProdutosSomadosSection" class="hidden md:col-span-2 rounded-2xl border border-sky-200 bg-sky-50/60 p-4">\n                      <label class="block text-[10px] uppercase font-black text-sky-800 mb-1">Códigos dos produtos participantes *</label>\n                      <textarea id="extraProdutosSomados" rows="4" placeholder="Ex.: 1234, 5678, 9012" class="w-full rounded-xl border border-sky-300 px-3 py-2.5 text-sm bg-white text-slate-800"></textarea>\n                      <div class="mt-2 text-[10px] text-sky-800"><b>A soma é conjunta:</b> pode vender 30 unidades de um único produto ou distribuir as 30 entre todos os produtos cadastrados.</div>\n                    </div>\n\n                    <div id="extraFaixasSection" class="hidden md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                       <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-                        <div><div class="text-xs font-black text-slate-800">Faixas por venda</div><div class="text-[10px] text-slate-500 mt-0.5">Cadastre venda mínima e prêmio. O sistema considera a maior faixa atingida.</div></div>
+                        <div><div id="extraFaixasTitulo" class="text-xs font-black text-slate-800">Faixas por venda</div><div id="extraFaixasDescricao" class="text-[10px] text-slate-500 mt-0.5">Cadastre venda mínima e prêmio. O sistema considera a maior faixa atingida.</div></div>
                         <button type="button" onclick="addExtraFaixa()" class="px-3 py-2 rounded-lg bg-emerald-600 text-white text-[10px] font-black"><i class="fa-solid fa-plus mr-1"></i>FAIXA</button>
                       </div>
                       <div id="extraFaixasList" class="space-y-2"></div>
@@ -12854,6 +12856,7 @@ sel.innerHTML=extraCampaigns.length
     if(m==='PERCENTUAL_VENDA') return '% sobre a venda';
     if(m==='PRODUTO_FOCO') return 'Meta + Prod Foco';
     if(m==='PRODUTO_UNIDADE_GATILHO') return 'Produto por unidade + gatilho';
+    if(m==='SOMA_UNIDADES_PRODUTOS_FAIXAS') return 'Soma de unidades de vários produtos + faixas';
     if(m==='FATURAMENTO_INDIVIDUAL_PERCENTUAL') return 'Faturamento com meta individual (%)';
     if(m==='BRINDE') return 'Brinde';
     if(m==='RANKING_BRINDE') return 'Ranking por vendas — brindes';
@@ -12891,6 +12894,7 @@ sel.innerHTML=extraCampaigns.length
     if(m==='PERCENTUAL_VENDA') return '<b>Exemplo:</b> meta R$ 10.000 e 5%. Vendeu R$ 15.000: ganha R$ 750.';
     if(m==='PRODUTO_FOCO') return '<b>Exemplo:</b> meta R$ 10.000 + 10 un. do produto 1234. Precisa atingir as duas.';
     if(m==='PRODUTO_UNIDADE_GATILHO') return '<b>Exemplo:</b> produto 1234, gatilho de 50 un. e R$ 1,00 por unidade. Com 49 un.: R$ 0. Com 60 un.: R$ 60.';
+    if(m==='SOMA_UNIDADES_PRODUTOS_FAIXAS') return '<b>Exemplo:</b> some as unidades dos produtos participantes: 30 un. = R$ 50; 60 un. = R$ 100; 100 un. = R$ 150. Vale a maior faixa atingida.';
     if(m==='FATURAMENTO_INDIVIDUAL_PERCENTUAL') return '<b>Exemplo:</b> Maria: meta R$ 20 mil e 3%; João: meta R$ 15 mil e 4%. Cada um é calculado pela própria meta e percentual.';
     if(m==='BRINDE') return '<b>Exemplo:</b> ao atingir a condição, o participante recebe o brinde cadastrado. Você também pode exigir a soma geral do laboratório.';
     if(m==='RANKING_BRINDE') return '<b>Exemplo:</b> 1º: TV • 2º: celular • 3º: vale. Vendas e ranking são lidos da própria base da Campanha Extra; somente Vendedores/Televendas ocupam posição.';
@@ -12903,6 +12907,7 @@ sel.innerHTML=extraCampaigns.length
     const m=normalizeExtraMetric(metric);
     if(m==='PRODUTO_FOCO') return {base:'PRODUTO_FOCO',premio:'VALOR_FIXO'};
     if(m==='PRODUTO_UNIDADE_GATILHO') return {base:'PRODUTO_UNIDADE_GATILHO',premio:'VALOR_FIXO'};
+    if(m==='SOMA_UNIDADES_PRODUTOS_FAIXAS') return {base:'SOMA_UNIDADES_PRODUTOS_FAIXAS',premio:'FAIXAS_VENDA'};
     if(m==='FATURAMENTO_INDIVIDUAL_PERCENTUAL') return {base:'FATURAMENTO_INDIVIDUAL_PERCENTUAL',premio:'PERCENTUAL_OBJETIVO'};
     if(m==='PERCENTUAL_OBJETIVO') return {base:'FATURAMENTO',premio:'PERCENTUAL_OBJETIVO'};
     if(m==='PERCENTUAL_VENDA') return {base:'FATURAMENTO',premio:'PERCENTUAL_VENDA'};
@@ -12917,6 +12922,7 @@ sel.innerHTML=extraCampaigns.length
     const p=String(premio||'VALOR_FIXO').toUpperCase();
     if(b==='PRODUTO_FOCO') return 'PRODUTO_FOCO';
     if(b==='PRODUTO_UNIDADE_GATILHO') return 'PRODUTO_UNIDADE_GATILHO';
+    if(b==='SOMA_UNIDADES_PRODUTOS_FAIXAS') return 'SOMA_UNIDADES_PRODUTOS_FAIXAS';
     if(b==='FATURAMENTO_INDIVIDUAL_PERCENTUAL') return 'FATURAMENTO_INDIVIDUAL_PERCENTUAL';
     if(p==='PERCENTUAL_OBJETIVO') return 'PERCENTUAL_OBJETIVO';
     if(p==='PERCENTUAL_VENDA') return 'PERCENTUAL_VENDA';
