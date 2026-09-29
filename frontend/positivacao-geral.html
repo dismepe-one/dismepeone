@@ -184,6 +184,15 @@
 }
 @media(max-width:700px){.intro-actions #notesOverviewButton.pos-toolbar-icon,.intro-actions .inat-admin-actions #inatAdminButton.pos-toolbar-icon,.intro-actions #btnRefresh.pos-toolbar-icon{flex:0 0 42px;inline-size:42px;min-inline-size:42px;block-size:42px;min-block-size:42px}}
 </style>
+
+<style id="pos-ui-consistency-601">
+.metric-drilldown{cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:5px;text-decoration-thickness:1px;border-radius:7px}
+.metric-drilldown:hover,.metric-drilldown:focus-visible{color:#075548;outline:2px solid rgba(7,85,72,.18);outline-offset:4px}
+.pos-state-pill[data-state="loading"]{background:#e0f2fe;color:#075985;border-color:#bae6fd}
+.pos-state-pill[data-state="success"]{background:#d1fae5;color:#065f46;border-color:#a7f3d0}
+.pos-state-pill[data-state="warning"]{background:#fef3c7;color:#92400e;border-color:#fde68a}
+.pos-state-pill[data-state="error"]{background:#fee2e2;color:#991b1b;border-color:#fecaca}
+</style>
 </head>
 <body>
 <header class="topbar"><div class="top-inner"><div class="brand"><a href="/" title="Voltar para a HOME" aria-label="Voltar para a HOME"><img class="logo" src="/positivacoes/logo.png" alt="DISMEPE ONE"></a><div><small>POSITIVAÇÃO GERAL</small></div></div><div class="header-actions"><span class="pill" id="accessPill">Administrador</span><a class="btn outline sm" href="/">← <span class="label-desktop">Voltar ao início</span><span class="sr-only">Voltar ao início</span></a></div></div></header>
@@ -238,7 +247,45 @@ function origemExibicao(valor){
 }
 
 const CLIENTS_PER_PAGE=20;
-let snapshot=null,currentStatus='todos',page=1,total=0,searchTimeout=0,fetchIndex=0,chartIndex=0,manualPending=false;
+const validInitialStatuses=new Set(['todos','positivados','nao-positivados','bloqueados','inativos']);
+const statusFromUrl=new URLSearchParams(location.search).get('status');
+let snapshot=null,currentStatus=validInitialStatuses.has(statusFromUrl)?statusFromUrl:'todos',page=1,total=0,searchTimeout=0,fetchIndex=0,chartIndex=0,manualPending=false;
+
+function formatUpdatedAt(value){
+ const d=new Date(value);
+ if(Number.isNaN(d.getTime()))return '—';
+ return d.toLocaleString('pt-BR',{timeZone:'America/Recife',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}).replace(',', ' às');
+}
+function setPageState(state,detail=''){
+ const el=$('sourceStatus'); if(!el)return;
+ const label={loading:'Carregando',success:'Atualizado',warning:'Atenção',error:'Erro'}[state]||'Atualizado';
+ el.textContent=detail?label+' · '+detail:label;
+ el.dataset.state=state;
+ el.classList.add('pos-state-pill');
+}
+function setClientStatus(status,{scroll=true}={}){
+ if(!validInitialStatuses.has(status))status='todos';
+ currentStatus=status;
+ document.querySelectorAll('#tabs .tab').forEach(x=>x.classList.toggle('active',x.dataset.status===status));
+ page=1;
+ if(history.replaceState){
+   const u=new URL(location.href);
+   if(status==='todos')u.searchParams.delete('status'); else u.searchParams.set('status',status);
+   history.replaceState(null,'',u);
+ }
+ if(snapshot)loadClients();
+ if(scroll)document.querySelector('.table-panel')?.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function installMetricDrilldowns(){
+ [['kPositive','positivados','Abrir clientes positivados'],['kNegative','nao-positivados','Abrir clientes não positivados']].forEach(([id,status,label])=>{
+   const el=$(id); if(!el||el.dataset.drilldownReady)return;
+   el.dataset.drilldownReady='1'; el.classList.add('metric-drilldown'); el.tabIndex=0; el.setAttribute('role','button'); el.setAttribute('aria-label',label); el.title=label;
+   el.addEventListener('click',()=>setClientStatus(status));
+   el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setClientStatus(status);}});
+ });
+ document.querySelectorAll('#tabs .tab').forEach(x=>x.classList.toggle('active',x.dataset.status===currentStatus));
+}
+installMetricDrilldowns();
 const showAlert=(value,error=false)=>{const el=$('alert');el.textContent=value||'';el.className='alert'+(value?' show':'')+(error?' error':'');};
 async function getJSON(url,opts={}){
  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),18000);
@@ -313,7 +360,7 @@ function populate(){const d=snapshot,k=d.indicadores;$('kNegativeNote').textCont
  if(d.acesso?.individual){$('companyPositiveTotal').textContent=num(d.geralEmpresa?.positivados);$('companyGoalTotal').textContent=d.meta?num(d.meta):'Não definida';$('companyGoalPercent').textContent=d.meta?pct(d.metaAtingimento):'Meta não definida';}
  $('kPositiveNote').textContent=d.acesso?.individual?'':'Clientes com compras no período';
  $('kTotal').textContent=num(k.carteira);$('kPositive').textContent=num(k.positivados);$('kNegative').textContent=num(k.naoPositivados);$('kPercent').textContent=pct(k.percentual);
-$('updated').textContent='Atualizado em '+new Date(d.atualizadoEm).toLocaleString('pt-BR');$('sourceStatus').textContent='Período '+d.competencia;$('mNew').textContent=num(d.movimentacao.novos);$('mRemoved').textContent=num(d.movimentacao.removidos);$('mBlocked').textContent=num(d.movimentacao.bloqueadosNovos);$('mOutside').textContent=num(k.positivadosForaCarteira);
+$('updated').textContent='Atualizado em '+formatUpdatedAt(d.atualizadoEm);setPageState('success','Período '+d.competencia);$('mNew').textContent=num(d.movimentacao.novos);$('mRemoved').textContent=num(d.movimentacao.removidos);$('mBlocked').textContent=num(d.movimentacao.bloqueadosNovos);$('mOutside').textContent=num(k.positivadosForaCarteira);
 $('donut').style.setProperty('--pct',Math.min(100,Math.max(0,k.percentual))+'%');$('donutNum').textContent=pct(k.percentual);$('legendPos').textContent=num(k.positivados);$('legendNeg').textContent=num(k.naoPositivados);$('legendBlocked').textContent=num(k.bloqueados);
 $('btnMeta').title=d.meta?'Alterar meta geral DISMEPE':'Cadastrar meta geral DISMEPE';$('btnMeta').setAttribute('aria-label',$('btnMeta').title);$('metaFraction').textContent=(d.meta?num(d.meta):'—')+' / '+num(k.positivados);$('metaHint').textContent=d.meta?'Meta definida pela administração':'Configure uma meta para acompanhar o atingimento';$('metaPercent').textContent=d.meta?pct(d.metaAtingimento):'—';$('metaMissing').textContent=d.meta?num(d.metaFaltam):'—';$('metaPeriod').textContent='Competência '+d.competencia;$('metaFill').style.width=(d.meta?Math.min(100,d.metaAtingimento):0)+'%';$('metaBar').setAttribute('aria-valuenow',String(d.meta?Math.min(100,d.metaAtingimento):0));
 $('sectorCount').textContent=num(d.setores.length)+' carteiras';const choice=$('sectorFilter').value;const supplierChoice=$('supplierFilter').value;const suppliers=d.fornecedores||[];$('supplierFilter').innerHTML='<option value="">Todos os fornecedores</option>'+suppliers.map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');$('supplierFilter').value=suppliers.includes(supplierChoice)?supplierChoice:'';$('sectorFilter').innerHTML='<option value="">Todas as carteiras</option><optgroup label="Vendedores">'+d.setores.map(s=>'<option value="'+esc(s.setor)+'">'+nomeHtml(s.setor)+'</option>').join('')+'</optgroup><optgroup label="Televendas">'+(d.carteirasTelevendas||[]).map(s=>'<option value="TV:'+esc(s.televendas)+'">'+nomeHtml(s.televendas)+'</option>').join('')+'</optgroup>'+(d.acesso?.individual?'':(d.carteirasDiretoria||[]).length?'<optgroup label="Diretoria"><option value="DIR:CARTEIRA">Diretoria (carteira do PDF)</option></optgroup>':'');$('sectorFilter').value=d.acesso?.individual?d.acesso.setor:choice;setExportAvailability();
@@ -432,6 +479,9 @@ async function refresh(force=false){
     }
     const result=await getJSON('/positivacoes/api/painel');
     const sync=result.statusAtualizacao||{};
+    if(sync.emAndamento)setPageState('loading','Verificando atualização');
+    else if(sync.erro && snapshot)setPageState('warning','Dados anteriores preservados');
+    else if(sync.erro)setPageState('error','Atualização indisponível');
     if(result.semFotografia){
       $('dashboard').hidden=true;
       $('loading').hidden=false;
@@ -442,6 +492,9 @@ async function refresh(force=false){
       return;
     }
     snapshot=result;
+    if(!sync.emAndamento&&!sync.erro)setPageState('success','Período '+result.competencia);
+    else if(sync.emAndamento)setPageState('loading','Dados atuais preservados');
+    else setPageState('warning','Dados anteriores preservados');
     void refreshInatPendingCount();
     applyAccess(result);
     $('retryLoad').hidden=true;
@@ -469,6 +522,7 @@ async function refresh(force=false){
     if(sync.emAndamento)scheduleRefresh();
     else scheduleRefresh(120000);
   }catch(e){
+    setPageState(snapshot?'warning':'error',snapshot?'Dados anteriores preservados':'Falha ao carregar');
     manualPending=false;
     $('loading').hidden=!!snapshot;
     if(!snapshot){$('loading').textContent='Não foi possível abrir as Positivações. Confira sua conexão e tente novamente.';$('retryLoad').hidden=false;}
@@ -483,7 +537,7 @@ async function refresh(force=false){
   }
 }
 $('retryLoad').addEventListener('click',()=>{$('retryLoad').hidden=true;showAlert('');refresh(false);});
-$('btnRefresh').addEventListener('click',()=>refresh(true));$('tabs').addEventListener('click',e=>{const b=e.target.closest('[data-status]');if(!b)return;currentStatus=b.dataset.status;if(currentStatus==='bloqueados'&&$('blockFilter').value==='1'){$('blockFilter').value='todos';updateFilteredCharts();}document.querySelectorAll('#tabs .tab').forEach(x=>x.classList.toggle('active',x===b));page=1;loadClients();});$('sectorFilter').addEventListener('change',()=>{setExportAvailability();page=1;loadClients();updateFilteredCharts();});$('supplierFilter').addEventListener('change',()=>{page=1;loadClients();updateFilteredCharts();});$('positivadorFilter').addEventListener('change',()=>{page=1;loadClients();updateFilteredCharts();});$('blockFilter').addEventListener('change',()=>{if($('blockFilter').value==='1'&&currentStatus==='bloqueados'){$('blockFilter').value='todos';}page=1;loadClients();updateFilteredCharts();});$('search').addEventListener('input',()=>{clearTimeout(searchTimeout);searchTimeout=setTimeout(()=>{page=1;loadClients();},250);});$('prev').addEventListener('click',()=>{if(page>1){page--;loadClients();}});$('next').addEventListener('click',()=>{if(page*CLIENTS_PER_PAGE<total){page++;loadClients();}});
+$('btnRefresh').addEventListener('click',()=>refresh(true));$('tabs').addEventListener('click',e=>{const b=e.target.closest('[data-status]');if(!b)return;const next=b.dataset.status;if(next==='bloqueados'&&$('blockFilter').value==='1'){$('blockFilter').value='todos';updateFilteredCharts();}setClientStatus(next,{scroll:false});});$('sectorFilter').addEventListener('change',()=>{setExportAvailability();page=1;loadClients();updateFilteredCharts();});$('supplierFilter').addEventListener('change',()=>{page=1;loadClients();updateFilteredCharts();});$('positivadorFilter').addEventListener('change',()=>{page=1;loadClients();updateFilteredCharts();});$('blockFilter').addEventListener('change',()=>{if($('blockFilter').value==='1'&&currentStatus==='bloqueados'){$('blockFilter').value='todos';}page=1;loadClients();updateFilteredCharts();});$('search').addEventListener('input',()=>{clearTimeout(searchTimeout);searchTimeout=setTimeout(()=>{page=1;loadClients();},250);});$('prev').addEventListener('click',()=>{if(page>1){page--;loadClients();}});$('next').addEventListener('click',()=>{if(page*CLIENTS_PER_PAGE<total){page++;loadClients();}});
 document.querySelectorAll('.export').forEach(b=>b.addEventListener('click',async()=>{const kind=b.dataset.kind;const q=currentQuery();if(!q.get('setor')||q.get('setor')==='TV:')return;const url='/positivacoes/api/exportar/'+kind+'?'+q;b.dataset.exporting='1';setExportAvailability();try{const r=await fetch(url,{credentials:'include',cache:'no-store'});if(!r.ok){let d={};try{d=await r.json();}catch(_){}throw Error(d.detail||'Não foi possível exportar.');}const blob=await r.blob();const obj=URL.createObjectURL(blob);const a=document.createElement('a');a.href=obj;a.download='POSITIVACAO_GERAL_'+new Date().toISOString().slice(0,10)+'.'+(kind==='excel'?'xlsx':'pdf');document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(obj),2000);}catch(e){showAlert(String(e.message),true);}finally{delete b.dataset.exporting;setExportAvailability();}}));
 function closeMeta(){$('metaModal').hidden=true;$('metaError').textContent='';}$('btnMeta').addEventListener('click',()=>{$('metaInput').value=String(snapshot?.meta||0);$('metaModal').hidden=false;$('metaInput').focus();});$('cancelMeta').addEventListener('click',closeMeta);$('metaModal').addEventListener('click',e=>{if(e.target===$('metaModal'))closeMeta();});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMeta();});$('metaForm').addEventListener('submit',async e=>{e.preventDefault();const b=$('metaForm').querySelector('[type="submit"]');b.disabled=true;$('metaError').textContent='';try{const value=Number($('metaInput').value);if(!Number.isInteger(value)||value<0||value>1000000)throw Error('Informe uma meta válida entre 0 e 1.000.000.');const d=await getJSON('/positivacoes/api/meta',{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify({meta:value})});snapshot.meta=d.meta;snapshot.metaAtingimento=d.meta?Math.round(snapshot.indicadores.positivados*10000/d.meta)/100:0;snapshot.metaFaltam=Math.max(0,d.meta-snapshot.indicadores.positivados);populate();updateFilteredCharts();closeMeta();}catch(err){$('metaError').textContent=err.message;}finally{b.disabled=false;}});
 // DEV10: observacoes salvas por cliente e compartilhadas com a dupla autorizada.
@@ -778,6 +832,7 @@ document.addEventListener('keydown',e=>{
  if(e.key==='Escape'&&!$('inatHistoryModal').hidden)$('inatHistoryModal').hidden=true;
 });
 
+setPageState('loading','Lendo dados');
 refresh(false);
 })();
 </script>
