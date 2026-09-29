@@ -248,7 +248,9 @@ function origemExibicao(valor){
 
 const CLIENTS_PER_PAGE=20;
 const validInitialStatuses=new Set(['todos','positivados','nao-positivados','bloqueados','inativos']);
-const statusFromUrl=new URLSearchParams(location.search).get('status');
+const initialParams=new URLSearchParams(location.search);
+const statusFromUrl=initialParams.get('status');
+const laboratoryFromUrl=String(initialParams.get('laboratorio')||initialParams.get('fornecedor')||'').trim();
 let snapshot=null,currentStatus=validInitialStatuses.has(statusFromUrl)?statusFromUrl:'todos',page=1,total=0,searchTimeout=0,fetchIndex=0,chartIndex=0,manualPending=false;
 
 function formatUpdatedAt(value){
@@ -363,7 +365,9 @@ function populate(){const d=snapshot,k=d.indicadores;$('kNegativeNote').textCont
 $('updated').textContent='Atualizado em '+formatUpdatedAt(d.atualizadoEm);$('mNew').textContent=num(d.movimentacao.novos);$('mRemoved').textContent=num(d.movimentacao.removidos);$('mBlocked').textContent=num(d.movimentacao.bloqueadosNovos);$('mOutside').textContent=num(k.positivadosForaCarteira);
 $('donut').style.setProperty('--pct',Math.min(100,Math.max(0,k.percentual))+'%');$('donutNum').textContent=pct(k.percentual);$('legendPos').textContent=num(k.positivados);$('legendNeg').textContent=num(k.naoPositivados);$('legendBlocked').textContent=num(k.bloqueados);
 $('btnMeta').title=d.meta?'Alterar meta geral DISMEPE':'Cadastrar meta geral DISMEPE';$('btnMeta').setAttribute('aria-label',$('btnMeta').title);$('metaFraction').textContent=(d.meta?num(d.meta):'—')+' / '+num(k.positivados);$('metaHint').textContent=d.meta?'Meta definida pela administração':'Configure uma meta para acompanhar o atingimento';$('metaPercent').textContent=d.meta?pct(d.metaAtingimento):'—';$('metaMissing').textContent=d.meta?num(d.metaFaltam):'—';$('metaPeriod').textContent='Competência '+d.competencia;$('metaFill').style.width=(d.meta?Math.min(100,d.metaAtingimento):0)+'%';$('metaBar').setAttribute('aria-valuenow',String(d.meta?Math.min(100,d.metaAtingimento):0));
-$('sectorCount').textContent=num(d.setores.length)+' carteiras';const choice=$('sectorFilter').value;const supplierChoice=$('supplierFilter').value;const suppliers=d.fornecedores||[];$('supplierFilter').innerHTML='<option value="">Todos os fornecedores</option>'+suppliers.map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');$('supplierFilter').value=suppliers.includes(supplierChoice)?supplierChoice:'';$('sectorFilter').innerHTML='<option value="">Todas as carteiras</option><optgroup label="Vendedores">'+d.setores.map(s=>'<option value="'+esc(s.setor)+'">'+nomeHtml(s.setor)+'</option>').join('')+'</optgroup><optgroup label="Televendas">'+(d.carteirasTelevendas||[]).map(s=>'<option value="TV:'+esc(s.televendas)+'">'+nomeHtml(s.televendas)+'</option>').join('')+'</optgroup>'+(d.acesso?.individual?'':(d.carteirasDiretoria||[]).length?'<optgroup label="Diretoria"><option value="DIR:CARTEIRA">Diretoria (carteira do PDF)</option></optgroup>':'');$('sectorFilter').value=d.acesso?.individual?d.acesso.setor:choice;setExportAvailability();
+$('sectorCount').textContent=num(d.setores.length)+' carteiras';const choice=$('sectorFilter').value;const supplierChoice=$('supplierFilter').value;const suppliers=d.fornecedores||[];$('supplierFilter').innerHTML='<option value="">Todos os fornecedores</option>'+suppliers.map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');
+ const requestedSupplier=laboratoryFromUrl && suppliers.find(name=>String(name).localeCompare(laboratoryFromUrl,'pt-BR',{sensitivity:'base'})===0);
+ $('supplierFilter').value=requestedSupplier||((suppliers.includes(supplierChoice))?supplierChoice:'');$('sectorFilter').innerHTML='<option value="">Todas as carteiras</option><optgroup label="Vendedores">'+d.setores.map(s=>'<option value="'+esc(s.setor)+'">'+nomeHtml(s.setor)+'</option>').join('')+'</optgroup><optgroup label="Televendas">'+(d.carteirasTelevendas||[]).map(s=>'<option value="TV:'+esc(s.televendas)+'">'+nomeHtml(s.televendas)+'</option>').join('')+'</optgroup>'+(d.acesso?.individual?'':(d.carteirasDiretoria||[]).length?'<optgroup label="Diretoria"><option value="DIR:CARTEIRA">Diretoria (carteira do PDF)</option></optgroup>':'');$('sectorFilter').value=d.acesso?.individual?d.acesso.setor:choice;setExportAvailability();
 renderSectorRows(d.setores);
 renderOrigins(d.origens);$('kTotalLabel').textContent=d.acesso?.individual?'Minha carteira • clientes únicos':'Clientes da empresa';$('kPositiveNote').textContent=d.acesso?.individual?'':'Clientes com compras no período';$('sectorExplain').textContent=d.acesso?.individual?'Minha carteira individual':'Acompanhe os resultados por vendedor';$('originExplain').textContent=d.acesso?.individual?'Vendas realizadas na sua carteira, por canal':'Veja de onde vieram as vendas';}
 function renderOrigins(origins){const max=Math.max(1,...Object.values(origins));const names=['Vendedor','Televendas','Diretoria/Supervisão','Vendedor + Televendas','OL'];$('originRows').innerHTML=names.map(name=>'<div><div class="origin-row"><span>'+esc(name)+'</span><b>'+num(origins[name]||0)+'</b></div><div class="track"><span style="width:'+Math.round(100*(origins[name]||0)/max)+'%"></span></div></div>').join('');}
@@ -507,6 +511,10 @@ async function refresh(force=false){
       page=1;
       await loadClients();
       await updateFilteredCharts();
+      if(laboratoryFromUrl){
+        const panel=document.querySelector('.table-panel');
+        if(panel)panel.scrollIntoView({behavior:'auto',block:'start'});
+      }
     }
     let notice=result.alerta||'';
     if(sync.emAndamento)notice='Verificando atualizações. Os resultados atuais continuam disponíveis.';
