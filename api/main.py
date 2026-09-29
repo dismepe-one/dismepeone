@@ -876,8 +876,25 @@ async def campanhas_extras_exportar_pdf(
         metric=str(r.get("metrica") or "").upper()
         if metric=="COMBINADA": metric="PRODUTO_FOCO"
         product_metric=metric in {"PRODUTO_FOCO","PRODUTO_UNIDADE_GATILHO"}
-        objective=(num(r.get("objetivoProdutoFoco"))+" un.") if product_metric else ("-" if metric=="RANKING_BRINDE" else money(r.get("objetivo")))
-        realized=(num(r.get("quantidadeProdutoFoco"))+" un.") if product_metric else money(r.get("venda"))
+        unit_group_metric=metric=="SOMA_UNIDADES_PRODUTOS_FAIXAS"
+        objective=(
+            num(r.get("quantidadeProdutoFoco") if False else r.get("objetivoProdutoFoco"))+" un."
+            if product_metric
+            else (
+                num(r.get("objetivoUnidades"))+" un."
+                if unit_group_metric
+                else ("-" if metric=="RANKING_BRINDE" else money(r.get("objetivo")))
+            )
+        )
+        realized=(
+            num(r.get("quantidadeProdutoFoco"))+" un."
+            if product_metric
+            else (
+                num(r.get("quantidadeProdutosSomados"))+" un."
+                if unit_group_metric
+                else money(r.get("venda"))
+            )
+        )
         progress=(str(int(r.get("posicaoRanking")))+"º") if r.get("posicaoRanking") else f"{float(r.get('atingimento') or 0):.1f}%".replace(".",",")
         won=is_winner(r)
         result_rows.append(won)
