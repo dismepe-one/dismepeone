@@ -5584,7 +5584,12 @@ function showV36CreateUserInfo(){
                       <div id="extraIndividualTargetsStatus" class="mt-2 text-[10px] text-slate-600"></div>
                     </div>
 
-                    <div id="extraProdutosSomadosSection" class="hidden md:col-span-2 rounded-2xl border border-sky-200 bg-sky-50/60 p-4">\n                      <label class="block text-[10px] uppercase font-black text-sky-800 mb-1">Códigos dos produtos participantes *</label>\n                      <textarea id="extraProdutosSomados" rows="4" placeholder="Ex.: 1234, 5678, 9012" class="w-full rounded-xl border border-sky-300 px-3 py-2.5 text-sm bg-white text-slate-800"></textarea>\n                      <div class="mt-2 text-[10px] text-sky-800"><b>A soma é conjunta:</b> pode vender 30 unidades de um único produto ou distribuir as 30 entre todos os produtos cadastrados.</div>\n                    </div>\n\n                    <div id="extraFaixasSection" class="hidden md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div id="extraProdutosSomadosSection" class="hidden md:col-span-2 rounded-2xl border border-sky-200 bg-sky-50/60 p-4">
+                      <label class="block text-[10px] uppercase font-black text-sky-800 mb-1">Códigos dos produtos participantes *</label>
+                      <textarea id="extraProdutosSomados" rows="4" placeholder="Ex.: 1234, 5678, 9012" class="w-full rounded-xl border border-sky-300 px-3 py-2.5 text-sm bg-white text-slate-800"></textarea>
+                      <div class="mt-2 text-[10px] text-sky-800"><b>A soma é conjunta:</b> pode vender 30 unidades de um único produto ou distribuir as 30 entre todos os produtos cadastrados.</div>
+                    </div>
+                    <div id="extraFaixasSection" class="hidden md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                       <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
                         <div><div id="extraFaixasTitulo" class="text-xs font-black text-slate-800">Faixas por venda</div><div id="extraFaixasDescricao" class="text-[10px] text-slate-500 mt-0.5">Cadastre venda mínima e prêmio. O sistema considera a maior faixa atingida.</div></div>
                         <button type="button" onclick="addExtraFaixa()" class="px-3 py-2 rounded-lg bg-emerald-600 text-white text-[10px] font-black"><i class="fa-solid fa-plus mr-1"></i>FAIXA</button>
@@ -12939,10 +12944,12 @@ sel.innerHTML=extraCampaigns.length
     [...prize.options].forEach(o=>{
       const somenteFaturamento=['PERCENTUAL_OBJETIVO','PERCENTUAL_VENDA','FAIXAS_VENDA','BRINDE','RANKING_BRINDE'].includes(o.value);
       const fixedBase=['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(base);
+      const unitSumBase=base==='SOMA_UNIDADES_PRODUTOS_FAIXAS';
       const individualBase=base==='FATURAMENTO_INDIVIDUAL_PERCENTUAL';
-      o.disabled=(fixedBase && somenteFaturamento) || (individualBase && o.value!=='PERCENTUAL_OBJETIVO');
+      o.disabled=(fixedBase && somenteFaturamento) || (unitSumBase && o.value!=='FAIXAS_VENDA') || (individualBase && o.value!=='PERCENTUAL_OBJETIVO');
     });
     if(['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(base) && prize.value!=='VALOR_FIXO') prize.value='VALOR_FIXO';
+    if(base==='SOMA_UNIDADES_PRODUTOS_FAIXAS') prize.value='FAIXAS_VENDA';
     if(base==='FATURAMENTO_INDIVIDUAL_PERCENTUAL') prize.value='PERCENTUAL_OBJETIVO';
   }
 
@@ -12976,6 +12983,7 @@ sel.innerHTML=extraCampaigns.length
     const qtd=document.getElementById('extraObjFoco');
     const unitValue=document.getElementById('extraValorUnidade');
     const individualTargets=document.getElementById('extraIndividualTargetsSection');
+    const produtosSomados=document.getElementById('extraProdutosSomadosSection');
     const faixas=document.getElementById('extraFaixasSection');
     const brinde=document.getElementById('extraBrindeSection');
     const ranking=document.getElementById('extraRankingSection');
@@ -12996,7 +13004,8 @@ sel.innerHTML=extraCampaigns.length
     toggleDynamic(qtd,['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(m));
     toggleDynamic(unitValue,m==='PRODUTO_UNIDADE_GATILHO');
     individualTargets?.classList.toggle('hidden',m!=='FATURAMENTO_INDIVIDUAL_PERCENTUAL');
-    faixas?.classList.toggle('hidden',m!=='FAIXAS_FATURAMENTO');
+    produtosSomados?.classList.toggle('hidden',m!=='SOMA_UNIDADES_PRODUTOS_FAIXAS');
+    faixas?.classList.toggle('hidden',!['FAIXAS_FATURAMENTO','SOMA_UNIDADES_PRODUTOS_FAIXAS'].includes(m));
     brinde?.classList.toggle('hidden',m!=='BRINDE');
     ranking?.classList.toggle('hidden',m!=='RANKING_BRINDE');
     soma?.classList.toggle('hidden',!['BRINDE','RANKING_BRINDE'].includes(m));
@@ -13007,12 +13016,17 @@ sel.innerHTML=extraCampaigns.length
     if(help) help.innerHTML=extraMetricExample(m);
     if(simpleStatus){
       const cfg=extraSimpleMetricFromLegacy(m);
-      const baseLabels={PRODUTO_FOCO:'Produto Foco',PRODUTO_UNIDADE_GATILHO:'Produto por unidade + gatilho',FATURAMENTO_INDIVIDUAL_PERCENTUAL:'Faturamento com metas individuais',FATURAMENTO:'Faturamento'};
+      const baseLabels={PRODUTO_FOCO:'Produto Foco',PRODUTO_UNIDADE_GATILHO:'Produto por unidade + gatilho',SOMA_UNIDADES_PRODUTOS_FAIXAS:'Soma de unidades de vários produtos',FATURAMENTO_INDIVIDUAL_PERCENTUAL:'Faturamento com metas individuais',FATURAMENTO:'Faturamento'};
       const baseLabel=baseLabels[cfg.base]||cfg.base;
       const prizeLabels={VALOR_FIXO:'Valor fixo',PERCENTUAL_OBJETIVO:'Percentual do objetivo/meta',PERCENTUAL_VENDA:'Percentual da venda',FAIXAS_VENDA:'Faixas por venda',BRINDE:'Brinde',RANKING_BRINDE:'Ranking por vendas — brindes'};
       simpleStatus.innerHTML='<b>'+baseLabel+'</b> <span class="text-slate-400">•</span> '+(prizeLabels[cfg.premio]||cfg.premio);
     }
-    if(m==='FAIXAS_FATURAMENTO' && document.querySelectorAll('#extraFaixasList .extra-faixa-row').length===0) addExtraFaixa();
+    const faixaTitulo=document.getElementById('extraFaixasTitulo');
+    const faixaDescricao=document.getElementById('extraFaixasDescricao');
+    const unitSum=m==='SOMA_UNIDADES_PRODUTOS_FAIXAS';
+    if(faixaTitulo) faixaTitulo.textContent=unitSum?'Faixas por unidades somadas':'Faixas por venda';
+    if(faixaDescricao) faixaDescricao.textContent=unitSum?'Cadastre a quantidade total de unidades e o prêmio. O sistema considera a maior faixa atingida.':'Cadastre venda mínima e prêmio. O sistema considera a maior faixa atingida.';
+    if(['FAIXAS_FATURAMENTO','SOMA_UNIDADES_PRODUTOS_FAIXAS'].includes(m) && document.querySelectorAll('#extraFaixasList .extra-faixa-row').length===0) addExtraFaixa();
     if(m==='RANKING_BRINDE' && document.querySelectorAll('#extraRankingList .extra-ranking-row').length===0) addExtraRankingRow(1,1,'');
     updateExtraLabSumUI();
   };
