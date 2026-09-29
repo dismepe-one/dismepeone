@@ -51,6 +51,10 @@ SHEET_NAME = "Positivacoes"
 MODULE = "POSITIVACAO_GERAL_V1"
 CONFIG_MODULE = "POSITIVACAO_META_V1"
 _SHEET_PARSER_VERSION = "fornecedor-operador-ol-v1"
+_ROSTER_RULE_VERSION = "usuarios-ativos-v3-pdf-lucivaldo"
+# Vendedor presente na carteira oficial do Átrio, mas ainda sem usuário no portal.
+# Esta exceção só habilita a carteira nos relatórios/filtros; não cria login nem permissão.
+_PDF_VISIBLE_SELLERS = ("LUCIVALDO MARTINS DE LIMA",)
 _BUILD = "POS-GERAL-DEV10-7-SINO-INATIVIDADE"
 _TTL = 600.0
 _CACHE: dict[str, Any] | None = None
@@ -1117,6 +1121,13 @@ def _portfolio_from_published(previous: dict[str, Any]) -> dict[str, dict[str, A
 
 def _sync_blocking(sellers: dict[str, str], televendas: dict[str, str], previous: dict[str, Any] | None,
                    refresh: bool, sources: tuple[dict[str, Any], dict[str, Any]] | None = None) -> dict[str, Any]:
+    # Carteiras administrativas podem existir no PDF antes de o vendedor possuir
+    # usuário no portal. Isso não concede acesso individual: autenticação e
+    # permissões continuam vindo exclusivamente de dismepe_usuarios.
+    sellers = dict(sellers)
+    for display in _PDF_VISIBLE_SELLERS:
+        sellers.setdefault(_norm(display), display)
+
     # A verificação manual já leu os horários: não faz a mesma listagem novamente.
     service = None
     if sources is None:
@@ -1127,12 +1138,12 @@ def _sync_blocking(sellers: dict[str, str], televendas: dict[str, str], previous
     users_hash = hashlib.sha256(json.dumps({"v":sellers,"t":televendas}, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
     fingerprint = {"pdfId": pdf["id"], "pdfModified": pdf.get("modifiedTime", ""),
                    "sheetId": sheet["id"], "sheetModified": sheet.get("modifiedTime", ""),
-                    "usuariosHash": users_hash, "regraCarteiras": "usuarios-ativos-v2",
+                    "usuariosHash": users_hash, "regraCarteiras": _ROSTER_RULE_VERSION,
                     "versaoLeitorPdf": _PDF_PARSER_VERSION,
                      "versaoLeitorPlanilha": _SHEET_PARSER_VERSION}
     old_sources = (previous or {}).get("fontes") or {}
     if (previous and old_sources.get("usuariosHash") == users_hash
-            and old_sources.get("regraCarteiras") == "usuarios-ativos-v2"
+            and old_sources.get("regraCarteiras") == _ROSTER_RULE_VERSION
             and old_sources.get("versaoLeitorPdf") == _PDF_PARSER_VERSION
             and old_sources.get("versaoLeitorPlanilha") == _SHEET_PARSER_VERSION
             and _same_sources(previous, pdf, sheet)):
@@ -1147,7 +1158,7 @@ def _sync_blocking(sellers: dict[str, str], televendas: dict[str, str], previous
     reusable_pdf = bool(
         previous and previous.get("competencia") == current.strftime("%m/%Y")
         and old_sources.get("usuariosHash") == users_hash
-        and old_sources.get("regraCarteiras") == "usuarios-ativos-v2"
+        and old_sources.get("regraCarteiras") == _ROSTER_RULE_VERSION
         and old_sources.get("versaoLeitorPdf") == _PDF_PARSER_VERSION
         and _same_source_file(old_sources, pdf, "pdf")
     )
@@ -1466,7 +1477,9 @@ async def _manual_check_and_refresh(profile: dict[str, Any]) -> None:
                 # conteúdo, IDs de clientes ou credenciais.
                 print(f"[POS_WORKER] comparacao pdf_igual={same_pdf} "
                       f"planilha_igual={same_sheet} snapshot_valido=True", flush=True)
-            if (same_pdf and same_sheet and old.get("versaoLeitorPdf") == _PDF_PARSER_VERSION
+            if (same_pdf and same_sheet
+                    and old.get("regraCarteiras") == _ROSTER_RULE_VERSION
+                    and old.get("versaoLeitorPdf") == _PDF_PARSER_VERSION
                     and old.get("versaoLeitorPlanilha") == _SHEET_PARSER_VERSION):
                 _SYNC_ERROR = ""
                 _worker_stage("CONCLUIDO", "SEM_ALTERACAO")
