@@ -878,7 +878,7 @@ async def campanhas_extras_exportar_pdf(
         product_metric=metric in {"PRODUTO_FOCO","PRODUTO_UNIDADE_GATILHO"}
         unit_group_metric=metric=="SOMA_UNIDADES_PRODUTOS_FAIXAS"
         objective=(
-            num(r.get("quantidadeProdutoFoco") if False else r.get("objetivoProdutoFoco"))+" un."
+            num(r.get("objetivoProdutoFoco"))+" un."
             if product_metric
             else (
                 num(r.get("objetivoUnidades"))+" un."
