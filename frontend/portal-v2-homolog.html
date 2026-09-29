@@ -5413,7 +5413,12 @@ function showV36CreateUserInfo(){
           <div class="card-glass rounded-2xl shadow-xl overflow-hidden">
             <div class="p-5 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div><h3 class="font-bold text-white">Parcial da campanha</h3><p id="extraPartialStatus" class="text-xs text-slate-400 mt-1">Aguardando seleção.</p></div>
-              <input id="extraSearch" oninput="renderExtraRows()" placeholder="Buscar colaborador..." class="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white">
+              <div class="flex flex-col sm:flex-row gap-2 sm:items-center">
+                <input id="extraSearch" oninput="renderExtraRows()" placeholder="Buscar colaborador..." class="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white">
+                <button id="btnExportExtraPdf" type="button" onclick="exportExtraCampaignPdf()" class="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-800 text-white text-sm font-semibold whitespace-nowrap">
+                  <i class="fa-solid fa-file-pdf mr-2"></i>EXPORTAR PDF
+                </button>
+              </div>
             </div>
             <div class="overflow-x-auto">
               <table class="w-full min-w-[720px]">
@@ -12613,6 +12618,56 @@ sel.innerHTML=extraCampaigns.length
       <td class="p-3 text-right">${['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(normalizeExtraMetric(x.metrica))?`${Number(x.objetivoProdutoFoco||0).toLocaleString('pt-BR')} un.`:(normalizeExtraMetric(x.metrica)==='RANKING_BRINDE'?'—':extraMoney(x.objetivo))}</td><td class="p-3 text-right">${['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(normalizeExtraMetric(x.metrica))?`${Number(x.quantidadeProdutoFoco||0).toLocaleString('pt-BR')} un.`:extraMoney(x.venda)}</td>
       <td class="p-3 text-center font-semibold">${x.posicaoRanking?`<span class="font-black text-indigo-700">${x.posicaoRanking}º</span>`:extraPct(x.atingimento)}</td><td class="p-3 text-center font-black">${(Number(x?.premiacao||0)>0 || String(x?.premioTexto||'').trim())?`<span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-700"><i class="fa-solid fa-circle-check"></i>GANHOU</span>`:`<span class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-slate-600"><i class="fa-solid fa-circle-xmark"></i>NÃO GANHOU</span>`}</td>
     </tr>`).join('') || '<tr><td colspan="6" class="p-6 text-center text-slate-500">Nenhum participante encontrado nesta campanha.</td></tr>';
+  };
+
+  window.exportExtraCampaignPdf=async function(){
+    const id=document.getElementById('extraCampaignSelect')?.value||'';
+    if(!id){
+      alert('Selecione uma campanha para exportar o PDF.');
+      return;
+    }
+    const busca=document.getElementById('extraSearch')?.value||'';
+    const btn=document.getElementById('btnExportExtraPdf');
+    const original=btn?.innerHTML||'';
+    try{
+      if(btn){
+        btn.disabled=true;
+        btn.classList.add('opacity-60','cursor-wait');
+        btn.innerHTML='<i class="fa-solid fa-spinner fa-spin mr-2"></i>GERANDO PDF';
+      }
+      const response=await fetch(
+        '/data/campanhas-extras/exportar-pdf?id='+encodeURIComponent(id)+'&busca='+encodeURIComponent(busca),
+        {method:'GET',credentials:'include',cache:'no-store'}
+      );
+      if(!response.ok){
+        let message='Não foi possível exportar o PDF.';
+        try{
+          const body=await response.json();
+          message=typeof body?.detail==='string'?body.detail:(body?.erro||message);
+        }catch(_){}
+        throw new Error(message);
+      }
+      const blob=await response.blob();
+      const disposition=response.headers.get('Content-Disposition')||'';
+      const match=disposition.match(/filename="?([^";]+)"?/i);
+      const filename=match?.[1]||'CAMPANHAS_EXTRAS.pdf';
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;
+      a.download=filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1500);
+    }catch(e){
+      alert(e?.message||'Não foi possível exportar o PDF.');
+    }finally{
+      if(btn){
+        btn.disabled=false;
+        btn.classList.remove('opacity-60','cursor-wait');
+        btn.innerHTML=original||'<i class="fa-solid fa-file-pdf mr-2"></i>EXPORTAR PDF';
+      }
+    }
   };
 
   window.openExtraAdmin=async function(){
