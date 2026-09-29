@@ -5499,6 +5499,7 @@ function showV36CreateUserInfo(){
                   <option value="PERCENTUAL_VENDA">% sobre a venda</option>
                   <option value="PRODUTO_FOCO">Meta + Prod Foco</option>
                   <option value="PRODUTO_UNIDADE_GATILHO">Produto por unidade + gatilho</option>
+                  <option value="SOMA_UNIDADES_PRODUTOS_FAIXAS">Soma de unidades de vários produtos + faixas</option>
                   <option value="FATURAMENTO_INDIVIDUAL_PERCENTUAL">Faturamento com meta individual (%)</option>
                   <option value="BRINDE">Brinde</option>
                   <option value="RANKING_BRINDE">Ranking por vendas — brindes</option>
@@ -5511,6 +5512,7 @@ function showV36CreateUserInfo(){
                       <option value="FATURAMENTO">Faturamento</option>
                       <option value="PRODUTO_FOCO">Produto Foco</option>
                       <option value="PRODUTO_UNIDADE_GATILHO">Produto por unidade + gatilho</option>
+                      <option value="SOMA_UNIDADES_PRODUTOS_FAIXAS">Soma de unidades de vários produtos</option>
                       <option value="FATURAMENTO_INDIVIDUAL_PERCENTUAL">Faturamento com metas individuais (%)</option>
                     </select>
                   </div>
@@ -5582,9 +5584,14 @@ function showV36CreateUserInfo(){
                       <div id="extraIndividualTargetsStatus" class="mt-2 text-[10px] text-slate-600"></div>
                     </div>
 
+                    <div id="extraProdutosSomadosSection" class="hidden md:col-span-2 rounded-2xl border border-sky-200 bg-sky-50/60 p-4">
+                      <label class="block text-[10px] uppercase font-black text-sky-800 mb-1">Códigos dos produtos participantes *</label>
+                      <textarea id="extraProdutosSomados" rows="4" placeholder="Ex.: 1234, 5678, 9012" class="w-full rounded-xl border border-sky-300 px-3 py-2.5 text-sm bg-white text-slate-800"></textarea>
+                      <div class="mt-2 text-[10px] text-sky-800"><b>A soma é conjunta:</b> pode vender 30 unidades de um único produto ou distribuir as 30 entre todos os produtos cadastrados.</div>
+                    </div>
                     <div id="extraFaixasSection" class="hidden md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                       <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-                        <div><div class="text-xs font-black text-slate-800">Faixas por venda</div><div class="text-[10px] text-slate-500 mt-0.5">Cadastre venda mínima e prêmio. O sistema considera a maior faixa atingida.</div></div>
+                        <div><div id="extraFaixasTitulo" class="text-xs font-black text-slate-800">Faixas por venda</div><div id="extraFaixasDescricao" class="text-[10px] text-slate-500 mt-0.5">Cadastre venda mínima e prêmio. O sistema considera a maior faixa atingida.</div></div>
                         <button type="button" onclick="addExtraFaixa()" class="px-3 py-2 rounded-lg bg-emerald-600 text-white text-[10px] font-black"><i class="fa-solid fa-plus mr-1"></i>FAIXA</button>
                       </div>
                       <div id="extraFaixasList" class="space-y-2"></div>
@@ -12620,17 +12627,45 @@ sel.innerHTML=extraCampaigns.length
     window.renderExtraRows();
   };
 
+  function extraPartialMetricDetail(row){
+    const metric=normalizeExtraMetric(row?.metrica);
+    if(metric==='SOMA_UNIDADES_PRODUTOS_FAIXAS'){
+      return '<div class="text-[9px] mt-1 text-sky-700 font-bold">'+Number(row?.quantidadeProdutosSomados||0).toLocaleString('pt-BR')+' un. somadas • '+Number(row?.quantidadeProdutosConfigurados||0)+' produto(s)</div>';
+    }
+    if(['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(metric)){
+      return '<div class="text-[9px] mt-1 text-indigo-600 font-bold">Prod. '+esc(row?.codigoProdutoFoco||'')+': '+Number(row?.quantidadeProdutoFoco||0).toLocaleString('pt-BR')+' / '+Number(row?.objetivoProdutoFoco||0).toLocaleString('pt-BR')+'</div>';
+    }
+    return '';
+  }
+
+  function extraPartialObjectiveText(row){
+    const metric=normalizeExtraMetric(row?.metrica);
+    if(metric==='SOMA_UNIDADES_PRODUTOS_FAIXAS') return Number(row?.objetivoUnidades||0)>0?Number(row.objetivoUnidades).toLocaleString('pt-BR')+' un.':'—';
+    if(['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(metric)) return Number(row?.objetivoProdutoFoco||0).toLocaleString('pt-BR')+' un.';
+    return metric==='RANKING_BRINDE'?'—':extraMoney(row?.objetivo);
+  }
+
+  function extraPartialRealizedText(row){
+    const metric=normalizeExtraMetric(row?.metrica);
+    if(metric==='SOMA_UNIDADES_PRODUTOS_FAIXAS') return Number(row?.quantidadeProdutosSomados||0).toLocaleString('pt-BR')+' un.';
+    if(['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(metric)) return Number(row?.quantidadeProdutoFoco||0).toLocaleString('pt-BR')+' un.';
+    return extraMoney(row?.venda);
+  }
   function extraPartialSortNumericValue(row,key){
     const metric=normalizeExtraMetric(row?.metrica);
     let value=0;
     if(key==='objetivo'){
-      value=['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(metric)
-        ? Number(row?.objetivoProdutoFoco||0)
-        : Number(row?.objetivo||0);
+      value=metric==='SOMA_UNIDADES_PRODUTOS_FAIXAS'
+        ? Number(row?.objetivoUnidades||0)
+        : (['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(metric)
+          ? Number(row?.objetivoProdutoFoco||0)
+          : Number(row?.objetivo||0));
     }else if(key==='realizado'){
-      value=['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(metric)
-        ? Number(row?.quantidadeProdutoFoco||0)
-        : Number(row?.venda||0);
+      value=metric==='SOMA_UNIDADES_PRODUTOS_FAIXAS'
+        ? Number(row?.quantidadeProdutosSomados||0)
+        : (['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(metric)
+          ? Number(row?.quantidadeProdutoFoco||0)
+          : Number(row?.venda||0));
     }
     return Number.isFinite(value)?value:0;
   }
@@ -12674,8 +12709,8 @@ sel.innerHTML=extraCampaigns.length
     updateExtraPartialSortIcons();
     document.getElementById('extraPartialBody').innerHTML=rows.map(x=>`<tr class="border-b border-slate-800/60 text-slate-300">
       <td class="p-3 font-semibold text-slate-800">${esc(x.colaborador)}</td>
-      <td class="p-3"><div>${esc(x.laboratorio)}</div><div class="text-[10px] text-slate-500">${esc(x.campanha||'')}</div><div class="text-[9px] ${extraDateStatusClass(extraRecordStatus(x))}">${esc(formatPeriodBRExtra(x.periodoInicio,x.periodoFim))}</div>${['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(normalizeExtraMetric(x.metrica))?`<div class="text-[9px] mt-1 text-indigo-600 font-bold">Prod. ${esc(x.codigoProdutoFoco||'')}: ${Number(x.quantidadeProdutoFoco||0).toLocaleString('pt-BR')} / ${Number(x.objetivoProdutoFoco||0).toLocaleString('pt-BR')}</div>`:''}</td>
-      <td class="p-3 text-right">${['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(normalizeExtraMetric(x.metrica))?`${Number(x.objetivoProdutoFoco||0).toLocaleString('pt-BR')} un.`:(normalizeExtraMetric(x.metrica)==='RANKING_BRINDE'?'—':extraMoney(x.objetivo))}</td><td class="p-3 text-right">${['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(normalizeExtraMetric(x.metrica))?`${Number(x.quantidadeProdutoFoco||0).toLocaleString('pt-BR')} un.`:extraMoney(x.venda)}</td>
+      <td class="p-3"><div>${esc(x.laboratorio)}</div><div class="text-[10px] text-slate-500">${esc(x.campanha||'')}</div><div class="text-[9px] ${extraDateStatusClass(extraRecordStatus(x))}">${esc(formatPeriodBRExtra(x.periodoInicio,x.periodoFim))}</div>${extraPartialMetricDetail(x)}</td>
+      <td class="p-3 text-right">${extraPartialObjectiveText(x)}</td><td class="p-3 text-right">${extraPartialRealizedText(x)}</td>
       <td class="p-3 text-center font-semibold">${x.posicaoRanking?`<span class="font-black text-indigo-700">${x.posicaoRanking}º</span>`:extraPct(x.atingimento)}</td><td class="p-3 text-center font-black">${(Number(x?.premiacao||0)>0 || String(x?.premioTexto||'').trim())?`<span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-700"><i class="fa-solid fa-circle-check"></i>GANHOU</span>`:`<span class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-slate-600"><i class="fa-solid fa-circle-xmark"></i>NÃO GANHOU</span>`}</td>
     </tr>`).join('') || '<tr><td colspan="6" class="p-6 text-center text-slate-500">Nenhum participante encontrado nesta campanha.</td></tr>';
   };
@@ -12854,6 +12889,7 @@ sel.innerHTML=extraCampaigns.length
     if(m==='PERCENTUAL_VENDA') return '% sobre a venda';
     if(m==='PRODUTO_FOCO') return 'Meta + Prod Foco';
     if(m==='PRODUTO_UNIDADE_GATILHO') return 'Produto por unidade + gatilho';
+    if(m==='SOMA_UNIDADES_PRODUTOS_FAIXAS') return 'Soma de unidades de vários produtos + faixas';
     if(m==='FATURAMENTO_INDIVIDUAL_PERCENTUAL') return 'Faturamento com meta individual (%)';
     if(m==='BRINDE') return 'Brinde';
     if(m==='RANKING_BRINDE') return 'Ranking por vendas — brindes';
@@ -12875,6 +12911,7 @@ sel.innerHTML=extraCampaigns.length
     if(m==='PERCENTUAL_VENDA') return `${extraMetricLabel(m)}${objetivo?` • Meta ${moeda(objetivo)}`:''}${Number(r.percentual||0)?` • ${Number(r.percentual||0).toLocaleString('pt-BR')}%`:''}`;
     if(m==='PRODUTO_FOCO') return `${extraMetricLabel(m)}${objetivo?` • Meta ${moeda(objetivo)}`:''}${c.codigoProdutoFoco?` • Prod. ${c.codigoProdutoFoco}`:''}${Number(c.objetivoProdutoFoco||0)?` x ${Number(c.objetivoProdutoFoco||0).toLocaleString('pt-BR')} un.`:''}${Number(r.valor||0)?` • Prêmio ${moeda(r.valor)}`:''}`;
     if(m==='PRODUTO_UNIDADE_GATILHO') return `${extraMetricLabel(m)}${c.codigoProdutoFoco?` • Prod. ${c.codigoProdutoFoco}`:''}${Number(c.objetivoProdutoFoco||0)?` • gatilho ${Number(c.objetivoProdutoFoco||0).toLocaleString('pt-BR')} un.`:''}${Number(r.valorUnidade||r.valor||0)?` • ${moeda(r.valorUnidade||r.valor)}/un.`:''}`;
+    if(m==='SOMA_UNIDADES_PRODUTOS_FAIXAS') return extraMetricLabel(m)+' • '+(Array.isArray(r.produtosSomados)?r.produtosSomados.length:0)+' produto(s) • '+(Array.isArray(r.faixas)?r.faixas.length:0)+' faixa(s)';
     if(m==='FATURAMENTO_INDIVIDUAL_PERCENTUAL') return `${extraMetricLabel(m)} • ${Array.isArray(r.metasIndividuais)?r.metasIndividuais.length:0} meta(s) cadastrada(s)`;
     if(m==='BRINDE') return `${extraMetricLabel(m)}${objetivo?` • Meta ${moeda(objetivo)}`:''}${r.premioTexto?` • ${String(r.premioTexto)}`:''}`;
     if(m==='RANKING_BRINDE'){
@@ -12891,6 +12928,7 @@ sel.innerHTML=extraCampaigns.length
     if(m==='PERCENTUAL_VENDA') return '<b>Exemplo:</b> meta R$ 10.000 e 5%. Vendeu R$ 15.000: ganha R$ 750.';
     if(m==='PRODUTO_FOCO') return '<b>Exemplo:</b> meta R$ 10.000 + 10 un. do produto 1234. Precisa atingir as duas.';
     if(m==='PRODUTO_UNIDADE_GATILHO') return '<b>Exemplo:</b> produto 1234, gatilho de 50 un. e R$ 1,00 por unidade. Com 49 un.: R$ 0. Com 60 un.: R$ 60.';
+    if(m==='SOMA_UNIDADES_PRODUTOS_FAIXAS') return '<b>Exemplo:</b> some as unidades dos produtos participantes: 30 un. = R$ 50; 60 un. = R$ 100; 100 un. = R$ 150. Vale a maior faixa atingida.';
     if(m==='FATURAMENTO_INDIVIDUAL_PERCENTUAL') return '<b>Exemplo:</b> Maria: meta R$ 20 mil e 3%; João: meta R$ 15 mil e 4%. Cada um é calculado pela própria meta e percentual.';
     if(m==='BRINDE') return '<b>Exemplo:</b> ao atingir a condição, o participante recebe o brinde cadastrado. Você também pode exigir a soma geral do laboratório.';
     if(m==='RANKING_BRINDE') return '<b>Exemplo:</b> 1º: TV • 2º: celular • 3º: vale. Vendas e ranking são lidos da própria base da Campanha Extra; somente Vendedores/Televendas ocupam posição.';
@@ -12903,6 +12941,7 @@ sel.innerHTML=extraCampaigns.length
     const m=normalizeExtraMetric(metric);
     if(m==='PRODUTO_FOCO') return {base:'PRODUTO_FOCO',premio:'VALOR_FIXO'};
     if(m==='PRODUTO_UNIDADE_GATILHO') return {base:'PRODUTO_UNIDADE_GATILHO',premio:'VALOR_FIXO'};
+    if(m==='SOMA_UNIDADES_PRODUTOS_FAIXAS') return {base:'SOMA_UNIDADES_PRODUTOS_FAIXAS',premio:'FAIXAS_VENDA'};
     if(m==='FATURAMENTO_INDIVIDUAL_PERCENTUAL') return {base:'FATURAMENTO_INDIVIDUAL_PERCENTUAL',premio:'PERCENTUAL_OBJETIVO'};
     if(m==='PERCENTUAL_OBJETIVO') return {base:'FATURAMENTO',premio:'PERCENTUAL_OBJETIVO'};
     if(m==='PERCENTUAL_VENDA') return {base:'FATURAMENTO',premio:'PERCENTUAL_VENDA'};
@@ -12917,6 +12956,7 @@ sel.innerHTML=extraCampaigns.length
     const p=String(premio||'VALOR_FIXO').toUpperCase();
     if(b==='PRODUTO_FOCO') return 'PRODUTO_FOCO';
     if(b==='PRODUTO_UNIDADE_GATILHO') return 'PRODUTO_UNIDADE_GATILHO';
+    if(b==='SOMA_UNIDADES_PRODUTOS_FAIXAS') return 'SOMA_UNIDADES_PRODUTOS_FAIXAS';
     if(b==='FATURAMENTO_INDIVIDUAL_PERCENTUAL') return 'FATURAMENTO_INDIVIDUAL_PERCENTUAL';
     if(p==='PERCENTUAL_OBJETIVO') return 'PERCENTUAL_OBJETIVO';
     if(p==='PERCENTUAL_VENDA') return 'PERCENTUAL_VENDA';
@@ -12933,10 +12973,12 @@ sel.innerHTML=extraCampaigns.length
     [...prize.options].forEach(o=>{
       const somenteFaturamento=['PERCENTUAL_OBJETIVO','PERCENTUAL_VENDA','FAIXAS_VENDA','BRINDE','RANKING_BRINDE'].includes(o.value);
       const fixedBase=['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(base);
+      const unitSumBase=base==='SOMA_UNIDADES_PRODUTOS_FAIXAS';
       const individualBase=base==='FATURAMENTO_INDIVIDUAL_PERCENTUAL';
-      o.disabled=(fixedBase && somenteFaturamento) || (individualBase && o.value!=='PERCENTUAL_OBJETIVO');
+      o.disabled=(fixedBase && somenteFaturamento) || (unitSumBase && o.value!=='FAIXAS_VENDA') || (individualBase && o.value!=='PERCENTUAL_OBJETIVO');
     });
     if(['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(base) && prize.value!=='VALOR_FIXO') prize.value='VALOR_FIXO';
+    if(base==='SOMA_UNIDADES_PRODUTOS_FAIXAS') prize.value='FAIXAS_VENDA';
     if(base==='FATURAMENTO_INDIVIDUAL_PERCENTUAL') prize.value='PERCENTUAL_OBJETIVO';
   }
 
@@ -12970,6 +13012,7 @@ sel.innerHTML=extraCampaigns.length
     const qtd=document.getElementById('extraObjFoco');
     const unitValue=document.getElementById('extraValorUnidade');
     const individualTargets=document.getElementById('extraIndividualTargetsSection');
+    const produtosSomados=document.getElementById('extraProdutosSomadosSection');
     const faixas=document.getElementById('extraFaixasSection');
     const brinde=document.getElementById('extraBrindeSection');
     const ranking=document.getElementById('extraRankingSection');
@@ -12990,7 +13033,8 @@ sel.innerHTML=extraCampaigns.length
     toggleDynamic(qtd,['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(m));
     toggleDynamic(unitValue,m==='PRODUTO_UNIDADE_GATILHO');
     individualTargets?.classList.toggle('hidden',m!=='FATURAMENTO_INDIVIDUAL_PERCENTUAL');
-    faixas?.classList.toggle('hidden',m!=='FAIXAS_FATURAMENTO');
+    produtosSomados?.classList.toggle('hidden',m!=='SOMA_UNIDADES_PRODUTOS_FAIXAS');
+    faixas?.classList.toggle('hidden',!['FAIXAS_FATURAMENTO','SOMA_UNIDADES_PRODUTOS_FAIXAS'].includes(m));
     brinde?.classList.toggle('hidden',m!=='BRINDE');
     ranking?.classList.toggle('hidden',m!=='RANKING_BRINDE');
     soma?.classList.toggle('hidden',!['BRINDE','RANKING_BRINDE'].includes(m));
@@ -13001,12 +13045,17 @@ sel.innerHTML=extraCampaigns.length
     if(help) help.innerHTML=extraMetricExample(m);
     if(simpleStatus){
       const cfg=extraSimpleMetricFromLegacy(m);
-      const baseLabels={PRODUTO_FOCO:'Produto Foco',PRODUTO_UNIDADE_GATILHO:'Produto por unidade + gatilho',FATURAMENTO_INDIVIDUAL_PERCENTUAL:'Faturamento com metas individuais',FATURAMENTO:'Faturamento'};
+      const baseLabels={PRODUTO_FOCO:'Produto Foco',PRODUTO_UNIDADE_GATILHO:'Produto por unidade + gatilho',SOMA_UNIDADES_PRODUTOS_FAIXAS:'Soma de unidades de vários produtos',FATURAMENTO_INDIVIDUAL_PERCENTUAL:'Faturamento com metas individuais',FATURAMENTO:'Faturamento'};
       const baseLabel=baseLabels[cfg.base]||cfg.base;
       const prizeLabels={VALOR_FIXO:'Valor fixo',PERCENTUAL_OBJETIVO:'Percentual do objetivo/meta',PERCENTUAL_VENDA:'Percentual da venda',FAIXAS_VENDA:'Faixas por venda',BRINDE:'Brinde',RANKING_BRINDE:'Ranking por vendas — brindes'};
       simpleStatus.innerHTML='<b>'+baseLabel+'</b> <span class="text-slate-400">•</span> '+(prizeLabels[cfg.premio]||cfg.premio);
     }
-    if(m==='FAIXAS_FATURAMENTO' && document.querySelectorAll('#extraFaixasList .extra-faixa-row').length===0) addExtraFaixa();
+    const faixaTitulo=document.getElementById('extraFaixasTitulo');
+    const faixaDescricao=document.getElementById('extraFaixasDescricao');
+    const unitSum=m==='SOMA_UNIDADES_PRODUTOS_FAIXAS';
+    if(faixaTitulo) faixaTitulo.textContent=unitSum?'Faixas por unidades somadas':'Faixas por venda';
+    if(faixaDescricao) faixaDescricao.textContent=unitSum?'Cadastre a quantidade total de unidades e o prêmio. O sistema considera a maior faixa atingida.':'Cadastre venda mínima e prêmio. O sistema considera a maior faixa atingida.';
+    if(['FAIXAS_FATURAMENTO','SOMA_UNIDADES_PRODUTOS_FAIXAS'].includes(m) && document.querySelectorAll('#extraFaixasList .extra-faixa-row').length===0) addExtraFaixa();
     if(m==='RANKING_BRINDE' && document.querySelectorAll('#extraRankingList .extra-ranking-row').length===0) addExtraRankingRow(1,1,'');
     updateExtraLabSumUI();
   };
@@ -13145,8 +13194,9 @@ sel.innerHTML=extraCampaigns.length
     if(!list)return;
     const row=document.createElement('div');
     row.className='extra-faixa-row grid grid-cols-[1fr_1fr_auto] gap-2 items-center';
+    const unitMode=normalizeExtraMetric(document.getElementById('extraMetrica')?.value)==='SOMA_UNIDADES_PRODUTOS_FAIXAS';
     row.innerHTML=
-      `<input data-faixa-min type="number" step="0.01" min="0" value="${esc(min)}" placeholder="A partir de R$" class="bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800">`+
+      `<input data-faixa-min type="number" step="${unitMode?'1':'0.01'}" min="0" value="${esc(min)}" placeholder="${unitMode?'A partir de unidades':'A partir de R$'}" class="bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800">`+
       `<input data-faixa-premio type="number" step="0.01" min="0" value="${esc(premio)}" placeholder="Prêmio R$" class="bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800">`+
       `<button type="button" onclick="this.closest('.extra-faixa-row').remove()" class="w-10 h-10 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100" title="Remover faixa"><i class="fa-solid fa-trash"></i></button>`;
     list.appendChild(row);
@@ -13204,7 +13254,7 @@ sel.innerHTML=extraCampaigns.length
   };
 
 function resetExtraForm(){
-    ['extraEditId','extraNome','extraLab','extraInicio','extraFim','extraObjetivo','extraPremio','extraPercentual','extraCodigoFoco','extraObjFoco','extraValorUnidade','extraBrinde','extraLabSumMin','extraObs'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+    ['extraEditId','extraNome','extraLab','extraInicio','extraFim','extraObjetivo','extraPremio','extraPercentual','extraCodigoFoco','extraObjFoco','extraValorUnidade','extraProdutosSomados','extraBrinde','extraLabSumMin','extraObs'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
     document.getElementById('extraMetrica').value='META_FATURAMENTO';
     syncExtraSimpleUIFromMetric();
     document.getElementById('extraRequireLabSum').checked=false;
@@ -13226,7 +13276,7 @@ function resetExtraForm(){
     document.getElementById('extraInicio').value=c.dataInicio||''; document.getElementById('extraFim').value=c.dataFim||''; document.getElementById('extraMetrica').value=normalizeExtraMetric(c.metrica||'META_FATURAMENTO');
     syncExtraSimpleUIFromMetric();
     document.getElementById('extraObjetivo').value=c.objetivo||''; document.getElementById('extraPremio').value=c.regra?.valor||''; document.getElementById('extraPercentual').value=c.regra?.percentual||'';
-    document.getElementById('extraCodigoFoco').value=c.codigoProdutoFoco||''; document.getElementById('extraObjFoco').value=c.objetivoProdutoFoco||''; document.getElementById('extraValorUnidade').value=c.regra?.valorUnidade||''; document.getElementById('extraBrinde').value=c.regra?.premioTexto||''; document.getElementById('extraObs').value=c.observacao||'';
+    document.getElementById('extraCodigoFoco').value=c.codigoProdutoFoco||''; document.getElementById('extraObjFoco').value=c.objetivoProdutoFoco||''; document.getElementById('extraValorUnidade').value=c.regra?.valorUnidade||''; document.getElementById('extraProdutosSomados').value=Array.isArray(c.regra?.produtosSomados)?c.regra.produtosSomados.join(', '):(c.regra?.produtosSomados||''); document.getElementById('extraBrinde').value=c.regra?.premioTexto||''; document.getElementById('extraObs').value=c.observacao||'';
     document.getElementById('extraRequireLabSum').checked=c.regra?.exigeSomaLaboratorio===true;
     document.getElementById('extraLabSumMin').value=c.regra?.somaLabMinimo||'';
     setExtraRanking(c.regra?.rankingConfig||[]);
@@ -13343,8 +13393,15 @@ function resetExtraForm(){
     const metrica=normalizeExtraMetric(document.getElementById('extraMetrica').value);
     const faixas=getExtraFaixas();
 
-    if(metrica==='FAIXAS_FATURAMENTO' && !faixas.length){
-      alert('Cadastre pelo menos uma faixa de faturamento.');
+    if(['FAIXAS_FATURAMENTO','SOMA_UNIDADES_PRODUTOS_FAIXAS'].includes(metrica) && !faixas.length){
+      alert(metrica==='SOMA_UNIDADES_PRODUTOS_FAIXAS'?'Cadastre pelo menos uma faixa de unidades e premiação.':'Cadastre pelo menos uma faixa de faturamento.');
+      return;
+    }
+    const produtosSomados=String(document.getElementById('extraProdutosSomados')?.value||'')
+      .split(/[,;\n\r\t ]+/).map(x=>x.trim()).filter(Boolean);
+    if(metrica==='SOMA_UNIDADES_PRODUTOS_FAIXAS' && !produtosSomados.length){
+      alert('Informe pelo menos um código de produto participante.');
+      document.getElementById('extraProdutosSomados')?.focus();
       return;
     }
 
@@ -13389,6 +13446,7 @@ function resetExtraForm(){
         valorUnidade:Number(document.getElementById('extraValorUnidade').value||0),
         percentual:Number(document.getElementById('extraPercentual').value||0),
         metasIndividuais:metasIndividuais,
+        produtosSomados:produtosSomados,
         faixas:faixas,
         premioTexto:brinde,
         rankingConfig:ranking,

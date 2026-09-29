@@ -435,11 +435,13 @@ def _calculate_prize(
     sale: float,
     focus_qty: float,
     sum_lab: float,
+    products_qty: float = 0,
 ) -> dict[str, Any]:
     objective = _num(campaign.get("objetivo"))
     objective_focus = _num(campaign.get("objetivoProdutoFoco"))
     sale = _num(sale)
     focus_qty = _num(focus_qty)
+    products_qty = _num(products_qty)
 
     hit = (sale / objective * 100) if objective > 0 else 0
     hit_focus = (
@@ -452,6 +454,35 @@ def _calculate_prize(
     metric = str(campaign.get("metrica") or "META_FATURAMENTO").upper()
     if metric == "COMBINADA":
         metric = "PRODUTO_FOCO"
+
+    unit_bands: list[tuple[float, float]] = []
+    unit_band_hit = 0.0
+    unit_next = 0.0
+    unit_objective = 0.0
+    if metric == "SOMA_UNIDADES_PRODUTOS_FAIXAS":
+        for band in rule.get("faixas") or rule.get("faixasUnidades") or []:
+            if not isinstance(band, dict):
+                continue
+            minimum = _num(
+                band.get("min")
+                or band.get("unidades")
+                or band.get("quantidade")
+            )
+            amount = _num(band.get("premio") or band.get("valor"))
+            if minimum > 0 and amount >= 0:
+                unit_bands.append((minimum, amount))
+        unit_bands.sort(key=lambda x: x[0])
+        reached = [band for band in unit_bands if products_qty >= band[0]]
+        if reached:
+            unit_band_hit = reached[-1][0]
+        pending = [band[0] for band in unit_bands if products_qty < band[0]]
+        unit_next = pending[0] if pending else 0.0
+        unit_objective = unit_next or (unit_bands[-1][0] if unit_bands else 0.0)
+        hit = (
+            products_qty / unit_objective * 100
+            if unit_objective > 0
+            else 0
+        )
 
     required_sum = rule.get("exigeSomaLaboratorio") is True
     sum_min = _num(rule.get("somaLabMinimo"))
@@ -468,6 +499,10 @@ def _calculate_prize(
             "quantidadeProdutoFoco": focus_qty,
             "objetivoProdutoFoco": objective_focus,
             "atingimentoProdutoFoco": hit_focus,
+            "quantidadeProdutosSomados": products_qty,
+            "objetivoUnidades": unit_objective,
+            "faixaAtingidaUnidades": unit_band_hit,
+            "proximaFaixaUnidades": unit_next,
             "premiacao": 0,
             "premioTexto": "",
             "tipoPremio": "",
@@ -497,6 +532,13 @@ def _calculate_prize(
             amount = _num(band.get("premio"))
             if minimum > 0 and amount >= 0 and sale >= minimum:
                 valid.append((minimum, amount))
+        prize = max(valid, default=(0, 0), key=lambda x: x[0])[1]
+    elif metric == "SOMA_UNIDADES_PRODUTOS_FAIXAS":
+        valid = [
+            (minimum, amount)
+            for minimum, amount in unit_bands
+            if products_qty >= minimum
+        ]
         prize = max(valid, default=(0, 0), key=lambda x: x[0])[1]
     elif metric == "PRODUTO_UNIDADE_GATILHO":
         unit_value = _num(rule.get("valorUnidade") or rule.get("valor"))
@@ -529,6 +571,10 @@ def _calculate_prize(
         "quantidadeProdutoFoco": focus_qty,
         "objetivoProdutoFoco": objective_focus,
         "atingimentoProdutoFoco": hit_focus,
+        "quantidadeProdutosSomados": products_qty,
+        "objetivoUnidades": unit_objective,
+        "faixaAtingidaUnidades": unit_band_hit,
+        "proximaFaixaUnidades": unit_next,
         "premiacao": _round2(prize),
         "premioTexto": prize_text,
         "tipoPremio": "BRINDE" if prize_text else "",
@@ -571,6 +617,36 @@ def _partial_for_campaign(
         metric = "PRODUTO_FOCO"
 
     focus_code = str(campaign.get("codigoProdutoFoco") or "").strip().upper()
+    rule = campaign.get("regra") if isinstance(campaign.get("regra"), dict) else {}
+
+    def normalize_product_code(value: Any) -> str:
+        text = str(value or "").strip().upper()
+        if re.fullmatch(r"\d+\.0+", text):
+            text = text.split(".", 1)[0]
+        return re.sub(r"[^A-Z0-9]", "", text)
+
+    raw_product_codes = (
+        rule.get("produtosSomados")
+        or rule.get("codigosProdutos")
+        or rule.get("produtos")
+        or []
+    )
+    if isinstance(raw_product_codes, str):
+        raw_text = raw_product_codes.strip()
+        if raw_text.startswith("["):
+            try:
+                parsed_codes = json.loads(raw_text)
+                raw_product_codes = parsed_codes if isinstance(parsed_codes, list) else []
+            except (TypeError, ValueError, json.JSONDecodeError):
+                raw_product_codes = re.split(r"[,;\n\r\t ]+", raw_text)
+        else:
+            raw_product_codes = re.split(r"[,;\n\r\t ]+", raw_text)
+    product_codes = {
+        normalize_product_code(code)
+        for code in (raw_product_codes if isinstance(raw_product_codes, list) else [])
+        if normalize_product_code(code)
+    }
+
     groups: dict[str, dict[str, Any]] = {}
 
     def individual_target(collaborator: str) -> dict[str, Any]:
@@ -668,6 +744,7 @@ def _partial_for_campaign(
                 "laboratorio": str(campaign.get("laboratorio") or ""),
                 "venda": 0.0,
                 "quantidadeProdutoFoco": 0.0,
+                "quantidadeProdutosSomados": 0.0,
                 "observacoes": [],
             },
         )
@@ -679,6 +756,12 @@ def _partial_for_campaign(
             and str(row.get("codigoProduto") or "").strip().upper() == focus_code
         ):
             group["quantidadeProdutoFoco"] += _num(row.get("quantidade"))
+
+        if (
+            metric == "SOMA_UNIDADES_PRODUTOS_FAIXAS"
+            and normalize_product_code(row.get("codigoProduto")) in product_codes
+        ):
+            group["quantidadeProdutosSomados"] += _num(row.get("quantidade"))
 
         obs = str(row.get("observacao") or "").strip()
         if obs:
@@ -773,6 +856,7 @@ def _partial_for_campaign(
                 _num(group.get("venda")),
                 _num(group.get("quantidadeProdutoFoco")),
                 _num(sum_info.get("total")),
+                _num(group.get("quantidadeProdutosSomados")),
             )
             if target is not None:
                 calc["objetivoIndividual"] = target["objetivo"]
@@ -796,6 +880,12 @@ def _partial_for_campaign(
                     "codigoProdutoFoco": str(
                         campaign.get("codigoProdutoFoco") or ""
                     ),
+                    "produtosSomados": sorted(product_codes)
+                    if metric == "SOMA_UNIDADES_PRODUTOS_FAIXAS"
+                    else [],
+                    "quantidadeProdutosConfigurados": len(product_codes)
+                    if metric == "SOMA_UNIDADES_PRODUTOS_FAIXAS"
+                    else 0,
                     "periodoInicio": str(campaign.get("dataInicio") or ""),
                     "periodoFim": str(campaign.get("dataFim") or ""),
                     "periodo": (
@@ -807,7 +897,11 @@ def _partial_for_campaign(
             )
 
         records.sort(
-            key=lambda x: -_num(x.get("venda"))
+            key=lambda x: -_num(
+                x.get("quantidadeProdutosSomados")
+                if metric == "SOMA_UNIDADES_PRODUTOS_FAIXAS"
+                else x.get("venda")
+            )
         )
 
     totals = {

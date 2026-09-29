@@ -224,3 +224,77 @@ def test_faturamento_percentual_individual_usa_meta_como_gatilho_e_venda_como_ba
     assert acima["atingimento"] == 500
     assert acima["premiacao"] == 250
     assert acima["status"] == "PREMIADO"
+
+
+def _soma_unidades_payload(quantidades):
+    payload = extras_payload()
+    payload["campanhas"][0].update(
+        {
+            "metrica": "SOMA_UNIDADES_PRODUTOS_FAIXAS",
+            "objetivo": 0,
+            "regra": {
+                "produtosSomados": ["1001", "1002", "1003"],
+                "faixas": [
+                    {"min": 30, "premio": 50},
+                    {"min": 60, "premio": 100},
+                    {"min": 100, "premio": 150},
+                ],
+            },
+        }
+    )
+    rows = []
+    for codigo, quantidade in quantidades:
+        rows.append(
+            {
+                "colaborador": "VENDEDOR TESTE",
+                "laboratorio": "LAB TESTE",
+                "data": "2026-09-10",
+                "venda": 100,
+                "codigoProduto": codigo,
+                "quantidade": quantidade,
+            }
+        )
+    payload["vendasPorCampanha"]["CE-1"] = rows
+    return payload
+
+
+def test_soma_unidades_produtos_aplica_maior_faixa():
+    payload = _soma_unidades_payload(
+        [
+            ("1001", 20),
+            ("1002", 47),
+            ("9999", 100),
+        ]
+    )
+    row = extras_api_response(
+        extras_payload=payload,
+        users_payload=users_payload(),
+        profile=admin(),
+        campaign_id="CE-1",
+    )["registros"][0]
+
+    assert row["quantidadeProdutosSomados"] == 67
+    assert row["quantidadeProdutosConfigurados"] == 3
+    assert row["faixaAtingidaUnidades"] == 60
+    assert row["objetivoUnidades"] == 100
+    assert row["premiacao"] == 100
+    assert row["status"] == "PREMIADO"
+
+
+def test_soma_unidades_produtos_limites_29_30_e_105():
+    casos = [
+        (29, 0, "EM ANDAMENTO"),
+        (30, 50, "PREMIADO"),
+        (105, 150, "PREMIADO"),
+    ]
+    for quantidade, premio, status in casos:
+        payload = _soma_unidades_payload([("1001", quantidade)])
+        row = extras_api_response(
+            extras_payload=payload,
+            users_payload=users_payload(),
+            profile=admin(),
+            campaign_id="CE-1",
+        )["registros"][0]
+        assert row["quantidadeProdutosSomados"] == quantidade
+        assert row["premiacao"] == premio
+        assert row["status"] == status
