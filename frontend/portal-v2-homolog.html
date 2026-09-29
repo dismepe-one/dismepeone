@@ -5423,7 +5423,7 @@ function showV36CreateUserInfo(){
             <div class="overflow-x-auto">
               <table class="w-full min-w-[720px]">
                 <thead class="bg-slate-900/80"><tr class="text-[10px] uppercase tracking-wider text-slate-400">
-                  <th class="p-3 text-left">Colaborador</th><th class="p-3 text-left">Laboratório</th><th class="p-3 text-right">Objetivo</th><th class="p-3 text-right">Realizado</th><th class="p-3 text-center">Posição / % Ating.</th><th class="p-3 text-center">Resultado</th>
+                  <th class="p-3 text-left"><button type="button" onclick="sortExtraPartial('colaborador')" class="inline-flex items-center gap-1 font-black hover:text-white" title="Ordenar por colaborador">Colaborador <i id="extraSortColaborador" class="fa-solid fa-sort text-slate-500"></i></button></th><th class="p-3 text-left">Laboratório</th><th class="p-3 text-right"><button type="button" onclick="sortExtraPartial('objetivo')" class="inline-flex items-center justify-end gap-1 w-full font-black hover:text-white" title="Ordenar por objetivo">Objetivo <i id="extraSortObjetivo" class="fa-solid fa-sort text-slate-500"></i></button></th><th class="p-3 text-right"><button type="button" onclick="sortExtraPartial('realizado')" class="inline-flex items-center justify-end gap-1 w-full font-black hover:text-white" title="Ordenar por venda / realizado">Realizado <i id="extraSortRealizado" class="fa-solid fa-sort text-slate-500"></i></button></th><th class="p-3 text-center">Posição / % Ating.</th><th class="p-3 text-center">Resultado</th>
                 </tr></thead>
                 <tbody id="extraPartialBody"></tbody>
               </table>
@@ -12607,11 +12607,66 @@ sel.innerHTML=extraCampaigns.length
     }
   };
 
+  window.extraPartialSortState=window.extraPartialSortState||{key:'',dir:'asc'};
+
+  window.sortExtraPartial=function(key){
+    const state=window.extraPartialSortState;
+    if(state.key===key){
+      state.dir=state.dir==='asc'?'desc':'asc';
+    }else{
+      state.key=key;
+      state.dir=key==='colaborador'?'asc':'desc';
+    }
+    window.renderExtraRows();
+  };
+
+  function extraPartialSortNumericValue(row,key){
+    const metric=normalizeExtraMetric(row?.metrica);
+    let value=0;
+    if(key==='objetivo'){
+      value=['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(metric)
+        ? Number(row?.objetivoProdutoFoco||0)
+        : Number(row?.objetivo||0);
+    }else if(key==='realizado'){
+      value=['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(metric)
+        ? Number(row?.quantidadeProdutoFoco||0)
+        : Number(row?.venda||0);
+    }
+    return Number.isFinite(value)?value:0;
+  }
+
+  function updateExtraPartialSortIcons(){
+    const state=window.extraPartialSortState||{key:'',dir:'asc'};
+    const refs={
+      colaborador:document.getElementById('extraSortColaborador'),
+      objetivo:document.getElementById('extraSortObjetivo'),
+      realizado:document.getElementById('extraSortRealizado')
+    };
+    Object.entries(refs).forEach(([key,icon])=>{
+      if(!icon)return;
+      const active=state.key===key;
+      icon.className='fa-solid '+(active?(state.dir==='asc'?'fa-sort-up':'fa-sort-down'):'fa-sort')+' '+(active?'text-emerald-400':'text-slate-500');
+    });
+  }
+
   window.renderExtraRows=function(){
     const q=normalizarTexto(document.getElementById('extraSearch')?.value||'');
-    const rows=(extraPartialCache||[]).filter(x=>
+    let rows=(extraPartialCache||[]).filter(x=>
       !q||normalizarTexto(x.colaborador).includes(q)
     );
+    const state=window.extraPartialSortState||{key:'',dir:'asc'};
+    if(state.key){
+      rows=[...rows].sort((a,b)=>{
+        let cmp=0;
+        if(state.key==='colaborador'){
+          cmp=String(a?.colaborador||'').localeCompare(String(b?.colaborador||''),'pt-BR',{sensitivity:'base',numeric:true});
+        }else{
+          cmp=extraPartialSortNumericValue(a,state.key)-extraPartialSortNumericValue(b,state.key);
+        }
+        return state.dir==='desc'?-cmp:cmp;
+      });
+    }
+    updateExtraPartialSortIcons();
     document.getElementById('extraPartialBody').innerHTML=rows.map(x=>`<tr class="border-b border-slate-800/60 text-slate-300">
       <td class="p-3 font-semibold text-slate-800">${esc(x.colaborador)}</td>
       <td class="p-3"><div>${esc(x.laboratorio)}</div><div class="text-[10px] text-slate-500">${esc(x.campanha||'')}</div><div class="text-[9px] ${extraDateStatusClass(extraRecordStatus(x))}">${esc(formatPeriodBRExtra(x.periodoInicio,x.periodoFim))}</div>${['PRODUTO_FOCO','PRODUTO_UNIDADE_GATILHO'].includes(normalizeExtraMetric(x.metrica))?`<div class="text-[9px] mt-1 text-indigo-600 font-bold">Prod. ${esc(x.codigoProdutoFoco||'')}: ${Number(x.quantidadeProdutoFoco||0).toLocaleString('pt-BR')} / ${Number(x.objetivoProdutoFoco||0).toLocaleString('pt-BR')}</div>`:''}</td>
