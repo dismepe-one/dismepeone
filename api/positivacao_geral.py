@@ -421,6 +421,28 @@ async def _registered_users() -> tuple[dict[str, str], dict[str, str]]:
     return vendedores, televendas
 
 
+def _drive_execute(request: Any, *, retries: int = 4) -> Any:
+    """Executa uma chamada curta ao Drive com backoff para 429/5xx.
+
+    Centralizar o retry evita acionar caminhos alternativos imediatamente e
+    multiplicar chamadas justamente durante uma janela temporária de quota.
+    """
+    last_exc: Exception | None = None
+    delays = (1.5, 3.0, 6.0, 10.0)
+    for attempt in range(max(1, retries)):
+        try:
+            return request.execute(num_retries=1)
+        except Exception as exc:
+            last_exc = exc
+            status = getattr(getattr(exc, "resp", None), "status", None)
+            if status not in {429, 500, 502, 503, 504} or attempt >= retries - 1:
+                raise
+            time.sleep(delays[min(attempt, len(delays) - 1)])
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("Falha inesperada ao consultar o Google Drive.")
+
+
 def _drive_file_list(service: Any, folder: str) -> list[dict[str, Any]]:
     # A conta de serviço reutiliza as credenciais já configuradas no Render.
     escaped = folder.replace("'", "\\'")
@@ -428,14 +450,15 @@ def _drive_file_list(service: Any, folder: str) -> list[dict[str, Any]]:
     files: list[dict[str, Any]] = []
     targeted = True
     while True:
-        result = service.files().list(
+        request = service.files().list(
             q=((f"'{escaped}' in parents and trashed = false and "
                 "(name contains 'Comparativo' or name contains 'Positiv')")
                if targeted else f"'{escaped}' in parents and trashed = false"),
             fields="nextPageToken,files(id,name,mimeType,modifiedTime,size)",
             orderBy="modifiedTime desc", pageSize=100, pageToken=token,
             supportsAllDrives=True, includeItemsFromAllDrives=True,
-        ).execute(num_retries=3)
+        )
+        result = _drive_execute(request, retries=4)
         files.extend(result.get("files") or [])
         pdf_found = any(_norm(item.get("name")) == _norm(PDF_NAME)
                         and item.get("mimeType") == "application/pdf" for item in files)
@@ -473,7 +496,12 @@ def _probe_drive_sources(service: Any) -> tuple[dict[str, Any] | None, dict[str,
         items = _drive_file_list(service, folder)
     except Exception as exc:
         status = getattr(getattr(exc, "resp", None), "status", None)
-        details["buscaPasta"] = f"HTTP {status}" if status in (401, 403, 404, 429) else "INDISPONÍVEL"
+        if status == 429:
+            raise RuntimeError(
+                "O Google Drive limitou temporariamente as consultas da Positivação. "
+                "A última base válida foi preservada; tente atualizar novamente em instantes."
+            ) from exc
+        details["buscaPasta"] = f"HTTP {status}" if status in (401, 403, 404) else "INDISPONÍVEL"
         items = []
 
     pdf = next((x for x in items if _norm(x.get("name")) == pdfname
@@ -495,10 +523,11 @@ def _probe_drive_sources(service: Any) -> tuple[dict[str, Any] | None, dict[str,
         if (kind == "pdf" and pdf) or (kind == "planilha" and sheet) or not fallback_id:
             continue
         try:
-            item = service.files().get(
+            request = service.files().get(
                 fileId=fallback_id, fields="id,name,mimeType,modifiedTime,size,parents",
                 supportsAllDrives=True,
-            ).execute(num_retries=3)
+            )
+            item = _drive_execute(request, retries=4)
             if (_norm(item.get("name")) not in expected_names
                     or item.get("mimeType") not in allowed_mimes
                     or (item.get("parents") and folder not in item["parents"])):
@@ -509,7 +538,12 @@ def _probe_drive_sources(service: Any) -> tuple[dict[str, Any] | None, dict[str,
             details[kind] = "ARQUIVO DIRETO"
         except Exception as exc:
             status = getattr(getattr(exc, "resp", None), "status", None)
-            details[kind] = (f"HTTP {status}" if status in (401, 403, 404, 429)
+            if status == 429:
+                raise RuntimeError(
+                    "O Google Drive limitou temporariamente as consultas da Positivação. "
+                    "A última base válida foi preservada; tente atualizar novamente em instantes."
+                ) from exc
+            details[kind] = (f"HTTP {status}" if status in (401, 403, 404)
                              else "ACESSO DIRETO INDISPONÍVEL")
     return pdf, sheet, details
 
@@ -1440,9 +1474,14 @@ async def _manual_check_and_refresh(profile: dict[str, Any]) -> None:
         await _refresh_job(profile, True, sources=sources)
     except asyncio.CancelledError:
         raise
-    except Exception:
+    except Exception as exc:
         # Sem confirmação dos metadados, nunca alegar que a base está atualizada.
-        _SYNC_ERROR = "Não foi possível conferir as atualizações no Drive. A última base válida foi preservada."
+        message = str(exc).strip()
+        _SYNC_ERROR = (
+            message[:280]
+            if "Google Drive limitou temporariamente" in message
+            else "Não foi possível conferir as atualizações no Drive. A última base válida foi preservada."
+        )
         _SYNC_RESULT = "ERRO"
     finally:
         _SYNC_LAST_FINISHED = _now()
