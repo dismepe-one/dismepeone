@@ -105,14 +105,12 @@
           if(String(component.metrica||'').toUpperCase()!=='POSITIVACAO_GERAL' || pending)return;
           const actual=Math.max(0,Number(component.realizado)||0);
           const target=Math.max(0,Number(component.meta)||0);
-          const missing=Math.max(0,target-actual);
           const actions=document.createElement('div');
           actions.className='d1-metric-actions';
           actions.innerHTML=
             '<a class="d1-metric-action" href="/positivacoes?status=positivados" title="Abrir clientes positivados">'+
               actual.toLocaleString('pt-BR')+' positivados ↗</a>'+
-            '<a class="d1-metric-action" href="/positivacoes?status=nao-positivados" title="Abrir clientes ainda não positivados">'+
-              missing.toLocaleString('pt-BR')+' restantes ↗</a>';
+            '<a class="d1-metric-action" href="/positivacoes?status=nao-positivados" title="Abrir clientes ainda não positivados">Ver não positivados ↗</a>';
           node.appendChild(actions);
         });
         return box.innerHTML;
