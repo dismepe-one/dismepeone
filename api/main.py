@@ -809,6 +809,25 @@ async def campanhas_extras_exportar_pdf(
     if query:
         records = [r for r in records if query in str(r.get("colaborador") or "").casefold()]
 
+    def is_winner(row):
+        try:
+            prize = float(row.get("premiacao") or 0)
+        except (TypeError, ValueError):
+            prize = 0.0
+        return prize > 0 or bool(str(row.get("premioTexto") or "").strip())
+
+    # PDF: premiados primeiro; depois os não premiados.
+    # Dentro de cada grupo preserva uma leitura útil por venda/posição.
+    records = sorted(
+        records,
+        key=lambda row: (
+            0 if is_winner(row) else 1,
+            int(row.get("posicaoRanking") or 999999),
+            -float(row.get("venda") or 0),
+            str(row.get("colaborador") or "").casefold(),
+        ),
+    )
+
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -852,6 +871,7 @@ async def campanhas_extras_exportar_pdf(
     ]
 
     table_data=[[Paragraph(x,head) for x in ["Colaborador","Laboratório / Campanha","Objetivo","Realizado","Posição / %","Resultado"]]]
+    result_rows=[]
     for r in records:
         metric=str(r.get("metrica") or "").upper()
         if metric=="COMBINADA": metric="PRODUTO_FOCO"
@@ -859,7 +879,8 @@ async def campanhas_extras_exportar_pdf(
         objective=(num(r.get("objetivoProdutoFoco"))+" un.") if product_metric else ("-" if metric=="RANKING_BRINDE" else money(r.get("objetivo")))
         realized=(num(r.get("quantidadeProdutoFoco"))+" un.") if product_metric else money(r.get("venda"))
         progress=(str(int(r.get("posicaoRanking")))+"º") if r.get("posicaoRanking") else f"{float(r.get('atingimento') or 0):.1f}%".replace(".",",")
-        won=float(r.get("premiacao") or 0)>0 or bool(str(r.get("premioTexto") or "").strip())
+        won=is_winner(r)
+        result_rows.append(won)
         lab_text=escape(str(r.get("laboratorio") or ""))
         camp_text=str(r.get("campanha") or "")
         if camp_text and camp_text!=title: lab_text += "<br/><font size='6'>"+escape(camp_text)+"</font>"
@@ -875,14 +896,25 @@ async def campanhas_extras_exportar_pdf(
         table_data.append([Paragraph("Nenhum participante encontrado.",cell),"","","","",""])
 
     table=Table(table_data,colWidths=[58*mm,72*mm,35*mm,35*mm,34*mm,35*mm],repeatRows=1)
-    table.setStyle(TableStyle([
+    table_commands=[
         ("BACKGROUND",(0,0),(-1,0),colors.HexColor("#075548")),
         ("GRID",(0,0),(-1,-1),0.3,colors.HexColor("#CBD5E1")),
-        ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white,colors.HexColor("#F8FAFC")]),
         ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
         ("TOPPADDING",(0,0),(-1,-1),4),
         ("BOTTOMPADDING",(0,0),(-1,-1),4),
-    ]))
+    ]
+    for row_index, won in enumerate(result_rows, start=1):
+        if won:
+            table_commands.extend([
+                ("BACKGROUND",(0,row_index),(-1,row_index),colors.HexColor("#ECFDF5")),
+                ("TEXTCOLOR",(5,row_index),(5,row_index),colors.HexColor("#047857")),
+            ])
+        else:
+            table_commands.extend([
+                ("BACKGROUND",(0,row_index),(-1,row_index),colors.HexColor("#FEF2F2")),
+                ("TEXTCOLOR",(5,row_index),(5,row_index),colors.HexColor("#B91C1C")),
+            ])
+    table.setStyle(TableStyle(table_commands))
     story.append(table)
     doc.build(story)
     safe="".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in title).strip("_")[:70] or "CAMPANHAS_EXTRAS"
