@@ -12779,14 +12779,26 @@ sel.innerHTML=extraCampaigns.length
       let r=null;
       if(window.__v2Authenticated===true){
         try{
-          const response=await fetch('/data/extras-users',{credentials:'include',cache:'no-store'});
-          if(response.ok){
-            r=await response.json();
-          }else if(response.status===401||response.status===403){
-            const body=await response.json().catch(()=>({}));
+          const adminResponse=await fetch('/admin/users?ts='+Date.now(),{credentials:'include',cache:'no-store',headers:{'Accept':'application/json'}});
+          if(adminResponse.ok){
+            const adminData=await adminResponse.json();
+            r={
+              sucesso:adminData?.sucesso!==false,
+              usuarios:Array.isArray(adminData?.usuarios)?adminData.usuarios:[]
+            };
+          }else if(adminResponse.status===401||adminResponse.status===403){
+            const body=await adminResponse.json().catch(()=>({}));
             throw new Error(body?.detail||'Acesso não autorizado.');
           }else{
-            throw Object.assign(new Error('Snapshot de usuários indisponível.'),{allowLegacyFallback:true});
+            const response=await fetch('/data/extras-users',{credentials:'include',cache:'no-store'});
+            if(response.ok){
+              r=await response.json();
+            }else if(response.status===401||response.status===403){
+              const body=await response.json().catch(()=>({}));
+              throw new Error(body?.detail||'Acesso não autorizado.');
+            }else{
+              throw Object.assign(new Error('Lista de usuários indisponível.'),{allowLegacyFallback:true});
+            }
           }
         }catch(err){
           const networkFailure=(err instanceof TypeError)||/fetch|network|load failed/i.test(String(err?.message||''));
@@ -13468,6 +13480,13 @@ function resetExtraForm(){
     setExtraSaveState(true,payload.id?'Salvando alterações da campanha...':'Criando campanha...');
 
     try{
+      if(!authToken && window.__v2Authenticated===true){
+        const legacyReady=await v2AwaitLegacySession();
+        if(!legacyReady || !authToken){
+          throw new Error('A sessão comercial ainda não ficou pronta. Tente salvar novamente sem sair da tela.');
+        }
+      }
+
       const r=
         await callAdminAction(
           'SALVARCAMPANHAEXTRA',
