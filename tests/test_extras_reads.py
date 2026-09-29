@@ -150,6 +150,109 @@ def test_produto_por_unidade_nao_premia_antes_do_gatilho():
     assert r["registros"][0]["status"] == "EM ANDAMENTO"
 
 
+
+
+def test_soma_unidades_varios_produtos_premia_pela_soma():
+    payload = extras_payload()
+    payload["campanhas"][0].update(
+        {
+            "metrica": "SOMA_UNIDADES_PRODUTOS_FAIXAS",
+            "objetivo": 0,
+            "regra": {
+                "produtosSomados": ["1001", "1002", "1003"],
+                "faixas": [
+                    {"min": 30, "premio": 50},
+                    {"min": 60, "premio": 100},
+                    {"min": 100, "premio": 150},
+                ],
+            },
+        }
+    )
+    payload["vendasPorCampanha"]["CE-1"] = [
+        {
+            "colaborador": "VENDEDOR TESTE",
+            "laboratorio": "LAB TESTE",
+            "data": "2026-09-10",
+            "venda": 200,
+            "codigoProduto": "1001",
+            "quantidade": 18,
+        },
+        {
+            "colaborador": "VENDEDOR TESTE",
+            "laboratorio": "LAB TESTE",
+            "data": "2026-09-10",
+            "venda": 150,
+            "codigoProduto": "1002",
+            "quantidade": 12,
+        },
+        {
+            "colaborador": "VENDEDOR TESTE",
+            "laboratorio": "LAB TESTE",
+            "data": "2026-09-10",
+            "venda": 999,
+            "codigoProduto": "9999",
+            "quantidade": 500,
+        },
+    ]
+    row = extras_api_response(
+        extras_payload=payload,
+        users_payload=users_payload(),
+        profile=admin(),
+        campaign_id="CE-1",
+    )["registros"][0]
+    assert row["quantidadeProdutosSomados"] == 30
+    assert row["premiacao"] == 50
+    assert row["faixaAtingidaUnidades"] == 30
+    assert row["proximaFaixaUnidades"] == 60
+    assert row["status"] == "PREMIADO"
+
+
+def test_soma_unidades_varios_produtos_usa_maior_faixa_atingida():
+    payload = extras_payload()
+    payload["campanhas"][0].update(
+        {
+            "metrica": "SOMA_UNIDADES_PRODUTOS_FAIXAS",
+            "objetivo": 0,
+            "regra": {
+                "produtosSomados": ["1001", "1002"],
+                "faixas": [
+                    {"min": 30, "premio": 50},
+                    {"min": 60, "premio": 100},
+                    {"min": 100, "premio": 150},
+                ],
+            },
+        }
+    )
+    payload["vendasPorCampanha"]["CE-1"] = [
+        {
+            "colaborador": "VENDEDOR TESTE",
+            "laboratorio": "LAB TESTE",
+            "data": "2026-09-10",
+            "venda": 1000,
+            "codigoProduto": "1001",
+            "quantidade": 37,
+        },
+        {
+            "colaborador": "VENDEDOR TESTE",
+            "laboratorio": "LAB TESTE",
+            "data": "2026-09-10",
+            "venda": 800,
+            "codigoProduto": "1002",
+            "quantidade": 30,
+        },
+    ]
+    row = extras_api_response(
+        extras_payload=payload,
+        users_payload=users_payload(),
+        profile=admin(),
+        campaign_id="CE-1",
+    )["registros"][0]
+    assert row["quantidadeProdutosSomados"] == 67
+    assert row["premiacao"] == 100
+    assert row["faixaAtingidaUnidades"] == 60
+    assert row["proximaFaixaUnidades"] == 100
+    assert row["objetivoUnidades"] == 100
+
 def test_faturamento_percentual_com_meta_individual():
     payload = extras_payload()
     payload["campanhas"][0].update(
