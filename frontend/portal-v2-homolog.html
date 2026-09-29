@@ -5423,7 +5423,7 @@ function showV36CreateUserInfo(){
             <div class="overflow-x-auto">
               <table class="w-full min-w-[720px]">
                 <thead class="bg-slate-900/80"><tr class="text-[10px] uppercase tracking-wider text-slate-400">
-                  <th class="p-3 text-left"><button type="button" onclick="sortExtraPartial('colaborador')" class="inline-flex items-center gap-1 font-black hover:text-white" title="Ordenar por colaborador">Colaborador <i id="extraSortColaborador" class="fa-solid fa-sort text-slate-500"></i></button></th><th class="p-3 text-left">Laboratório</th><th class="p-3 text-right"><button type="button" onclick="sortExtraPartial('objetivo')" class="inline-flex items-center justify-end gap-1 w-full font-black hover:text-white" title="Ordenar por objetivo">Objetivo <i id="extraSortObjetivo" class="fa-solid fa-sort text-slate-500"></i></button></th><th class="p-3 text-right"><button type="button" onclick="sortExtraPartial('realizado')" class="inline-flex items-center justify-end gap-1 w-full font-black hover:text-white" title="Ordenar por venda / realizado">Realizado <i id="extraSortRealizado" class="fa-solid fa-sort text-slate-500"></i></button></th><th class="p-3 text-center">Posição / % Ating.</th><th class="p-3 text-center">Resultado</th>
+                  <th class="p-3 text-left"><button type="button" onclick="sortExtraPartial('colaborador')" class="inline-flex items-center gap-1 font-black hover:text-white" title="Ordenar por colaborador">Colaborador <i id="extraSortColaborador" class="fa-solid fa-sort text-slate-500"></i></button></th><th class="p-3 text-left">Laboratório</th><th class="p-3 text-right"><button type="button" onclick="sortExtraPartial('objetivo')" class="inline-flex items-center justify-end gap-1 w-full font-black hover:text-white" title="Ordenar por objetivo">Objetivo <i id="extraSortObjetivo" class="fa-solid fa-sort text-slate-500"></i></button></th><th class="p-3 text-right"><button type="button" onclick="sortExtraPartial('realizado')" class="inline-flex items-center justify-end gap-1 w-full font-black hover:text-white" title="Ordenar por venda / realizado">Realizado <i id="extraSortRealizado" class="fa-solid fa-sort text-slate-500"></i></button></th><th class="p-3 text-center">Posição / % Ating.</th><th class="p-3 text-center"><button type="button" onclick="sortExtraPartial('resultado')" class="inline-flex items-center justify-center gap-1 w-full font-black hover:text-white" title="Ordenar por resultado">Resultado <i id="extraSortResultado" class="fa-solid fa-sort text-slate-500"></i></button></th>
                 </tr></thead>
                 <tbody id="extraPartialBody"></tbody>
               </table>
@@ -12640,7 +12640,8 @@ sel.innerHTML=extraCampaigns.length
     const refs={
       colaborador:document.getElementById('extraSortColaborador'),
       objetivo:document.getElementById('extraSortObjetivo'),
-      realizado:document.getElementById('extraSortRealizado')
+      realizado:document.getElementById('extraSortRealizado'),
+      resultado:document.getElementById('extraSortResultado')
     };
     Object.entries(refs).forEach(([key,icon])=>{
       if(!icon)return;
@@ -12660,6 +12661,10 @@ sel.innerHTML=extraCampaigns.length
         let cmp=0;
         if(state.key==='colaborador'){
           cmp=String(a?.colaborador||'').localeCompare(String(b?.colaborador||''),'pt-BR',{sensitivity:'base',numeric:true});
+        }else if(state.key==='resultado'){
+          const aWon=(Number(a?.premiacao||0)>0 || String(a?.premioTexto||'').trim())?1:0;
+          const bWon=(Number(b?.premiacao||0)>0 || String(b?.premioTexto||'').trim())?1:0;
+          cmp=aWon-bWon;
         }else{
           cmp=extraPartialSortNumericValue(a,state.key)-extraPartialSortNumericValue(b,state.key);
         }
