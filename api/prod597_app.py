@@ -43,6 +43,7 @@ HOME_PUBLICATION_PATCH_FILE = ROOT / "frontend" / "home-publication-prod59823.js
 STOCK_SCHEDULE_PATCH_FILE = ROOT / "frontend" / "stock-schedule-prod59823.js"
 SECURITY_PASSWORD_PATCH_FILE = ROOT / "frontend" / "security-password-prod600.js"
 RESUMO_REFRESH_PATCH_FILE = ROOT / "frontend" / "resumo-refresh-prod599.js"
+UI_CONSISTENCY_PATCH_FILE = ROOT / "frontend" / "ui-consistency-prod601.js"
 PASSWORD_CHANGE_REQUIRED = "SEGURANCA_TROCA_SENHA_OBRIGATORIA"
 EXTRAS_SHEET_ID = os.getenv("DISMEPE_EXTRAS_SHEET_ID", "").strip()
 
@@ -1412,6 +1413,8 @@ async def prod597_update_center_script():
         + SECURITY_PASSWORD_PATCH_FILE.read_text(encoding="utf-8")
         + "\n\n"
         + RESUMO_REFRESH_PATCH_FILE.read_text(encoding="utf-8")
+        + "\n\n"
+        + UI_CONSISTENCY_PATCH_FILE.read_text(encoding="utf-8")
     )
     return Response(
         content=content,
