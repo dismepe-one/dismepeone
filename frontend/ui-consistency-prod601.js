@@ -104,7 +104,7 @@
 
           if(String(component.metrica||'').toUpperCase()!=='POSITIVACAO_GERAL' || pending)return;
           const actual=Math.max(0,Number(component.realizado)||0);
-          const laboratory=String(item?.lab||item?.laboratorio||'').trim();
+          const laboratory=String(item?.lab||item?.laboratorio||'').replace(/\s*-\s*Prod\.\s*Foco\s*\(\d+\)\s*$/i,'').trim();
           const laboratoryParam=laboratory?'&laboratorio='+encodeURIComponent(laboratory):'';
           const contextLabel=laboratory?' de '+laboratory:'';
           const actions=document.createElement('div');
