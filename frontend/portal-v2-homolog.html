@@ -12883,6 +12883,7 @@ sel.innerHTML=extraCampaigns.length
     if(m==='PERCENTUAL_VENDA') return `${extraMetricLabel(m)}${objetivo?` • Meta ${moeda(objetivo)}`:''}${Number(r.percentual||0)?` • ${Number(r.percentual||0).toLocaleString('pt-BR')}%`:''}`;
     if(m==='PRODUTO_FOCO') return `${extraMetricLabel(m)}${objetivo?` • Meta ${moeda(objetivo)}`:''}${c.codigoProdutoFoco?` • Prod. ${c.codigoProdutoFoco}`:''}${Number(c.objetivoProdutoFoco||0)?` x ${Number(c.objetivoProdutoFoco||0).toLocaleString('pt-BR')} un.`:''}${Number(r.valor||0)?` • Prêmio ${moeda(r.valor)}`:''}`;
     if(m==='PRODUTO_UNIDADE_GATILHO') return `${extraMetricLabel(m)}${c.codigoProdutoFoco?` • Prod. ${c.codigoProdutoFoco}`:''}${Number(c.objetivoProdutoFoco||0)?` • gatilho ${Number(c.objetivoProdutoFoco||0).toLocaleString('pt-BR')} un.`:''}${Number(r.valorUnidade||r.valor||0)?` • ${moeda(r.valorUnidade||r.valor)}/un.`:''}`;
+    if(m==='SOMA_UNIDADES_PRODUTOS_FAIXAS') return extraMetricLabel(m)+' • '+(Array.isArray(r.produtosSomados)?r.produtosSomados.length:0)+' produto(s) • '+(Array.isArray(r.faixas)?r.faixas.length:0)+' faixa(s)';
     if(m==='FATURAMENTO_INDIVIDUAL_PERCENTUAL') return `${extraMetricLabel(m)} • ${Array.isArray(r.metasIndividuais)?r.metasIndividuais.length:0} meta(s) cadastrada(s)`;
     if(m==='BRINDE') return `${extraMetricLabel(m)}${objetivo?` • Meta ${moeda(objetivo)}`:''}${r.premioTexto?` • ${String(r.premioTexto)}`:''}`;
     if(m==='RANKING_BRINDE'){
@@ -13165,8 +13166,9 @@ sel.innerHTML=extraCampaigns.length
     if(!list)return;
     const row=document.createElement('div');
     row.className='extra-faixa-row grid grid-cols-[1fr_1fr_auto] gap-2 items-center';
+    const unitMode=normalizeExtraMetric(document.getElementById('extraMetrica')?.value)==='SOMA_UNIDADES_PRODUTOS_FAIXAS';
     row.innerHTML=
-      `<input data-faixa-min type="number" step="0.01" min="0" value="${esc(min)}" placeholder="A partir de R$" class="bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800">`+
+      `<input data-faixa-min type="number" step="${unitMode?'1':'0.01'}" min="0" value="${esc(min)}" placeholder="${unitMode?'A partir de unidades':'A partir de R$'}" class="bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800">`+
       `<input data-faixa-premio type="number" step="0.01" min="0" value="${esc(premio)}" placeholder="Prêmio R$" class="bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800">`+
       `<button type="button" onclick="this.closest('.extra-faixa-row').remove()" class="w-10 h-10 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100" title="Remover faixa"><i class="fa-solid fa-trash"></i></button>`;
     list.appendChild(row);
@@ -13224,7 +13226,7 @@ sel.innerHTML=extraCampaigns.length
   };
 
 function resetExtraForm(){
-    ['extraEditId','extraNome','extraLab','extraInicio','extraFim','extraObjetivo','extraPremio','extraPercentual','extraCodigoFoco','extraObjFoco','extraValorUnidade','extraBrinde','extraLabSumMin','extraObs'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+    ['extraEditId','extraNome','extraLab','extraInicio','extraFim','extraObjetivo','extraPremio','extraPercentual','extraCodigoFoco','extraObjFoco','extraValorUnidade','extraProdutosSomados','extraBrinde','extraLabSumMin','extraObs'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
     document.getElementById('extraMetrica').value='META_FATURAMENTO';
     syncExtraSimpleUIFromMetric();
     document.getElementById('extraRequireLabSum').checked=false;
@@ -13246,7 +13248,7 @@ function resetExtraForm(){
     document.getElementById('extraInicio').value=c.dataInicio||''; document.getElementById('extraFim').value=c.dataFim||''; document.getElementById('extraMetrica').value=normalizeExtraMetric(c.metrica||'META_FATURAMENTO');
     syncExtraSimpleUIFromMetric();
     document.getElementById('extraObjetivo').value=c.objetivo||''; document.getElementById('extraPremio').value=c.regra?.valor||''; document.getElementById('extraPercentual').value=c.regra?.percentual||'';
-    document.getElementById('extraCodigoFoco').value=c.codigoProdutoFoco||''; document.getElementById('extraObjFoco').value=c.objetivoProdutoFoco||''; document.getElementById('extraValorUnidade').value=c.regra?.valorUnidade||''; document.getElementById('extraBrinde').value=c.regra?.premioTexto||''; document.getElementById('extraObs').value=c.observacao||'';
+    document.getElementById('extraCodigoFoco').value=c.codigoProdutoFoco||''; document.getElementById('extraObjFoco').value=c.objetivoProdutoFoco||''; document.getElementById('extraValorUnidade').value=c.regra?.valorUnidade||''; document.getElementById('extraProdutosSomados').value=Array.isArray(c.regra?.produtosSomados)?c.regra.produtosSomados.join(', '):(c.regra?.produtosSomados||''); document.getElementById('extraBrinde').value=c.regra?.premioTexto||''; document.getElementById('extraObs').value=c.observacao||'';
     document.getElementById('extraRequireLabSum').checked=c.regra?.exigeSomaLaboratorio===true;
     document.getElementById('extraLabSumMin').value=c.regra?.somaLabMinimo||'';
     setExtraRanking(c.regra?.rankingConfig||[]);
@@ -13363,8 +13365,15 @@ function resetExtraForm(){
     const metrica=normalizeExtraMetric(document.getElementById('extraMetrica').value);
     const faixas=getExtraFaixas();
 
-    if(metrica==='FAIXAS_FATURAMENTO' && !faixas.length){
-      alert('Cadastre pelo menos uma faixa de faturamento.');
+    if(['FAIXAS_FATURAMENTO','SOMA_UNIDADES_PRODUTOS_FAIXAS'].includes(metrica) && !faixas.length){
+      alert(metrica==='SOMA_UNIDADES_PRODUTOS_FAIXAS'?'Cadastre pelo menos uma faixa de unidades e premiação.':'Cadastre pelo menos uma faixa de faturamento.');
+      return;
+    }
+    const produtosSomados=String(document.getElementById('extraProdutosSomados')?.value||'')
+      .split(/[,;\n\r\t ]+/).map(x=>x.trim()).filter(Boolean);
+    if(metrica==='SOMA_UNIDADES_PRODUTOS_FAIXAS' && !produtosSomados.length){
+      alert('Informe pelo menos um código de produto participante.');
+      document.getElementById('extraProdutosSomados')?.focus();
       return;
     }
 
@@ -13409,6 +13418,7 @@ function resetExtraForm(){
         valorUnidade:Number(document.getElementById('extraValorUnidade').value||0),
         percentual:Number(document.getElementById('extraPercentual').value||0),
         metasIndividuais:metasIndividuais,
+        produtosSomados:produtosSomados,
         faixas:faixas,
         premioTexto:brinde,
         rankingConfig:ranking,
