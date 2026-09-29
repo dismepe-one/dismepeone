@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import hashlib
+import io
 import logging
 import os
 import time
@@ -790,6 +791,106 @@ async def campanhas_extras_snapshot(
     )
 
     return result
+
+
+@app.get("/data/campanhas-extras/exportar-pdf")
+async def campanhas_extras_exportar_pdf(
+    id: str,
+    busca: str = "",
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    campaign_id = str(id or "").strip()
+    if not campaign_id:
+        raise HTTPException(status_code=400, detail="Selecione uma campanha para exportar.")
+
+    data = await campanhas_extras_snapshot(id=campaign_id, session=session)
+    records = data.get("registros") if isinstance(data.get("registros"), list) else []
+    query = str(busca or "").strip().casefold()
+    if query:
+        records = [r for r in records if query in str(r.get("colaborador") or "").casefold()]
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from xml.sax.saxutils import escape
+
+    def money(value):
+        try: n=float(value or 0)
+        except (TypeError, ValueError): n=0.0
+        return "R$ " + f"{n:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    def num(value):
+        try: n=float(value or 0)
+        except (TypeError, ValueError): n=0.0
+        if n.is_integer(): return f"{int(n):,}".replace(",", ".")
+        return f"{n:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    campaign = data.get("campanha") if isinstance(data.get("campanha"), dict) else {}
+    totals = data.get("totais") if isinstance(data.get("totais"), dict) else {}
+    title = str(campaign.get("nome") or "Todas as Campanhas Extras")
+    lab = str(campaign.get("laboratorio") or "Todos")
+
+    styles=getSampleStyleSheet()
+    title_style=ParagraphStyle("xTitle",parent=styles["Heading1"],fontName="Helvetica-Bold",fontSize=16,textColor=colors.HexColor("#075548"))
+    cell=ParagraphStyle("xCell",parent=styles["Normal"],fontSize=7.2,leading=9,textColor=colors.HexColor("#1f2937"))
+    head=ParagraphStyle("xHead",parent=cell,fontName="Helvetica-Bold",textColor=colors.white)
+
+    out=io.BytesIO()
+    doc=SimpleDocTemplate(out,pagesize=landscape(A4),leftMargin=10*mm,rightMargin=10*mm,topMargin=10*mm,bottomMargin=10*mm,title=title,author="DISMEPE ONE")
+    story=[
+        Paragraph("DISMEPE ONE - CAMPANHAS EXTRAS",title_style),
+        Paragraph(f"<b>{escape(title)}</b> | {escape(lab)}",cell),
+        Paragraph(
+            f"Venda: <b>{escape(money(totals.get('venda')))}</b> &nbsp;&nbsp; "
+            f"Participantes: <b>{len(records) if query else int(totals.get('participantes') or 0)}</b> &nbsp;&nbsp; "
+            f"Premiados: <b>{sum(1 for r in records if float(r.get('premiacao') or 0)>0 or str(r.get('premioTexto') or '').strip()) if query else int(totals.get('premiados') or 0)}</b>",
+            cell,
+        ),
+        Spacer(1,4*mm),
+    ]
+
+    table_data=[[Paragraph(x,head) for x in ["Colaborador","Laboratório / Campanha","Objetivo","Realizado","Posição / %","Resultado"]]]
+    for r in records:
+        metric=str(r.get("metrica") or "").upper()
+        if metric=="COMBINADA": metric="PRODUTO_FOCO"
+        product_metric=metric in {"PRODUTO_FOCO","PRODUTO_UNIDADE_GATILHO"}
+        objective=(num(r.get("objetivoProdutoFoco"))+" un.") if product_metric else ("-" if metric=="RANKING_BRINDE" else money(r.get("objetivo")))
+        realized=(num(r.get("quantidadeProdutoFoco"))+" un.") if product_metric else money(r.get("venda"))
+        progress=(str(int(r.get("posicaoRanking")))+"º") if r.get("posicaoRanking") else f"{float(r.get('atingimento') or 0):.1f}%".replace(".",",")
+        won=float(r.get("premiacao") or 0)>0 or bool(str(r.get("premioTexto") or "").strip())
+        lab_text=escape(str(r.get("laboratorio") or ""))
+        camp_text=str(r.get("campanha") or "")
+        if camp_text and camp_text!=title: lab_text += "<br/><font size='6'>"+escape(camp_text)+"</font>"
+        table_data.append([
+            Paragraph(escape(str(r.get("colaborador") or "")),cell),
+            Paragraph(lab_text,cell),
+            Paragraph(escape(objective),cell),
+            Paragraph(escape(realized),cell),
+            Paragraph(escape(progress),cell),
+            Paragraph("GANHOU" if won else "NÃO GANHOU",cell),
+        ])
+    if len(table_data)==1:
+        table_data.append([Paragraph("Nenhum participante encontrado.",cell),"","","","",""])
+
+    table=Table(table_data,colWidths=[58*mm,72*mm,35*mm,35*mm,34*mm,35*mm],repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND",(0,0),(-1,0),colors.HexColor("#075548")),
+        ("GRID",(0,0),(-1,-1),0.3,colors.HexColor("#CBD5E1")),
+        ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white,colors.HexColor("#F8FAFC")]),
+        ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+        ("TOPPADDING",(0,0),(-1,-1),4),
+        ("BOTTOMPADDING",(0,0),(-1,-1),4),
+    ]))
+    story.append(table)
+    doc.build(story)
+    safe="".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in title).strip("_")[:70] or "CAMPANHAS_EXTRAS"
+    return Response(
+        content=out.getvalue(),
+        media_type="application/pdf",
+        headers={"Cache-Control":"no-store, private","Content-Disposition":f'attachment; filename="CAMPANHAS_EXTRAS_{safe}.pdf"'},
+    )
 
 
 @app.get("/data/extras-users")
