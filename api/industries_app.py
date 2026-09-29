@@ -118,6 +118,7 @@ def _portal_response(*, authenticated: bool = False, terms_admin: bool = False) 
         '<script src="/positivacao-launcher.js?v=POS-GERAL-DEV4-CARD"></script>',
         '<script src="/notificacoes/launcher.js?v=NOTIF-HOME-STABLE-1"></script>',
         '<script src="/home-cards-stability-prod599.js?v=HOME-STABLE-1"></script>',
+        '<script src="/ui-consistency-prod601.js?v=UI-601"></script>',
         '<script src="/push/client.js?v=PUSH-ANDROID-2"></script>',
     ]
     missing = [tag for tag in tags if tag not in html]
@@ -237,6 +238,7 @@ async def industries_route_guard(request: Request, call_next):
         "/monthly-retention-prod44.js",
         "/notificacoes/launcher.js", "/notificacoes/log.js",
         "/home-cards-stability-prod599.js",
+        "/ui-consistency-prod601.js",
         "/push/client.js",
     }
     if request.url.path in protected_scripts and not profile:
