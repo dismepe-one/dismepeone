@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import calendar
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Cookie, HTTPException
 from fastapi.responses import FileResponse
 
 from . import industries as industries_module
+from .cache_reads import cache_get as raw_cache_get
 from .config import get_settings
-from .home_publication import home_publication_cache_get
 from .security import decode_session_token, normalizar
 
 
@@ -17,6 +20,7 @@ router = APIRouter()
 ROOT = Path(__file__).resolve().parents[1]
 PAGE_FILE = ROOT / "frontend" / "minhas-campanhas.html"
 LAUNCHER_FILE = ROOT / "frontend" / "minhas-campanhas-launcher.js"
+RECIFE_TZ = ZoneInfo("America/Recife")
 
 SPECIAL_OBJECTIVES = {
     "HERBAMED": 160_000.0,
@@ -132,6 +136,85 @@ def _special_key(lab: str) -> str | None:
     return None
 
 
+def _weekday_total(comp: str) -> int:
+    try:
+        mm, yyyy = [int(part) for part in str(comp or "").split("/")]
+        if not 1 <= mm <= 12:
+            return 0
+    except (TypeError, ValueError):
+        return 0
+    total = 0
+    for day in range(1, calendar.monthrange(yyyy, mm)[1] + 1):
+        if datetime(yyyy, mm, day).weekday() < 5:
+            total += 1
+    return total
+
+
+def _business_days(payload: dict[str, Any], comp: str) -> tuple[int, int, int]:
+    total = _weekday_total(comp)
+    remaining = None
+    days_map = payload.get("diasUteisPorCompetencia")
+    if isinstance(days_map, dict) and comp in days_map:
+        try:
+            remaining = max(0, int(float(days_map[comp])))
+        except (TypeError, ValueError):
+            remaining = None
+    if remaining is None:
+        try:
+            remaining = max(0, int(float(payload.get("diasUteisRestantes"))))
+        except (TypeError, ValueError):
+            remaining = None
+
+    now = datetime.now(RECIFE_TZ).date()
+    try:
+        mm, yyyy = [int(part) for part in comp.split("/")]
+    except (TypeError, ValueError):
+        return total, 0, 0
+
+    if remaining is None:
+        remaining = 0
+        last = calendar.monthrange(yyyy, mm)[1]
+        for day in range(max(now.day, 1), last + 1):
+            d = datetime(yyyy, mm, day).date()
+            if d >= now and d.weekday() < 5:
+                remaining += 1
+
+    remaining = min(max(remaining, 0), total)
+    if (yyyy, mm) < (now.year, now.month):
+        elapsed = total
+    elif (yyyy, mm) > (now.year, now.month):
+        elapsed = 0
+    elif remaining > 0:
+        elapsed = max(total - remaining + 1, 1)
+    else:
+        elapsed = total
+    return total, remaining, elapsed
+
+
+def _apply_projection(rows: list[dict[str, Any]], *, total_days: int, remaining_days: int, elapsed_days: int) -> None:
+    for row in rows:
+        sale = row.get("venda")
+        objective = float(row.get("objetivo") or 0)
+        missing = row.get("falta")
+        row["diasUteisTotais"] = total_days
+        row["diasUteisRestantes"] = remaining_days
+        row["diasUteisDecorridos"] = elapsed_days
+        row["vendaDiaNecessaria"] = (
+            round(float(missing) / remaining_days, 2)
+            if missing is not None and remaining_days > 0 and float(missing) > 0
+            else 0.0 if sale is not None and objective > 0
+            else None
+        )
+        row["projecao"] = (
+            round(float(sale) / elapsed_days * total_days, 2)
+            if sale is not None and elapsed_days > 0 and total_days > 0
+            else None
+        )
+        row["projecaoAtingeMeta"] = (
+            row["projecao"] is not None and objective > 0 and float(row["projecao"]) >= objective
+        )
+
+
 def _build_campaign_rows(
     payload: dict[str, Any],
     competencia: str,
@@ -232,6 +315,17 @@ def _build_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+async def _published_monthly_snapshot() -> tuple[dict[str, Any], str]:
+    publication, publication_row = await raw_cache_get(modulo="HOME_PUBLICATION", settings=settings)
+    monthly = publication.get("mensal") if isinstance(publication, dict) else None
+    if not isinstance(monthly, dict):
+        raise RuntimeError("Fotografia mensal publicada não encontrada.")
+    display_times = publication.get("displayTimes") if isinstance(publication.get("displayTimes"), dict) else {}
+    mensal_time = display_times.get("mensal") if isinstance(display_times.get("mensal"), dict) else {}
+    updated_at = str(mensal_time.get("iso") or publication_row.get("atualizado_em") or "")
+    return monthly, updated_at
+
+
 @router.get("/minhas-campanhas", include_in_schema=False)
 async def my_campaigns_page(
     session: str | None = Cookie(default=None, alias=settings.cookie_name),
@@ -241,9 +335,7 @@ async def my_campaigns_page(
         PAGE_FILE,
         media_type="text/html",
         headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-            "Expires": "0",
+            "Cache-Control": "private, max-age=60",
             "X-Content-Type-Options": "nosniff",
         },
     )
@@ -258,7 +350,7 @@ async def my_campaigns_launcher(
         LAUNCHER_FILE,
         media_type="application/javascript",
         headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Cache-Control": "private, max-age=300",
             "X-Content-Type-Options": "nosniff",
         },
     )
@@ -282,8 +374,7 @@ async def my_campaigns_data(
 ):
     profile = _profile_from_session(session)
     try:
-        # Mesma fotografia publicada e mesmo timestamp exibido nas Parciais Mensais.
-        payload, cache_row = await home_publication_cache_get(modulo="MENSAL", settings=settings)
+        payload, updated_at = await _published_monthly_snapshot()
     except Exception as exc:
         raise HTTPException(status_code=503, detail="A base mensal das campanhas está temporariamente indisponível.") from exc
 
@@ -294,12 +385,18 @@ async def my_campaigns_data(
     if not rows:
         raise HTTPException(status_code=503, detail="Nenhuma campanha de Televendas foi localizada na competência atual.")
 
+    total_days, remaining_days, elapsed_days = _business_days(payload, competencia)
+    _apply_projection(rows, total_days=total_days, remaining_days=remaining_days, elapsed_days=elapsed_days)
+
     return {
         "sucesso": True,
         "usuario": str(profile.get("usuario") or profile.get("sub") or ""),
         "tipo": str(profile.get("tipo") or ""),
         "competencia": competencia,
-        "atualizadoEm": str(cache_row.get("atualizado_em") or ""),
+        "atualizadoEm": updated_at,
+        "diasUteisTotais": total_days,
+        "diasUteisRestantes": remaining_days,
+        "diasUteisDecorridos": elapsed_days,
         "resumo": _build_summary(rows),
         "campanhas": rows,
         "avisos": warnings,
