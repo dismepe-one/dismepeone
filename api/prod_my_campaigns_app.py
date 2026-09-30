@@ -7,6 +7,7 @@ import uuid
 from .prod597_app import app, settings  # noqa: F401
 from .my_campaigns import router as my_campaigns_router
 from . import home_publication as home_module
+from .extras_positivacao_ranking import install_extras_positivacao_ranking
 
 
 _original_monthly_publish = home_module._home_publication_publish_locked
@@ -99,3 +100,4 @@ _monthly_publish_with_supervisor_notice.__dismepe_supervisor_notice__ = True
 home_module._home_publication_publish_locked = _monthly_publish_with_supervisor_notice
 
 app.include_router(my_campaigns_router)
+install_extras_positivacao_ranking(app)
