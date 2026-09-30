@@ -1,4 +1,4 @@
-/* Card Minhas campanhas: exclusivo para Fernanda (SUP TELEVENDAS) e Danton (ADMINISTRADOR). */
+/* Card Minhas Campanhas: exclusivo para Fernanda (SUP TELEVENDAS) e Danton (ADMINISTRADOR). */
 (function(){'use strict';
  if(window.__DISMEPE_MINHAS_CAMPANHAS__)return;
  window.__DISMEPE_MINHAS_CAMPANHAS__=true;
@@ -14,7 +14,7 @@
    button.type='button';
    button.id='homeMinhasCampanhas';
    button.className='home-card text-left';
-   button.innerHTML='<span class="home-icon"><i class="fa-solid fa-bullseye"></i></span><span class="min-w-0"><span class="block font-black text-[14px] text-slate-800">Minhas campanhas</span><span class="block text-[11px] leading-4 text-slate-500 mt-0.5">Objetivos, vendas e evolução por laboratório</span></span><i class="home-arrow fa-solid fa-chevron-right"></i>';
+   button.innerHTML='<span class="home-icon"><i class="fa-solid fa-bullseye"></i></span><span class="min-w-0"><span class="block font-black text-[14px] text-slate-800">Minhas Campanhas</span><span class="block text-[11px] leading-4 text-slate-500 mt-0.5">Objetivos, vendas e evolução por laboratório</span></span><i class="home-arrow fa-solid fa-chevron-right"></i>';
    button.addEventListener('click',()=>window.location.assign(URL));
    host.appendChild(button);
  }
