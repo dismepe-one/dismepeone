@@ -877,13 +877,18 @@ async def campanhas_extras_exportar_pdf(
         if metric=="COMBINADA": metric="PRODUTO_FOCO"
         product_metric=metric in {"PRODUTO_FOCO","PRODUTO_UNIDADE_GATILHO"}
         unit_group_metric=metric=="SOMA_UNIDADES_PRODUTOS_FAIXAS"
+        clients_metric=(campaign_id=="CE-20260930-154538-472167" and metric=="RANKING_POSITIVACAO_PRODUTOS")
         objective=(
             num(r.get("objetivoProdutoFoco"))+" un."
             if product_metric
             else (
                 num(r.get("objetivoUnidades"))+" un."
                 if unit_group_metric
-                else ("-" if metric=="RANKING_BRINDE" else money(r.get("objetivo")))
+                else (
+                    num(r.get("objetivo"))+" clientes"
+                    if clients_metric
+                    else ("-" if metric=="RANKING_BRINDE" else money(r.get("objetivo")))
+                )
             )
         )
         realized=(
@@ -892,7 +897,11 @@ async def campanhas_extras_exportar_pdf(
             else (
                 num(r.get("quantidadeProdutosSomados"))+" un."
                 if unit_group_metric
-                else money(r.get("venda"))
+                else (
+                    num(r.get("clientesPositivadosValidos"))+" clientes positivados"
+                    if clients_metric
+                    else money(r.get("venda"))
+                )
             )
         )
         progress=(str(int(r.get("posicaoRanking")))+"º") if r.get("posicaoRanking") else f"{float(r.get('atingimento') or 0):.1f}%".replace(".",",")
