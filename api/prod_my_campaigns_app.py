@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 # Camada mínima sobre a aplicação oficial: preserva integralmente o PROD atual
 # e registra somente as integrações privadas de "Minhas Campanhas".
+from . import prod597_app as prod597
 from .prod597_app import app, settings  # noqa: F401
+from .cache_reads import cache_get
 from .my_campaigns import router as my_campaigns_router
 from . import home_publication as home_module
 from .extras_positivacao_ranking import install_extras_positivacao_ranking
@@ -12,6 +15,58 @@ from .extras_positivacao_schema_fix import install_extras_positivacao_schema_fix
 from .extras_positivacao_client_match_fix import install_extras_positivacao_client_match_fix
 from .extras_positivacao_partial_display import install_extras_positivacao_partial_display
 from .pdf_branding import install_pdf_branding
+
+
+TARGET_EXTRAS_CAMPAIGN = "CE-20260930-154538-472167"
+STALE_EXTRAS_CUTOFF = datetime(2026, 9, 30, 20, 0, 0, tzinfo=timezone.utc)
+_original_refresh_extras_snapshot = prod597._refresh_extras_snapshot
+
+
+def _parse_snapshot_time(value: object) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+async def _refresh_extras_snapshot_with_natulab_migration(
+    *,
+    legacy_token: str,
+    profile: dict,
+    require_change: bool = False,
+):
+    force_once = False
+    if require_change:
+        try:
+            previous, row = await cache_get(modulo="EXTRAS", settings=settings)
+            sales = previous.get("vendasPorCampanha") if isinstance(previous, dict) else None
+            has_target = isinstance(sales, dict) and TARGET_EXTRAS_CAMPAIGN in sales
+            saved_at = _parse_snapshot_time(row.get("atualizado_em") if isinstance(row, dict) else "")
+            force_once = bool(
+                has_target
+                and saved_at is not None
+                and saved_at < STALE_EXTRAS_CUTOFF
+            )
+        except Exception:
+            force_once = False
+
+    # Migração pontual: a fotografia de 19:53Z foi criada antes das correções
+    # de associação/visualização desta campanha. Ela precisa ser reconstruída
+    # uma única vez mesmo quando os dados brutos do Google forem idênticos.
+    return await _original_refresh_extras_snapshot(
+        legacy_token=legacy_token,
+        profile=profile,
+        require_change=False if force_once else require_change,
+    )
+
+
+prod597._refresh_extras_snapshot = _refresh_extras_snapshot_with_natulab_migration
 
 
 _original_monthly_publish = home_module._home_publication_publish_locked
