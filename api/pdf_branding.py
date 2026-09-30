@@ -12,6 +12,7 @@ from fastapi.routing import APIRoute
 ROOT = Path(__file__).resolve().parents[1]
 LOGO_FILE = ROOT / "frontend" / "app-icon-v2-192.png"
 FRONTEND_PATCH = ROOT / "frontend" / "pdf-branding.js"
+EXTRAS_POSITIVITY_PDF_PATCH = ROOT / "frontend" / "extras-positivacao-pdf-fix.js"
 
 
 def _route_for(app: Any, path: str, method: str) -> APIRoute | None:
@@ -105,15 +106,23 @@ def install_pdf_branding(app: Any) -> None:
                 base_text = base_content.decode("utf-8")
             else:
                 base_text = str(base_content or "")
-            patch = FRONTEND_PATCH.read_text(encoding="utf-8")
+            branding_patch = FRONTEND_PATCH.read_text(encoding="utf-8")
+            extras_pdf_patch = EXTRAS_POSITIVITY_PDF_PATCH.read_text(encoding="utf-8")
             return Response(
-                content=base_text + "\n\n" + patch,
+                content=(
+                    base_text
+                    + "\n\n"
+                    + branding_patch
+                    + "\n\n"
+                    + extras_pdf_patch
+                ),
                 media_type="application/javascript",
                 headers={
                     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
                     "Pragma": "no-cache",
                     "Expires": "0",
                     "X-DISMEPE-PDF-Branding": "DISMEPE_ONE_V1",
+                    "X-DISMEPE-Extras-PDF-Clientes": "CE-20260930-154538-472167",
                 },
             )
 
