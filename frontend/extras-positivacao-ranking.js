@@ -14,6 +14,36 @@
 
   function byId(id){return document.getElementById(id);}
   function metric(){return String(byId('extraMetrica')?.value||'').toUpperCase();}
+  function rowMetric(row){return String(row?.metrica||row?.tipoPremio||'').trim().toUpperCase();}
+  function validCustomers(row){
+    const value=Number(row?.clientesPositivadosValidos ?? row?.realizado ?? row?.venda ?? 0);
+    return Number.isFinite(value)?Math.max(0,Math.trunc(value)):0;
+  }
+  function positivityObjective(row){
+    const value=Number(row?.objetivo ?? MIN_CUSTOMERS);
+    return Number.isFinite(value)&&value>0?Math.trunc(value):MIN_CUSTOMERS;
+  }
+  function installPartialFormatters(){
+    const realized=window.extraPartialRealizedText;
+    if(typeof realized==='function' && !realized.__posRankingWrapped){
+      const wrapped=function(row){
+        if(rowMetric(row)===METRIC) return String(validCustomers(row))+' clientes positivados';
+        return realized.apply(this,arguments);
+      };
+      wrapped.__posRankingWrapped=true;
+      window.extraPartialRealizedText=wrapped;
+    }
+
+    const objective=window.extraPartialObjectiveText;
+    if(typeof objective==='function' && !objective.__posRankingWrapped){
+      const wrapped=function(row){
+        if(rowMetric(row)===METRIC) return String(positivityObjective(row))+' clientes';
+        return objective.apply(this,arguments);
+      };
+      wrapped.__posRankingWrapped=true;
+      window.extraPartialObjectiveText=wrapped;
+    }
+  }
   function productCodes(){
     const raw=String(byId('extraProdutosSomados')?.value||'');
     const out=[]; const seen=new Set();
@@ -65,6 +95,7 @@
   }
   function applyMetricUI(){
     ensureOptions();
+    installPartialFormatters();
     if(metric()!==METRIC) return;
 
     byId('extraProdutosSomadosSection')?.classList.remove('hidden');
@@ -88,6 +119,7 @@
 
   function install(){
     ensureOptions();
+    installPartialFormatters();
 
     const originalSync=window.syncExtraMetricFromSimpleUI;
     if(typeof originalSync==='function' && !originalSync.__posRankingWrapped){
