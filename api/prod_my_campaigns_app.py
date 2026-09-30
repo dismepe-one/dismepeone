@@ -69,6 +69,47 @@ async def _refresh_extras_snapshot_with_natulab_migration(
 prod597._refresh_extras_snapshot = _refresh_extras_snapshot_with_natulab_migration
 
 
+@app.on_event("startup")
+async def _rebuild_stale_natulab_extras_snapshot_once() -> None:
+    """Regrava apenas a fotografia EXTRAS anterior à correção da campanha NATULAB.
+
+    A leitura de Campanhas Extras já usa configuração SQL + Google Drive com a
+    conta de serviço; o token legado não participa dessa leitura. A condição de
+    timestamp torna esta migração idempotente: após a primeira gravação nova,
+    os próximos startups não fazem nada.
+    """
+    try:
+        previous, row = await cache_get(modulo="EXTRAS", settings=settings)
+        sales = previous.get("vendasPorCampanha") if isinstance(previous, dict) else None
+        has_target = isinstance(sales, dict) and TARGET_EXTRAS_CAMPAIGN in sales
+        saved_at = _parse_snapshot_time(
+            row.get("atualizado_em") if isinstance(row, dict) else ""
+        )
+        if not (
+            has_target
+            and saved_at is not None
+            and saved_at < STALE_EXTRAS_CUTOFF
+        ):
+            return
+
+        await _refresh_extras_snapshot_with_natulab_migration(
+            legacy_token="",
+            profile={
+                "usuario": "SISTEMA",
+                "nome": "SISTEMA",
+                "tipo": "ADMINISTRADOR",
+            },
+            require_change=False,
+        )
+    except Exception as exc:
+        # Uma falha de sincronização nunca impede o portal de iniciar. A
+        # fotografia anterior continua preservada e o erro fica nos logs.
+        home_module.logger.exception(
+            "Campanhas Extras: falha na migração pontual da fotografia NATULAB (%s)",
+            type(exc).__name__,
+        )
+
+
 _original_monthly_publish = home_module._home_publication_publish_locked
 
 
