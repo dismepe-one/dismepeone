@@ -151,7 +151,7 @@
   });
 })();
 
-/* PROD6.0.5 — parcial mensal: saldo para meta compacto somente no desktop. */
+/* PROD6.0.5 — parcial mensal: falta vender compacto somente no desktop. */
 (function(){
   'use strict';
   if(window.__DISMEPE_MONTHLY_FILTER_GAP_TEXT_605__)return;
@@ -256,7 +256,7 @@
     const reached=sale>=objective;
     text.classList.add('visible');
     text.classList.toggle('reached',reached);
-    text.innerHTML='<span class="d605-gap-label">SALDO PARA META</span><span class="d605-gap-value">'+money(gap)+(reached?' · ATINGIDA':'')+'</span>';
+    text.innerHTML='<span class="d605-gap-label">FALTA VENDER</span><span class="d605-gap-value">'+money(gap)+(reached?' · ATINGIDA':'')+'</span>';
   }
 
   function wrapDashboard(){
