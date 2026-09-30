@@ -151,11 +151,11 @@
   });
 })();
 
-/* PROD6.0.2 — parcial mensal: valor que falta para o objetivo do laboratório filtrado. */
+/* PROD6.0.3 — parcial mensal: indicador discreto do valor que falta vender. */
 (function(){
   'use strict';
-  if(window.__DISMEPE_MONTHLY_FILTER_GAP_CARD_602__)return;
-  window.__DISMEPE_MONTHLY_FILTER_GAP_CARD_602__=true;
+  if(window.__DISMEPE_MONTHLY_FILTER_GAP_TEXT_603__)return;
+  window.__DISMEPE_MONTHLY_FILTER_GAP_TEXT_603__=true;
 
   function parseBRL(value){
     let text=String(value||'').replace(/R\$/gi,'').replace(/\s/g,'').trim();
@@ -170,104 +170,102 @@
     return Number(value||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
   }
 
+  function cleanupOldCard(){
+    document.getElementById('d602SupplierGapCard')?.remove();
+    document.getElementById('kpiMetricsSection')?.classList.remove('d602-five-kpis');
+    document.getElementById('monthly-filter-gap-card-602-style')?.remove();
+  }
+
   function ensureGapStyle(){
-    if(document.getElementById('monthly-filter-gap-card-602-style'))return;
+    if(document.getElementById('monthly-filter-gap-text-603-style'))return;
     const style=document.createElement('style');
-    style.id='monthly-filter-gap-card-602-style';
+    style.id='monthly-filter-gap-text-603-style';
     style.textContent=`
-      #kpiMetricsSection.d602-five-kpis{grid-template-columns:repeat(5,minmax(0,1fr))}
-      #d602SupplierGapCard{border-color:rgba(244,63,94,.24)}
-      #d602SupplierGapCard.d602-reached{border-color:rgba(16,185,129,.24)}
-      #d602SupplierGapCard .d602-icon{background:rgba(244,63,94,.10);color:#fb7185}
-      #d602SupplierGapCard.d602-reached .d602-icon{background:rgba(16,185,129,.10);color:#34d399}
-      #d602SupplierGapValue{color:#fda4af}
-      #d602SupplierGapCard.d602-reached #d602SupplierGapValue{color:#6ee7b7}
-      @media(max-width:1200px){#kpiMetricsSection.d602-five-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
-      @media(max-width:640px){#kpiMetricsSection.d602-five-kpis{grid-template-columns:1fr}}
+      .d603-gap-stack{display:flex;flex-direction:column;align-items:stretch;gap:7px;min-width:0}
+      #d603SupplierGapText{display:none;align-items:center;justify-content:center;gap:6px;min-height:28px;padding:5px 10px;border-radius:9px;border:1px solid rgba(244,63,94,.24);background:rgba(244,63,94,.08);color:#fecdd3;font-size:10px;font-weight:900;letter-spacing:.035em;text-transform:uppercase;white-space:nowrap}
+      #d603SupplierGapText.visible{display:flex}
+      #d603SupplierGapText.reached{border-color:rgba(16,185,129,.25);background:rgba(16,185,129,.09);color:#a7f3d0}
+      #d603SupplierGapText .d603-gap-value{font-size:12px;color:#fff;letter-spacing:0}
+      #d603SupplierGapText.reached .d603-gap-value{color:#d1fae5}
+      @media(max-width:767px){.d603-gap-stack{width:100%}#d603SupplierGapText{justify-content:flex-start;white-space:normal}}
     `;
     document.head.appendChild(style);
   }
 
-  function ensureGapCard(){
-    const host=document.getElementById('kpiMetricsSection');
-    if(!host)return null;
-    let card=document.getElementById('d602SupplierGapCard');
-    if(card)return card;
-    card=document.createElement('div');
-    card.id='d602SupplierGapCard';
-    card.className='card-glass p-5 rounded-2xl shadow-lg relative overflow-hidden hidden';
-    card.innerHTML='<div class="d602-icon absolute right-4 top-4 p-3 rounded-xl"><i class="fa-solid fa-flag-checkered text-xl"></i></div><p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Falta para o objetivo</p><h3 id="d602SupplierGapValue" class="text-2xl font-bold mt-2">—</h3><span id="d602SupplierGapSub" class="text-xs text-slate-400 mt-1 block">Selecione um laboratório</span>';
-    host.appendChild(card);
-    return card;
-  }
-
-  function selectedLabLabel(){
-    const select=document.getElementById('filterLab');
-    const option=select?.options?.[select.selectedIndex];
-    return String(option?.textContent||select?.value||'').trim();
-  }
-
-  function renderGapCard(){
+  function ensureGapText(){
+    cleanupOldCard();
     ensureGapStyle();
-    const host=document.getElementById('kpiMetricsSection');
-    const card=ensureGapCard();
+    let text=document.getElementById('d603SupplierGapText');
+    if(text)return text;
+
+    const reset=document.querySelector('button[onclick="resetFilters()"]');
+    if(!reset||!reset.parentElement)return null;
+    let stack=reset.closest('.d603-gap-stack');
+    if(!stack){
+      stack=document.createElement('div');
+      stack.className='d603-gap-stack w-full md:w-auto';
+      reset.parentElement.insertBefore(stack,reset);
+      stack.appendChild(reset);
+    }
+
+    text=document.createElement('div');
+    text.id='d603SupplierGapText';
+    text.setAttribute('aria-live','polite');
+    stack.appendChild(text);
+    return text;
+  }
+
+  function renderGapText(){
+    const text=ensureGapText();
     const select=document.getElementById('filterLab');
-    if(!host||!card||!select)return;
+    if(!text||!select)return;
 
     const selected=String(select.value||'ALL').trim();
     if(!selected||selected==='ALL'){
-      card.classList.add('hidden');
-      card.classList.remove('d602-reached');
-      host.classList.remove('d602-five-kpis');
+      text.classList.remove('visible','reached');
+      text.textContent='';
       return;
     }
 
     const objective=parseBRL(document.getElementById('kpiObjetivo')?.textContent);
     const sale=parseBRL(document.getElementById('kpiVenda')?.textContent);
-    const gap=Math.max(objective-sale,0);
-    const reached=objective>0&&sale>=objective;
-    const value=document.getElementById('d602SupplierGapValue');
-    const sub=document.getElementById('d602SupplierGapSub');
-
-    card.classList.remove('hidden');
-    card.classList.toggle('d602-reached',reached);
-    host.classList.add('d602-five-kpis');
-
     if(objective<=0){
-      if(value)value.textContent='—';
-      if(sub)sub.textContent=selectedLabLabel()+' · fornecedor sem objetivo financeiro';
+      text.classList.remove('visible','reached');
+      text.textContent='';
       return;
     }
 
-    if(value)value.textContent=money(gap);
-    if(sub)sub.textContent=reached
-      ? selectedLabLabel()+' · objetivo atingido'
-      : selectedLabLabel()+' · '+money(sale)+' de '+money(objective);
+    const gap=Math.max(objective-sale,0);
+    const reached=sale>=objective;
+    text.classList.add('visible');
+    text.classList.toggle('reached',reached);
+    text.innerHTML='<span>FALTA VENDER:</span><span class="d603-gap-value">'+money(gap)+'</span>'+(reached?'<span>· OBJETIVO ATINGIDO</span>':'');
   }
 
   function wrapDashboard(){
     const original=window.updateDashboard;
-    if(typeof original!=='function'||original.__d602GapWrapped)return false;
+    if(typeof original!=='function'||original.__d603GapWrapped)return false;
     const wrapped=function(){
       const result=original.apply(this,arguments);
-      requestAnimationFrame(renderGapCard);
+      requestAnimationFrame(renderGapText);
       return result;
     };
-    wrapped.__d602GapWrapped=true;
-    wrapped.__d602Original=original;
+    wrapped.__d603GapWrapped=true;
+    wrapped.__d603Original=original;
     window.updateDashboard=wrapped;
     return true;
   }
 
-  function bindGapCard(){
+  function bindGapText(){
+    cleanupOldCard();
     wrapDashboard();
-    document.getElementById('filterLab')?.addEventListener('change',()=>requestAnimationFrame(renderGapCard));
-    document.getElementById('filterColab')?.addEventListener('change',()=>requestAnimationFrame(renderGapCard));
-    renderGapCard();
+    document.getElementById('filterLab')?.addEventListener('change',()=>requestAnimationFrame(renderGapText));
+    document.getElementById('filterColab')?.addEventListener('change',()=>requestAnimationFrame(renderGapText));
+    renderGapText();
   }
 
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bindGapCard,{once:true});
-  else bindGapCard();
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bindGapText,{once:true});
+  else bindGapText();
 
-  [100,500,1500,3500].forEach(delay=>setTimeout(()=>{wrapDashboard();renderGapCard();},delay));
+  [100,500,1500,3500].forEach(delay=>setTimeout(()=>{cleanupOldCard();wrapDashboard();renderGapText();},delay));
 })();
