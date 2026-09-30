@@ -1,12 +1,22 @@
 /* DISMEPE ONE — estabilização visual da HOME.
-   Evita reconstruir a mesma grade de cards quando usuário/permissões não mudaram. */
+   Evita reconstruir a mesma grade de cards quando usuário/permissões não mudaram
+   e mantém o card privado "Minhas campanhas" íntegro após o pós-login. */
 (function(){
   'use strict';
   if(window.__DISMEPE_HOME_CARDS_STABILITY__)return;
   window.__DISMEPE_HOME_CARDS_STABILITY__=true;
 
-  let myCampaignsAllowed=false;
-  let myCampaignsPending=false;
+  let homeObserver=null;
+  let observedHome=null;
+  let repairTimer=null;
+
+  function norm(value){
+    return String(value||'')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g,'')
+      .trim()
+      .toUpperCase();
+  }
 
   function userNow(){
     try{
@@ -14,6 +24,16 @@
     }catch(_){
       return {};
     }
+  }
+
+  function isMyCampaignsUser(){
+    const user=userNow();
+    const login=norm(user.usuario||user.login||user.sub||'');
+    const role=norm(user.tipo||user.cargo||'');
+    return (
+      (login==='FERNANDA' && role==='SUP TELEVENDAS') ||
+      (login==='DANTON' && role==='ADMINISTRADOR')
+    );
   }
 
   function permissionSignature(){
@@ -29,8 +49,8 @@
     try{admin=window.panelIsAdmin?.(user)===true;}catch(_){}
 
     return JSON.stringify({
-      usuario:String(user.usuario||user.login||'').trim().toUpperCase(),
-      tipo:String(user.tipo||user.cargo||'').trim().toUpperCase(),
+      usuario:norm(user.usuario||user.login||user.sub||''),
+      tipo:norm(user.tipo||user.cargo||''),
       admin,
       enabled
     });
@@ -47,39 +67,69 @@
     });
   }
 
-  function paintMyCampaigns(){
-    const host=document.getElementById('homeCards');
-    if(!host)return;
-    const existing=document.getElementById('homeMinhasCampanhas');
-    if(!myCampaignsAllowed){
-      if(existing)existing.remove();
-      return;
-    }
-    if(existing)return;
+  function myCampaignsCardHealthy(card){
+    if(!(card instanceof HTMLElement))return false;
+    if(card.tagName!=='BUTTON')return false;
+    if(!card.classList.contains('home-card'))return false;
+    const title=card.querySelector('.font-black');
+    const subtitle=card.querySelector('.text-slate-500');
+    const icon=card.querySelector('.home-icon');
+    const arrow=card.querySelector('.home-arrow');
+    return !!(
+      title && norm(title.textContent)==='MINHAS CAMPANHAS' &&
+      subtitle && norm(subtitle.textContent).includes('OBJETIVOS') &&
+      icon && arrow
+    );
+  }
+
+  function buildMyCampaignsCard(){
     const button=document.createElement('button');
     button.type='button';
     button.id='homeMinhasCampanhas';
     button.className='home-card text-left';
+    button.dataset.dismepeStableCard='minhas-campanhas';
     button.innerHTML='<span class="home-icon"><i class="fa-solid fa-bullseye"></i></span><span class="min-w-0"><span class="block font-black text-[14px] text-slate-800">Minhas campanhas</span><span class="block text-[11px] leading-4 text-slate-500 mt-0.5">Objetivos, vendas e evolução por laboratório</span></span><i class="home-arrow fa-solid fa-chevron-right"></i>';
     button.addEventListener('click',function(){window.location.assign('/minhas-campanhas');});
-    host.appendChild(button);
+    return button;
   }
 
-  async function checkMyCampaigns(){
-    if(myCampaignsPending)return;
-    myCampaignsPending=true;
-    try{
-      const response=await fetch('/minhas-campanhas/api/acesso',{
-        credentials:'include',
-        cache:'no-store'
-      });
-      myCampaignsAllowed=response.ok;
-    }catch(_){
-      myCampaignsAllowed=false;
-    }finally{
-      myCampaignsPending=false;
-      paintMyCampaigns();
+  function ensureMyCampaignsCard(){
+    const host=document.getElementById('homeCards');
+    const existing=document.getElementById('homeMinhasCampanhas');
+
+    if(!isMyCampaignsUser()){
+      if(existing)existing.remove();
+      return;
     }
+    if(!host)return;
+
+    if(existing && existing.parentElement===host && myCampaignsCardHealthy(existing)){
+      return;
+    }
+
+    if(existing)existing.remove();
+    host.appendChild(buildMyCampaignsCard());
+  }
+
+  function scheduleMyCampaignsRepair(delay){
+    if(repairTimer)clearTimeout(repairTimer);
+    repairTimer=setTimeout(function(){
+      repairTimer=null;
+      ensureMyCampaignsCard();
+      attachHomeObserver();
+    },Math.max(0,Number(delay)||0));
+  }
+
+  function attachHomeObserver(){
+    const host=document.getElementById('homeCards');
+    if(host===observedHome)return;
+    if(homeObserver)homeObserver.disconnect();
+    observedHome=host||null;
+    if(!host)return;
+    homeObserver=new MutationObserver(function(){
+      scheduleMyCampaignsRepair(0);
+    });
+    homeObserver.observe(host,{childList:true,subtree:true});
   }
 
   function install(){
@@ -91,7 +141,7 @@
       const host=document.getElementById('homeCards');
       const signature=permissionSignature();
 
-      // A maior parte dos "retries" pós-login chama renderHomeCards sem
+      // A maior parte dos retries pós-login chama renderHomeCards sem
       // qualquer alteração de acesso. Não destrói/recria o mesmo DOM.
       if(
         host &&
@@ -99,13 +149,19 @@
         signature===lastSignature &&
         hasNativeCards(host)
       ){
-        paintMyCampaigns();
+        ensureMyCampaignsCard();
         return;
       }
 
       const result=native.apply(this,arguments);
       lastSignature=signature;
-      checkMyCampaigns();
+
+      // O renderer legado pode reconstruir a grade de forma síncrona ou no
+      // próximo frame. Repara o card privado em ambos os casos.
+      ensureMyCampaignsCard();
+      requestAnimationFrame(function(){ensureMyCampaignsCard();attachHomeObserver();});
+      setTimeout(ensureMyCampaignsCard,80);
+      setTimeout(ensureMyCampaignsCard,250);
       return result;
     };
 
@@ -122,22 +178,44 @@
     setTimeout(ensureInstalled,50);
   }
 
-  ensureInstalled();
-  checkMyCampaigns();
+  function watchForHomeReplacement(){
+    const root=document.body||document.documentElement;
+    if(!root)return;
+    new MutationObserver(function(mutations){
+      for(const mutation of mutations){
+        for(const node of mutation.addedNodes){
+          if(!(node instanceof HTMLElement))continue;
+          if(node.id==='homeCards' || node.querySelector?.('#homeCards')){
+            attachHomeObserver();
+            scheduleMyCampaignsRepair(0);
+            return;
+          }
+        }
+      }
+    }).observe(root,{childList:true,subtree:true});
+  }
 
-  // Se outro patch legítimo substituir o renderer mais tarde, envolve a nova
-  // função uma vez, sem loop e sem tocar na ordem dos cards.
-  [250,800,1800].forEach(function(delay){
+  ensureInstalled();
+  attachHomeObserver();
+  scheduleMyCampaignsRepair(0);
+  watchForHomeReplacement();
+
+  // Cobre o intervalo de hidratação/login sem manter polling permanente.
+  [100,250,500,1000,2000,4000,8000].forEach(function(delay){
     setTimeout(function(){
       const current=window.renderHomeCards;
       if(typeof current==='function' && !current.__dismepeHomeStableWrapped){
         install();
       }
-      paintMyCampaigns();
+      attachHomeObserver();
+      ensureMyCampaignsCard();
     },delay);
   });
 
   document.addEventListener('visibilitychange',function(){
-    if(!document.hidden)checkMyCampaigns();
+    if(!document.hidden){
+      attachHomeObserver();
+      ensureMyCampaignsCard();
+    }
   });
 })();
