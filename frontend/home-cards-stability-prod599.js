@@ -37,10 +37,6 @@
     );
   }
 
-  function openMyCampaigns(){
-    window.location.href=MY_CAMPAIGNS_URL+'?v='+Date.now();
-  }
-
   function permissionSignature(){
     const user=userNow();
     const raw=user && typeof user.permissoes==='object' && user.permissoes
@@ -74,8 +70,9 @@
 
   function myCampaignsCardHealthy(card){
     if(!(card instanceof HTMLElement))return false;
-    if(card.tagName!=='BUTTON')return false;
+    if(card.tagName!=='A')return false;
     if(!card.classList.contains('home-card'))return false;
+    if(card.getAttribute('href')!==MY_CAMPAIGNS_URL)return false;
     const title=card.querySelector('.font-black');
     const subtitle=card.querySelector('.text-slate-500');
     const icon=card.querySelector('.home-icon');
@@ -83,29 +80,19 @@
     return !!(
       title && norm(title.textContent)==='MINHAS CAMPANHAS' &&
       subtitle && norm(subtitle.textContent).includes('OBJETIVOS') &&
-      icon && arrow &&
-      card.dataset.dismepeStableCard==='minhas-campanhas'
+      icon && arrow
     );
   }
 
-  function armMyCampaignsCard(card){
-    if(!(card instanceof HTMLElement))return;
-    card.dataset.dismepeStableCard='minhas-campanhas';
-    card.setAttribute('onclick',"window.location.href='/minhas-campanhas?v='+Date.now(); return false;");
-  }
-
   function buildMyCampaignsCard(){
-    const button=document.createElement('button');
-    button.type='button';
-    button.id='homeMinhasCampanhas';
-    button.className='home-card text-left';
-    button.innerHTML='<span class="home-icon"><i class="fa-solid fa-bullseye"></i></span><span class="min-w-0"><span class="block font-black text-[14px] text-slate-800">Minhas Campanhas</span><span class="block text-[11px] leading-4 text-slate-500 mt-0.5">Objetivos, vendas e evolução por laboratório</span></span><i class="home-arrow fa-solid fa-chevron-right"></i>';
-    armMyCampaignsCard(button);
-    button.addEventListener('click',function(event){
-      event.preventDefault();
-      openMyCampaigns();
-    });
-    return button;
+    const link=document.createElement('a');
+    link.id='homeMinhasCampanhas';
+    link.href=MY_CAMPAIGNS_URL;
+    link.className='home-card text-left';
+    link.dataset.dismepeStableCard='minhas-campanhas';
+    link.setAttribute('aria-label','Abrir Minhas Campanhas');
+    link.innerHTML='<span class="home-icon"><i class="fa-solid fa-bullseye"></i></span><span class="min-w-0"><span class="block font-black text-[14px] text-slate-800">Minhas Campanhas</span><span class="block text-[11px] leading-4 text-slate-500 mt-0.5">Objetivos, vendas e evolução por laboratório</span></span><i class="home-arrow fa-solid fa-chevron-right"></i>';
+    return link;
   }
 
   function ensureMyCampaignsCard(){
@@ -119,7 +106,6 @@
     if(!host)return;
 
     if(existing && existing.parentElement===host && myCampaignsCardHealthy(existing)){
-      armMyCampaignsCard(existing);
       return;
     }
 
@@ -206,13 +192,6 @@
       }
     }).observe(root,{childList:true,subtree:true});
   }
-
-  document.addEventListener('click',function(event){
-    const card=event.target instanceof Element ? event.target.closest('#homeMinhasCampanhas') : null;
-    if(!card || !isMyCampaignsUser())return;
-    event.preventDefault();
-    openMyCampaigns();
-  },true);
 
   ensureInstalled();
   attachHomeObserver();
