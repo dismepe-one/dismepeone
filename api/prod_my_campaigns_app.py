@@ -11,6 +11,7 @@ from .extras_positivacao_ranking import install_extras_positivacao_ranking
 from .extras_positivacao_schema_fix import install_extras_positivacao_schema_fix
 from .extras_positivacao_client_match_fix import install_extras_positivacao_client_match_fix
 from .extras_positivacao_partial_display import install_extras_positivacao_partial_display
+from .pdf_branding import install_pdf_branding
 
 
 _original_monthly_publish = home_module._home_publication_publish_locked
@@ -107,3 +108,4 @@ install_extras_positivacao_ranking(app)
 install_extras_positivacao_schema_fix(app)
 install_extras_positivacao_client_match_fix(app)
 install_extras_positivacao_partial_display(app)
+install_pdf_branding(app)
