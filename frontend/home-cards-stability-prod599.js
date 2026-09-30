@@ -9,6 +9,7 @@
   let homeObserver=null;
   let observedHome=null;
   let repairTimer=null;
+  const MY_CAMPAIGNS_URL='/minhas-campanhas';
 
   function norm(value){
     return String(value||'')
@@ -34,6 +35,10 @@
       (login==='FERNANDA' && role==='SUP TELEVENDAS') ||
       (login==='DANTON' && role==='ADMINISTRADOR')
     );
+  }
+
+  function openMyCampaigns(){
+    window.location.href=MY_CAMPAIGNS_URL+'?v='+Date.now();
   }
 
   function permissionSignature(){
@@ -78,8 +83,15 @@
     return !!(
       title && norm(title.textContent)==='MINHAS CAMPANHAS' &&
       subtitle && norm(subtitle.textContent).includes('OBJETIVOS') &&
-      icon && arrow
+      icon && arrow &&
+      card.dataset.dismepeStableCard==='minhas-campanhas'
     );
+  }
+
+  function armMyCampaignsCard(card){
+    if(!(card instanceof HTMLElement))return;
+    card.dataset.dismepeStableCard='minhas-campanhas';
+    card.setAttribute('onclick',"window.location.href='/minhas-campanhas?v='+Date.now(); return false;");
   }
 
   function buildMyCampaignsCard(){
@@ -87,9 +99,12 @@
     button.type='button';
     button.id='homeMinhasCampanhas';
     button.className='home-card text-left';
-    button.dataset.dismepeStableCard='minhas-campanhas';
     button.innerHTML='<span class="home-icon"><i class="fa-solid fa-bullseye"></i></span><span class="min-w-0"><span class="block font-black text-[14px] text-slate-800">Minhas Campanhas</span><span class="block text-[11px] leading-4 text-slate-500 mt-0.5">Objetivos, vendas e evolução por laboratório</span></span><i class="home-arrow fa-solid fa-chevron-right"></i>';
-    button.addEventListener('click',function(){window.location.assign('/minhas-campanhas');});
+    armMyCampaignsCard(button);
+    button.addEventListener('click',function(event){
+      event.preventDefault();
+      openMyCampaigns();
+    });
     return button;
   }
 
@@ -104,6 +119,7 @@
     if(!host)return;
 
     if(existing && existing.parentElement===host && myCampaignsCardHealthy(existing)){
+      armMyCampaignsCard(existing);
       return;
     }
 
@@ -190,6 +206,13 @@
       }
     }).observe(root,{childList:true,subtree:true});
   }
+
+  document.addEventListener('click',function(event){
+    const card=event.target instanceof Element ? event.target.closest('#homeMinhasCampanhas') : null;
+    if(!card || !isMyCampaignsUser())return;
+    event.preventDefault();
+    openMyCampaigns();
+  },true);
 
   ensureInstalled();
   attachHomeObserver();
