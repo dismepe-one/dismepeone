@@ -8,12 +8,13 @@ def test_access_is_limited_to_fernanda_and_danton():
     assert not can_view_my_campaigns({"usuario": "OUTRO", "tipo": "ADMINISTRADOR"})
 
 
-def test_normal_campaign_uses_only_televendas_and_ignores_focus_rows():
+def test_normal_campaign_uses_only_televendas_and_ignores_non_sales_rows():
     payload = {
         "dadosTelevendas": [
             {"__LAB": "GEOLAB", "__COMPETENCIA": "09/2026", "__OBJETIVO": 1000, "__VENDA": 400},
             {"__LAB": "GEOLAB", "__COMPETENCIA": "09/2026", "__OBJETIVO": 500, "__VENDA": 300},
             {"__LAB": "GEOLAB - Prod. Foco (2239)", "__COMPETENCIA": "09/2026", "__OBJETIVO": 90, "__VENDA": 42},
+            {"__LAB": "BRG SUPLEMENTOS", "__COMPETENCIA": "09/2026", "__OBJETIVO": 400, "__VENDA": 280},
         ]
     }
     rows, warnings = _build_campaign_rows(payload, "09/2026", general_sales_getter=lambda *_: None)
@@ -66,15 +67,20 @@ def test_general_sale_never_falls_back_to_televendas():
     assert warnings
 
 
-def test_summary_reports_mixed_campaigns():
+def test_summary_reports_only_operational_counts():
     rows = [
         {"objetivo": 100, "venda": 120, "status": "META_ATINGIDA"},
         {"objetivo": 200, "venda": 100, "status": "ABAIXO_META"},
+        {"objetivo": 0, "venda": 10, "status": "SEM_OBJETIVO"},
     ]
     summary = _build_summary(rows)
-    assert summary["campanhas"] == 2
-    assert summary["objetivo"] == 300
-    assert summary["venda"] == 220
-    assert summary["atingimento"] == 73.33
-    assert summary["metaAtingida"] == 1
-    assert summary["abaixoMeta"] == 1
+    assert summary == {
+        "campanhas": 3,
+        "metaAtingida": 1,
+        "abaixoMeta": 1,
+        "semObjetivo": 1,
+        "dadosIncompletos": 0,
+    }
+    assert "objetivo" not in summary
+    assert "venda" not in summary
+    assert "atingimento" not in summary

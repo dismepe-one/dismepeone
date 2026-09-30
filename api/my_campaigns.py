@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 
 from . import industries as industries_module
 from .config import get_settings
+from .home_publication import home_publication_cache_get
 from .security import decode_session_token, normalizar
 
 
@@ -83,13 +84,15 @@ def _row_competence(row: dict[str, Any]) -> str:
     return str(value or "").strip()
 
 
-def _is_focus_row(row: dict[str, Any]) -> bool:
+def _is_non_sales_row(row: dict[str, Any]) -> bool:
     lab = normalizar(_row_lab(row))
     return (
         "PROD FOCO" in lab
         or "PRODUTO FOCO" in lab
         or "PROD. FOCO" in str(_row_lab(row)).upper()
         or normalizar(row.get("__CANAL") or "") == "PRODUTO FOCO"
+        or lab == "BRG SUPLEMENTOS"
+        or lab.startswith("BRG SUPLEMENTOS ")
     )
 
 
@@ -144,7 +147,7 @@ def _build_campaign_rows(
             continue
         if competencia and _row_competence(raw) != competencia:
             continue
-        if _is_focus_row(raw):
+        if _is_non_sales_row(raw):
             continue
         lab = _row_lab(raw)
         if not lab:
@@ -170,13 +173,11 @@ def _build_campaign_rows(
         sale: float | None = round(float(item["venda"]), 2)
         special = _special_key(lab)
         scope = "TELEVENDAS"
-        sale_updated_at = ""
 
         if special:
             objective = SPECIAL_OBJECTIVES[special]
             general = getter(lab, competencia)
             sale = round(float(general["venda"]), 2) if isinstance(general, dict) and general.get("venda") is not None else None
-            sale_updated_at = str(general.get("atualizadoEm") or "") if isinstance(general, dict) else ""
             scope = "VENDA_GERAL"
             if sale is None:
                 warnings.append(
@@ -210,7 +211,6 @@ def _build_campaign_rows(
                 else "Somente Televendas"
             ),
             "regraEspecial": bool(special),
-            "vendaAtualizadoEm": sale_updated_at,
             "quantidadeTelevendas": int(item["linhas"]),
         })
 
@@ -223,15 +223,8 @@ def _build_campaign_rows(
 
 
 def _build_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    objective = round(sum(float(row.get("objetivo") or 0) for row in rows), 2)
-    sales_values = [row.get("venda") for row in rows if row.get("venda") is not None]
-    sale = round(sum(float(value) for value in sales_values), 2)
-    percentage = round(sale / objective * 100.0, 2) if objective > 0 and len(sales_values) == len(rows) else None
     return {
         "campanhas": len(rows),
-        "objetivo": objective,
-        "venda": sale,
-        "atingimento": percentage,
         "metaAtingida": sum(1 for row in rows if row.get("status") == "META_ATINGIDA"),
         "abaixoMeta": sum(1 for row in rows if row.get("status") == "ABAIXO_META"),
         "semObjetivo": sum(1 for row in rows if row.get("status") == "SEM_OBJETIVO"),
@@ -289,7 +282,8 @@ async def my_campaigns_data(
 ):
     profile = _profile_from_session(session)
     try:
-        payload, cache_row = await industries_module.cache_get(modulo="MENSAL", settings=settings)
+        # Mesma fotografia publicada e mesmo timestamp exibido nas Parciais Mensais.
+        payload, cache_row = await home_publication_cache_get(modulo="MENSAL", settings=settings)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="A base mensal das campanhas está temporariamente indisponível.") from exc
 
@@ -300,24 +294,13 @@ async def my_campaigns_data(
     if not rows:
         raise HTTPException(status_code=503, detail="Nenhuma campanha de Televendas foi localizada na competência atual.")
 
-    special_update_times = [
-        str(row.get("vendaAtualizadoEm") or "")
-        for row in rows
-        if row.get("regraEspecial") and row.get("vendaAtualizadoEm")
-    ]
     return {
         "sucesso": True,
         "usuario": str(profile.get("usuario") or profile.get("sub") or ""),
         "tipo": str(profile.get("tipo") or ""),
         "competencia": competencia,
         "atualizadoEm": str(cache_row.get("atualizado_em") or ""),
-        "vendaGeralAtualizadoEm": special_update_times[0] if special_update_times else "",
         "resumo": _build_summary(rows),
         "campanhas": rows,
         "avisos": warnings,
-        "regra": {
-            "padrao": "Demais laboratórios: objetivo e venda somente de Televendas.",
-            "herbamed": "HERBAMED: Venda Geral da empresa e objetivo de R$ 160.000,00.",
-            "natulab": "NATULAB: Venda Geral da empresa e objetivo de R$ 700.000,00.",
-        },
     }
