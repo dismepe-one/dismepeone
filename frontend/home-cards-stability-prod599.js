@@ -217,7 +217,7 @@
   });
 })();
 
-/* PROD6.0.6 — HOME personalizável por usuário.
+/* PROD6.0.7 — HOME personalizável por usuário.
    O usuário pode ocultar cards da HOME e restaurá-los pelo menu Mais.
    A preferência é visual e não altera permissões de acesso. */
 (function(){
@@ -230,6 +230,9 @@
   let applying=false;
   let observer=null;
   let observedHost=null;
+  let moreObserver=null;
+  let observedMoreMenu=null;
+  let moreRepairTimer=null;
 
   function norm(value){
     return String(value||'')
@@ -296,9 +299,12 @@
   }
 
   function ensureStyle(){
-    if(document.getElementById('d1-home-customizer-606-style'))return;
-    const style=document.createElement('style');
-    style.id='d1-home-customizer-606-style';
+    let style=document.getElementById('d1-home-customizer-606-style');
+    if(!style){
+      style=document.createElement('style');
+      style.id='d1-home-customizer-606-style';
+      document.head.appendChild(style);
+    }
     style.textContent=`
       #homeCards>.home-card{position:relative}
       #homeCards>.home-card.d1-home-hidden{display:none!important}
@@ -306,15 +312,15 @@
       #homeCards>.home-card:hover>.d1-home-remove,#homeCards>.home-card:focus-within>.d1-home-remove{opacity:1;transform:scale(1)}
       .d1-home-remove:hover,.d1-home-remove:focus{background:#fff1f2;color:#b42318;border-color:#fecdd3;outline:none}
       #homeCards>.home-card.d1-home-editable .home-arrow{margin-right:18px}
-      .d1-more-hidden-item{display:grid;grid-template-columns:minmax(0,1fr) 34px;gap:6px;align-items:stretch}
-      .d1-more-hidden-open,.d1-more-hidden-restore{border:1px solid #dce7e1;background:#fff;color:#334155;border-radius:10px;min-height:48px;cursor:pointer}
-      .d1-more-hidden-open{display:flex;align-items:center;gap:9px;padding:8px 10px;text-align:left;font-size:11px;font-weight:850}
-      .d1-more-hidden-open i{width:18px;text-align:center;color:#087b51}
-      .d1-more-hidden-restore{display:flex;align-items:center;justify-content:center;color:#087b51;font-size:13px;font-weight:950}
-      .d1-more-hidden-open:hover,.d1-more-hidden-restore:hover{background:#edf9f3;border-color:#b9e3cf}
+      .d1-more-hidden-item{position:relative;display:block;min-width:0}
+      .d1-more-hidden-open{width:100%;min-height:44px;border:0;background:#f4f8f6;color:#244b40;border-radius:11px;display:flex;align-items:center;gap:8px;padding:7px 36px 7px 9px;text-align:left;font-size:10px;font-weight:850;cursor:pointer}
+      .d1-more-hidden-open>i{width:27px;height:27px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:#e1f1eb;color:#087b51;font-size:11px;flex:0 0 auto}
+      .d1-more-hidden-open>span{display:block;min-width:0;line-height:1.15;overflow:hidden;text-overflow:ellipsis}
+      .d1-more-hidden-restore{position:absolute;right:7px;top:50%;transform:translateY(-50%);width:22px;height:22px;min-height:0;padding:0;border-radius:7px;border:1px solid #c8d7d1;background:#edf6f2;color:#087b51;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:950;line-height:1;cursor:pointer;box-shadow:none}
+      .d1-more-hidden-open:hover,.d1-more-hidden-open:focus{background:#edf6f2;outline:none}
+      .d1-more-hidden-restore:hover,.d1-more-hidden-restore:focus{background:#dff0e8;border-color:#9fc9b7;outline:none}
       @media(hover:none){.d1-home-remove{opacity:1;transform:scale(1)}}
     `;
-    document.head.appendChild(style);
   }
 
   function decorateCard(card){
@@ -412,40 +418,81 @@
     try{card.click();}catch(_){}
   }
 
+  function buildHiddenMoreItem(item){
+    const wrap=document.createElement('div');
+    wrap.className='d1-more-hidden-item';
+    wrap.dataset.d1HomeHiddenKey=item.key;
+
+    const open=document.createElement('button');
+    open.type='button';
+    open.className='d1-more-hidden-open';
+    open.setAttribute('aria-label','Abrir '+item.title);
+    const icon=item.card.querySelector('.home-icon i')?.className||'fa-solid fa-table-cells-large';
+    open.innerHTML='<i class="'+icon+'" aria-hidden="true"></i><span>'+item.title.replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];})+'</span>';
+    open.addEventListener('click',function(){openHiddenCard(item.card);});
+
+    const restore=document.createElement('button');
+    restore.type='button';
+    restore.className='d1-more-hidden-restore';
+    restore.setAttribute('aria-label','Adicionar '+item.title+' à HOME');
+    restore.setAttribute('title','Adicionar à HOME');
+    restore.innerHTML='<i class="fa-solid fa-plus" aria-hidden="true"></i>';
+    restore.addEventListener('click',function(event){
+      event.preventDefault();
+      event.stopPropagation();
+      restoreCard(item.key);
+    });
+
+    wrap.appendChild(open);
+    wrap.appendChild(restore);
+    return wrap;
+  }
+
   function renderHiddenInMore(){
     const menu=document.getElementById('v21105MoreMenu');
     const grid=menu?.querySelector('.v21105-menu-grid');
     if(!grid)return;
-    grid.querySelectorAll('.d1-more-hidden-item').forEach(function(node){node.remove();});
-    hiddenCards().forEach(function(item){
-      const wrap=document.createElement('div');
-      wrap.className='d1-more-hidden-item';
-      wrap.dataset.d1HomeHiddenKey=item.key;
+    ensureStyle();
+    const items=hiddenCards();
+    const wanted=new Set(items.map(function(item){return item.key;}));
 
-      const open=document.createElement('button');
-      open.type='button';
-      open.className='d1-more-hidden-open';
-      open.setAttribute('aria-label','Abrir '+item.title);
-      const icon=item.card.querySelector('.home-icon i')?.className||'fa-solid fa-table-cells-large';
-      open.innerHTML='<i class="'+icon+'" aria-hidden="true"></i><span>'+item.title.replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];})+'</span>';
-      open.addEventListener('click',function(){openHiddenCard(item.card);});
-
-      const restore=document.createElement('button');
-      restore.type='button';
-      restore.className='d1-more-hidden-restore';
-      restore.setAttribute('aria-label','Adicionar '+item.title+' à HOME');
-      restore.setAttribute('title','Adicionar à HOME');
-      restore.innerHTML='<i class="fa-solid fa-plus" aria-hidden="true"></i>';
-      restore.addEventListener('click',function(event){
-        event.preventDefault();
-        event.stopPropagation();
-        restoreCard(item.key);
-      });
-
-      wrap.appendChild(open);
-      wrap.appendChild(restore);
-      grid.appendChild(wrap);
+    grid.querySelectorAll('.d1-more-hidden-item').forEach(function(node){
+      const key=node.dataset.d1HomeHiddenKey||'';
+      if(!wanted.has(key))node.remove();
     });
+
+    items.forEach(function(item){
+      const selector='.d1-more-hidden-item[data-d1-home-hidden-key="'+CSS.escape(item.key)+'"]';
+      if(grid.querySelector(selector))return;
+      grid.appendChild(buildHiddenMoreItem(item));
+    });
+
+    if(typeof window.__dismepeEnsureTermsMore==='function'){
+      try{window.__dismepeEnsureTermsMore();}catch(_){}
+    }
+  }
+
+  function scheduleMoreRepair(delay){
+    if(moreRepairTimer)clearTimeout(moreRepairTimer);
+    moreRepairTimer=setTimeout(function(){
+      moreRepairTimer=null;
+      attachMoreObserver();
+      const menu=document.getElementById('v21105MoreMenu');
+      if(menu?.classList.contains('v21105-open'))renderHiddenInMore();
+      if(typeof window.__dismepeEnsureTermsMore==='function'){
+        try{window.__dismepeEnsureTermsMore();}catch(_){}
+      }
+    },Math.max(0,Number(delay)||0));
+  }
+
+  function attachMoreObserver(){
+    const menu=document.getElementById('v21105MoreMenu');
+    if(menu===observedMoreMenu)return;
+    if(moreObserver)moreObserver.disconnect();
+    observedMoreMenu=menu||null;
+    if(!menu)return;
+    moreObserver=new MutationObserver(function(){scheduleMoreRepair(12);});
+    moreObserver.observe(menu,{childList:true,subtree:true});
   }
 
   function attachObserver(){
@@ -461,12 +508,15 @@
   function refresh(){
     applyPreferences();
     attachObserver();
+    attachMoreObserver();
     if(document.getElementById('v21105MoreMenu')?.classList.contains('v21105-open'))renderHiddenInMore();
   }
 
   document.addEventListener('click',function(event){
     if(!event.target.closest('#btnV21105More'))return;
-    setTimeout(function(){applyPreferences();renderHiddenInMore();},0);
+    [0,30,90,180].forEach(function(delay){
+      setTimeout(function(){applyPreferences();attachMoreObserver();renderHiddenInMore();},delay);
+    });
   },true);
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',refresh,{once:true});
