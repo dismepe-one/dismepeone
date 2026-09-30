@@ -11,10 +11,12 @@
   const MIN_CUSTOMERS=10;
   const MIN_MIX=2;
   const MAX_PRIZES=5;
+  const TARGET_CAMPAIGN='CE-20260930-154538-472167';
 
   function byId(id){return document.getElementById(id);}
   function metric(){return String(byId('extraMetrica')?.value||'').toUpperCase();}
   function rowMetric(row){return String(row?.metrica||row?.tipoPremio||'').trim().toUpperCase();}
+  function selectedCampaign(){return String(byId('extraCampaignSelect')?.value||'').trim();}
   function validCustomers(row){
     const value=Number(row?.clientesPositivadosValidos ?? row?.realizado ?? row?.venda ?? 0);
     return Number.isFinite(value)?Math.max(0,Math.trunc(value)):0;
@@ -22,6 +24,59 @@
   function positivityObjective(row){
     const value=Number(row?.objetivo ?? MIN_CUSTOMERS);
     return Number.isFinite(value)&&value>0?Math.trunc(value):MIN_CUSTOMERS;
+  }
+  function normalizeHeader(value){
+    return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();
+  }
+  function ptBrNumber(value){
+    let text=String(value||'').trim();
+    if(!text) return NaN;
+    text=text.replace(/[^0-9,.-]/g,'');
+    if(text.includes(',')) text=text.replace(/\./g,'').replace(',','.');
+    const n=Number(text);
+    return Number.isFinite(n)?n:NaN;
+  }
+  function clientsText(value){
+    const n=Math.max(0,Math.round(value));
+    return String(n)+' '+(n===1?'cliente':'clientes');
+  }
+  function rewriteTargetPartialUnits(){
+    if(selectedCampaign()!==TARGET_CAMPAIGN) return;
+    const button=byId('btnExportExtraPdf');
+    const card=button?.closest('.card-glass')||button?.parentElement?.parentElement?.parentElement;
+    const table=card?.querySelector('table');
+    if(!table) return;
+    const headers=[...table.querySelectorAll('thead th')].map(th=>normalizeHeader(th.textContent));
+    const objectiveIndex=headers.findIndex(text=>text.includes('OBJETIVO'));
+    const realizedIndex=headers.findIndex(text=>text.includes('REALIZADO'));
+    if(objectiveIndex<0||realizedIndex<0) return;
+    table.querySelectorAll('tbody tr').forEach(tr=>{
+      const cells=tr.querySelectorAll('td');
+      [objectiveIndex,realizedIndex].forEach(index=>{
+        const cell=cells[index];
+        if(!cell) return;
+        const current=String(cell.textContent||'').trim();
+        if(!current||/clientes?$/i.test(current)) return;
+        const value=ptBrNumber(current);
+        if(!Number.isFinite(value)) return;
+        const next=clientsText(value);
+        if(current!==next) cell.textContent=next;
+      });
+    });
+  }
+  function installTargetPartialGuard(){
+    const select=byId('extraCampaignSelect');
+    if(select && !select.__posClientsGuard){
+      select.__posClientsGuard=true;
+      select.addEventListener('change',()=>setTimeout(rewriteTargetPartialUnits,0));
+    }
+    const root=byId('btnExportExtraPdf')?.closest('.card-glass');
+    if(root && !root.__posClientsObserver){
+      const observer=new MutationObserver(()=>rewriteTargetPartialUnits());
+      observer.observe(root,{childList:true,subtree:true});
+      root.__posClientsObserver=observer;
+    }
+    setTimeout(rewriteTargetPartialUnits,0);
   }
   function installPartialFormatters(){
     const realized=window.extraPartialRealizedText;
@@ -96,6 +151,7 @@
   function applyMetricUI(){
     ensureOptions();
     installPartialFormatters();
+    installTargetPartialGuard();
     if(metric()!==METRIC) return;
 
     byId('extraProdutosSomadosSection')?.classList.remove('hidden');
@@ -120,6 +176,7 @@
   function install(){
     ensureOptions();
     installPartialFormatters();
+    installTargetPartialGuard();
 
     const originalSync=window.syncExtraMetricFromSimpleUI;
     if(typeof originalSync==='function' && !originalSync.__posRankingWrapped){
