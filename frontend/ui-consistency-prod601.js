@@ -151,11 +151,11 @@
   });
 })();
 
-/* PROD6.0.4 — parcial mensal: FALTA VENDER somente no desktop, sem mover os botões. */
+/* PROD6.0.5 — parcial mensal: falta vender compacto somente no desktop. */
 (function(){
   'use strict';
-  if(window.__DISMEPE_MONTHLY_FILTER_GAP_TEXT_604__)return;
-  window.__DISMEPE_MONTHLY_FILTER_GAP_TEXT_604__=true;
+  if(window.__DISMEPE_MONTHLY_FILTER_GAP_TEXT_605__)return;
+  window.__DISMEPE_MONTHLY_FILTER_GAP_TEXT_605__=true;
 
   function parseBRL(value){
     let text=String(value||'').replace(/R\$/gi,'').replace(/\s/g,'').trim();
@@ -174,6 +174,8 @@
     document.getElementById('d602SupplierGapCard')?.remove();
     document.getElementById('kpiMetricsSection')?.classList.remove('d602-five-kpis');
     document.getElementById('monthly-filter-gap-card-602-style')?.remove();
+    document.getElementById('d604SupplierGapText')?.remove();
+    document.getElementById('monthly-filter-gap-text-604-style')?.remove();
     document.querySelectorAll('.d603-gap-stack').forEach(stack=>{
       const reset=stack.querySelector('button[onclick="resetFilters()"]');
       if(reset&&stack.parentElement){stack.parentElement.insertBefore(reset,stack);stack.remove();}
@@ -181,16 +183,17 @@
   }
 
   function ensureGapStyle(){
-    if(document.getElementById('monthly-filter-gap-text-604-style'))return;
+    if(document.getElementById('monthly-filter-gap-text-605-style'))return;
     const style=document.createElement('style');
-    style.id='monthly-filter-gap-text-604-style';
+    style.id='monthly-filter-gap-text-605-style';
     style.textContent=`
-      #d604SupplierGapText{display:none;position:absolute;top:calc(100% + 5px);left:var(--d604-left,0px);width:var(--d604-width,160px);min-height:23px;padding:4px 7px;border-radius:7px;border:1px solid #fecaca;background:#fff7f7;color:#991b1b;font-size:9px;font-weight:900;line-height:1.2;letter-spacing:.02em;text-align:center;text-transform:uppercase;white-space:nowrap;box-shadow:0 2px 8px rgba(127,29,29,.06);z-index:2}
-      #d604SupplierGapText.visible{display:block}
-      #d604SupplierGapText .d604-gap-value{color:#7f1d1d;font-size:10px;font-weight:950;letter-spacing:0}
-      #d604SupplierGapText.reached{border-color:#bbf7d0;background:#f0fdf4;color:#166534}
-      #d604SupplierGapText.reached .d604-gap-value{color:#14532d}
-      @media(max-width:767px){#d604SupplierGapText{display:none!important}}
+      #d605SupplierGapText{display:none;position:absolute;top:calc(100% + 5px);left:var(--d605-left,0px);width:var(--d605-width,150px);max-width:var(--d605-width,150px);padding:4px 6px;border-radius:7px;border:1px solid #fecaca;background:#fff7f7;color:#991b1b;text-align:center;box-shadow:0 2px 8px rgba(127,29,29,.06);z-index:2;overflow:hidden}
+      #d605SupplierGapText.visible{display:block}
+      #d605SupplierGapText .d605-gap-label{display:block;font-size:7px;font-weight:900;line-height:1.05;letter-spacing:.045em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      #d605SupplierGapText .d605-gap-value{display:block;margin-top:1px;color:#7f1d1d;font-size:9px;font-weight:950;line-height:1.05;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+      #d605SupplierGapText.reached{border-color:#bbf7d0;background:#f0fdf4;color:#166534}
+      #d605SupplierGapText.reached .d605-gap-value{color:#14532d}
+      @media(max-width:767px){#d605SupplierGapText{display:none!important}}
     `;
     document.head.appendChild(style);
   }
@@ -208,17 +211,18 @@
     ensureGapStyle();
     const controls=controlsHost();
     if(!controls)return null;
-    let text=document.getElementById('d604SupplierGapText');
+    let text=document.getElementById('d605SupplierGapText');
     if(!text){
       text=document.createElement('div');
-      text.id='d604SupplierGapText';
+      text.id='d605SupplierGapText';
       text.setAttribute('aria-live','polite');
       controls.host.appendChild(text);
     }
     const hostRect=controls.host.getBoundingClientRect();
     const resetRect=controls.reset.getBoundingClientRect();
-    text.style.setProperty('--d604-left',Math.max(0,resetRect.left-hostRect.left)+'px');
-    text.style.setProperty('--d604-width',Math.max(120,resetRect.width)+'px');
+    const width=Math.max(110,Math.floor(resetRect.width));
+    text.style.setProperty('--d605-left',Math.max(0,Math.floor(resetRect.left-hostRect.left))+'px');
+    text.style.setProperty('--d605-width',width+'px');
     return text;
   }
 
@@ -252,19 +256,19 @@
     const reached=sale>=objective;
     text.classList.add('visible');
     text.classList.toggle('reached',reached);
-    text.innerHTML='FALTA VENDER: <span class="d604-gap-value">'+money(gap)+'</span>'+(reached?' · OBJETIVO ATINGIDO':'');
+    text.innerHTML='<span class="d605-gap-label">FALTA VENDER</span><span class="d605-gap-value">'+money(gap)+(reached?' · ATINGIDA':'')+'</span>';
   }
 
   function wrapDashboard(){
     const original=window.updateDashboard;
-    if(typeof original!=='function'||original.__d604GapWrapped)return false;
+    if(typeof original!=='function'||original.__d605GapWrapped)return false;
     const wrapped=function(){
       const result=original.apply(this,arguments);
       requestAnimationFrame(renderGapText);
       return result;
     };
-    wrapped.__d604GapWrapped=true;
-    wrapped.__d604Original=original;
+    wrapped.__d605GapWrapped=true;
+    wrapped.__d605Original=original;
     window.updateDashboard=wrapped;
     return true;
   }
