@@ -33,12 +33,24 @@ def test_normal_campaign_uses_only_televendas_and_ignores_non_sales_rows():
     assert row["venda"] == 700
     assert row["atingimento"] == 46.67
     assert row["falta"] == 800
+    assert row["positivacaoEmpresa"] is None
 
 
 def test_herbamed_and_natulab_use_general_sales_and_fixed_objectives():
     payload = {
         "dadosTelevendas": [
-            {"__LAB": "HERBAMED", "__COMPETENCIA": "09/2026", "__OBJETIVO": 60000, "__VENDA": 64000},
+            {
+                "__LAB": "HERBAMED",
+                "__COMPETENCIA": "09/2026",
+                "__OBJETIVO": 60000,
+                "__VENDA": 64000,
+                "metricasParcial": {
+                    "fonteIndicadoresGerais": "VENDA_GERAL",
+                    "componentes": [
+                        {"metrica": "POSITIVACAO_GERAL", "meta": 600, "realizado": 458},
+                    ],
+                },
+            },
             {"__LAB": "NATULAB", "__COMPETENCIA": "09/2026", "__OBJETIVO": 150000, "__VENDA": 164000},
         ]
     }
@@ -56,9 +68,18 @@ def test_herbamed_and_natulab_use_general_sales_and_fixed_objectives():
     assert by_lab["HERBAMED"]["objetivo"] == 160000
     assert by_lab["HERBAMED"]["venda"] == 105785.47
     assert by_lab["HERBAMED"]["escopo"] == "VENDA_GERAL"
+    assert by_lab["HERBAMED"]["positivacaoEmpresa"] == {
+        "meta": 600,
+        "realizado": 458,
+        "atingimento": 76.33,
+        "falta": 142,
+        "status": "ABAIXO_META",
+        "fonte": "VENDA_GERAL",
+    }
     assert by_lab["NATULAB"]["objetivo"] == 700000
     assert by_lab["NATULAB"]["venda"] == 326258.79
     assert by_lab["NATULAB"]["escopo"] == "VENDA_GERAL"
+    assert by_lab["NATULAB"]["positivacaoEmpresa"] is None
 
 
 def test_general_sale_never_falls_back_to_televendas():
