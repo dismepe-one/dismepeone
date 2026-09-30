@@ -100,6 +100,37 @@ def _is_non_sales_row(row: dict[str, Any]) -> bool:
     )
 
 
+def _company_positivity(row: dict[str, Any]) -> dict[str, Any] | None:
+    detail = row.get("metricasParcial")
+    components = detail.get("componentes") if isinstance(detail, dict) else None
+    if not isinstance(components, list):
+        return None
+    for component in components:
+        if not isinstance(component, dict):
+            continue
+        if str(component.get("metrica") or "").strip().upper() != "POSITIVACAO_GERAL":
+            continue
+        meta = _num(component.get("meta"))
+        realizado_raw = component.get("realizado")
+        if meta <= 0 or realizado_raw in (None, ""):
+            return None
+        realizado = _num(realizado_raw)
+        atingimento = round(realizado / meta * 100.0, 2)
+        return {
+            "meta": int(meta) if meta.is_integer() else round(meta, 2),
+            "realizado": int(realizado) if realizado.is_integer() else round(realizado, 2),
+            "atingimento": atingimento,
+            "falta": max(int(round(meta - realizado)), 0),
+            "status": "META_ATINGIDA" if realizado >= meta else "ABAIXO_META",
+            "fonte": str(
+                detail.get("fonteIndicadoresGerais")
+                or component.get("fonte")
+                or "CAMPANHA_MENSAL"
+            ),
+        }
+    return None
+
+
 def _competence_key(value: str) -> tuple[int, int, str]:
     text = str(value or "").strip()
     parts = text.replace("-", "/").split("/")
@@ -241,10 +272,13 @@ def _build_campaign_rows(
             "objetivo": 0.0,
             "venda": 0.0,
             "linhas": 0,
+            "positivacaoEmpresa": None,
         })
         item["objetivo"] += _num(_row_value(raw, "__OBJETIVO", "objetivo", "OBJETIVO"))
         item["venda"] += _num(_row_value(raw, "__VENDA", "venda", "VENDA"))
         item["linhas"] += 1
+        if item["positivacaoEmpresa"] is None:
+            item["positivacaoEmpresa"] = _company_positivity(raw)
 
     warnings: list[str] = []
     result: list[dict[str, Any]] = []
@@ -295,6 +329,7 @@ def _build_campaign_rows(
             ),
             "regraEspecial": bool(special),
             "quantidadeTelevendas": int(item["linhas"]),
+            "positivacaoEmpresa": item.get("positivacaoEmpresa"),
         })
 
     result.sort(key=lambda x: (

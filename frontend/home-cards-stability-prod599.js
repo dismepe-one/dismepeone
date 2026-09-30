@@ -1,6 +1,6 @@
 /* DISMEPE ONE — estabilização visual da HOME.
    Evita reconstruir a mesma grade de cards quando usuário/permissões não mudaram
-   e mantém o card privado "Minhas campanhas" íntegro após o pós-login. */
+   e mantém o card privado "Minhas Campanhas" íntegro após o pós-login. */
 (function(){
   'use strict';
   if(window.__DISMEPE_HOME_CARDS_STABILITY__)return;
@@ -88,7 +88,7 @@
     button.id='homeMinhasCampanhas';
     button.className='home-card text-left';
     button.dataset.dismepeStableCard='minhas-campanhas';
-    button.innerHTML='<span class="home-icon"><i class="fa-solid fa-bullseye"></i></span><span class="min-w-0"><span class="block font-black text-[14px] text-slate-800">Minhas campanhas</span><span class="block text-[11px] leading-4 text-slate-500 mt-0.5">Objetivos, vendas e evolução por laboratório</span></span><i class="home-arrow fa-solid fa-chevron-right"></i>';
+    button.innerHTML='<span class="home-icon"><i class="fa-solid fa-bullseye"></i></span><span class="min-w-0"><span class="block font-black text-[14px] text-slate-800">Minhas Campanhas</span><span class="block text-[11px] leading-4 text-slate-500 mt-0.5">Objetivos, vendas e evolução por laboratório</span></span><i class="home-arrow fa-solid fa-chevron-right"></i>';
     button.addEventListener('click',function(){window.location.assign('/minhas-campanhas');});
     return button;
   }
@@ -141,8 +141,6 @@
       const host=document.getElementById('homeCards');
       const signature=permissionSignature();
 
-      // A maior parte dos retries pós-login chama renderHomeCards sem
-      // qualquer alteração de acesso. Não destrói/recria o mesmo DOM.
       if(
         host &&
         signature &&
@@ -156,8 +154,6 @@
       const result=native.apply(this,arguments);
       lastSignature=signature;
 
-      // O renderer legado pode reconstruir a grade de forma síncrona ou no
-      // próximo frame. Repara o card privado em ambos os casos.
       ensureMyCampaignsCard();
       requestAnimationFrame(function(){ensureMyCampaignsCard();attachHomeObserver();});
       setTimeout(ensureMyCampaignsCard,80);
@@ -200,7 +196,6 @@
   scheduleMyCampaignsRepair(0);
   watchForHomeReplacement();
 
-  // Cobre o intervalo de hidratação/login sem manter polling permanente.
   [100,250,500,1000,2000,4000,8000].forEach(function(delay){
     setTimeout(function(){
       const current=window.renderHomeCards;
