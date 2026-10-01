@@ -13,6 +13,7 @@ from .extras_positivacao_client_match_fix import install_extras_positivacao_clie
 from .extras_positivacao_partial_display import install_extras_positivacao_partial_display
 from .monthly_competence_guard import install_monthly_competence_guard
 from .industry_operational_sales_guard import install_industry_operational_sales_guard
+from .industry_competence_fields import install_industry_competence_fields
 from .pdf_branding import install_pdf_branding
 
 
@@ -108,6 +109,7 @@ home_module._home_publication_publish_locked = _monthly_publish_with_supervisor_
 app.include_router(my_campaigns_router)
 install_monthly_competence_guard()
 install_industry_operational_sales_guard()
+install_industry_competence_fields()
 install_extras_positivacao_ranking(app)
 install_extras_positivacao_schema_fix(app)
 install_extras_positivacao_client_match_fix(app)
