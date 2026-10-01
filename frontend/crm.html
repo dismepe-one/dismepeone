@@ -46,7 +46,40 @@ function renderAll(d){
  $('#oportunidades').innerHTML='<h3>Ações comerciais</h3>'+table(['Produto','Fornecedor','Queda','Estoque','Situação','Clientes'],a.map(x=>'<tr><td>'+x.codProduto+'</td><td>'+x.fornecedor+'</td><td class="neg">'+Number(x.variacaoPct).toFixed(1)+'%</td><td>'+num(x.estoque)+'</td><td class="'+(x.prioridade==='ALTA'?'neg':'warn')+'">'+x.situacao+'</td><td>'+num(x.clientesAfetados)+'</td></tr>'));
 }
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');['queda','parados','clientes','oportunidades'].forEach(id=>$('#'+id).classList.toggle('hidden',id!==b.dataset.tab));});
-$('#import').onclick=async()=>{const f=$('#file').files[0];if(!f){$('#status').textContent='Selecione o XLSX ou CSV.';return}$('#status').textContent='Importando...';try{const r=await fetch('/crm/api/importar',{method:'POST',credentials:'include',headers:{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(f.name)},body:f});if(!r.ok)throw new Error((await r.text()).slice(0,400));const d=await r.json();$('#status').textContent=num(d.linhasImportadas)+' linhas importadas.';await load()}catch(e){$('#status').textContent=e.message}});
+let importTimer=null;
+function stopImportTimer(){if(importTimer){clearInterval(importTimer);importTimer=null;}}
+async function pollImport(id){
+  stopImportTimer();
+  const tick=async()=>{
+    try{
+      const r=await api('/crm/api/import/status/'+encodeURIComponent(id));
+      const x=r.importacao||{};
+      const pct=Number(x.percentual||0);
+      $('#status').textContent=(x.status==='CONCLUIDA'?'Importação concluída: ':x.status==='ERRO'?'Erro na importação: ':'Importando base: ')+num(x.processadas||0)+' / '+num(x.total_linhas||0)+' ('+pct.toFixed(0)+'%)'+(x.erro?' — '+x.erro:'');
+      if(x.status==='CONCLUIDA'){stopImportTimer();$('#import').disabled=false;$('#file').disabled=false;await load();}
+      if(x.status==='ERRO'){stopImportTimer();$('#import').disabled=false;$('#file').disabled=false;}
+    }catch(e){$('#status').textContent='Acompanhando importação... '+e.message;}
+  };
+  await tick();
+  importTimer=setInterval(tick,2000);
+}
+$('#import').onclick=async()=>{
+  const f=$('#file').files[0];
+  if(!f){$('#status').textContent='Selecione o XLSX ou CSV.';return}
+  if(f.size>35*1024*1024){$('#status').textContent='Arquivo acima do limite de 35 MB.';return}
+  $('#import').disabled=true;$('#file').disabled=true;$('#status').textContent='Enviando arquivo e iniciando importação...';
+  try{
+    const r=await fetch('/crm/api/importar',{method:'POST',credentials:'include',headers:{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(f.name)},body:f});
+    if(!r.ok)throw new Error((await r.text()).slice(0,500));
+    const d=await r.json();
+    if(!d.importacaoId)throw new Error('O servidor não retornou o identificador da importação.');
+    $('#status').textContent='Importação iniciada. Acompanhe o progresso abaixo.';
+    await pollImport(d.importacaoId);
+  }catch(e){
+    $('#import').disabled=false;$('#file').disabled=false;
+    $('#status').textContent='Falha ao iniciar: '+e.message;
+  }
+};
 load();
 </script>
 </body></html>
