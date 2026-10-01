@@ -37,7 +37,29 @@ def install_commercial_intelligence_safe_loading(app: Any) -> None:
 
     @app.middleware("http")
     async def commercial_intelligence_safe_loading(request: Request, call_next):
-        if request.url.path != "/data/inteligencia-comercial":
+        path = request.url.path
+
+        # Segurança de carga: nunca permitir exportação de todos os produtos a
+        # partir da Visão geral. O usuário precisa escolher um recorte detalhado.
+        if path in {
+            "/data/inteligencia-comercial/export.xlsx",
+            "/data/inteligencia-comercial/export.pdf",
+        }:
+            tab = str(request.query_params.get("aba") or "overview").strip()
+            if tab == "overview":
+                return JSONResponse(
+                    {
+                        "detail": (
+                            "Na Visão geral a exportação de produtos é bloqueada para proteger o desempenho. "
+                            "Selecione uma visão específica antes de exportar."
+                        )
+                    },
+                    status_code=400,
+                    headers={"Cache-Control": "no-store"},
+                )
+            return await call_next(request)
+
+        if path != "/data/inteligencia-comercial":
             return await call_next(request)
 
         from . import commercial_intelligence as ci
