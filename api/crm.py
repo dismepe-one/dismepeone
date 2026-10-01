@@ -205,7 +205,14 @@ async def _produto_foco_atual() -> tuple[dict[str, float], str]:
                     continue
                 is_focus = row.get("__TEM_FOCO") is True or bool(row.get("__CODIGO_FOCO"))
                 code = re.sub(r"\D", "", str(row.get("__CODIGO_FOCO") or ""))
-                if not is_focus or not code:
+                # Algumas fotografias mensais guardam o código em campos de foco
+                # diferentes; aceitar também os nomes já usados pelo módulo.
+                if not code:
+                    for k in ("codigoProdutoFoco","codProdutoFoco","__COD_PROD_FOCO","codigo_foco","cod_foco"):
+                        code = re.sub(r"\D", "", str(row.get(k) or ""))
+                        if code:
+                            break
+                if not is_focus and not code:
                     continue
                 sale = _to_number(row.get("__VENDA_FOCO") if row.get("__VENDA_FOCO") is not None else row.get("__VENDA"))
                 values[code] = values.get(code, 0.0) + sale
