@@ -212,4 +212,47 @@
       ensureMyCampaignsCard();
     }
   });
+
+  /* CRM — somente DANTON. O launcher antigo podia não estar presente na HOME publicada. */
+  let crmAccess=false;
+  let crmCheckBusy=false;
+  async function ensureCRMCard(){
+    const host=document.getElementById('homeCards');
+    if(!host)return;
+    let card=document.getElementById('homeCRM');
+    if(!crmAccess){
+      if(card)card.remove();
+      return;
+    }
+    if(card && card.parentElement===host)return;
+    if(card)card.remove();
+    card=document.createElement('button');
+    card.type='button';
+    card.id='homeCRM';
+    card.className='home-card text-left';
+    card.setAttribute('aria-label','CRM');
+    card.innerHTML='<span class="home-icon"><i class="fa-solid fa-users-viewfinder"></i></span><span class="min-w-0"><span class="block font-black text-[14px] text-slate-800">CRM</span><span class="block text-[11px] leading-4 text-slate-500 mt-0.5">Inteligência comercial e oportunidades</span></span><i class="home-arrow fa-solid fa-chevron-right"></i>';
+    card.addEventListener('click',function(){window.location.assign('/crm');});
+    host.appendChild(card);
+  }
+  async function checkCRMAccess(){
+    if(crmCheckBusy)return;
+    crmCheckBusy=true;
+    try{
+      const response=await fetch('/crm/api/acesso?ts='+Date.now(),{
+        credentials:'same-origin',cache:'no-store',
+        headers:{'Accept':'application/json','Cache-Control':'no-store'}
+      });
+      crmAccess=response.ok;
+    }catch(_){crmAccess=false;}
+    finally{crmCheckBusy=false;ensureCRMCard();}
+  }
+  checkCRMAccess();
+  [300,1000,2500,5000].forEach(function(delay){
+    setTimeout(function(){checkCRMAccess();ensureCRMCard();},delay);
+  });
+  document.addEventListener('visibilitychange',function(){
+    if(!document.hidden){checkCRMAccess();ensureCRMCard();}
+  });
+
 })();
