@@ -58,7 +58,6 @@ def install_commercial_intelligence_recent_entry() -> None:
                 if reason != "Estoque sem giro"
             ]
             item["motivosCriticos"] = reasons
-            # Produto novo não deve virar crítico apenas por ainda não ter giro.
             item["critico"] = bool(
                 item.get("ruptura")
                 or float(item.get("dde") or 0) >= 60
@@ -90,4 +89,12 @@ def install_commercial_intelligence_recent_entry() -> None:
 
     ci._product = product_with_recent_entry
     ci._summary = summary_with_recent_entry
+
+    # Ativa também o filtro dinâmico de laboratórios sem venda nos três
+    # últimos meses fechados, mantendo as seis exceções autorizadas.
+    from .commercial_intelligence_zero_sales_filter import (
+        install_commercial_intelligence_zero_sales_filter,
+    )
+    install_commercial_intelligence_zero_sales_filter()
+
     _INSTALLED = True
