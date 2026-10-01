@@ -42,13 +42,25 @@ def install_commercial_intelligence_recent_entry() -> None:
 
     def product_with_recent_entry(row: dict[str, Any], labels: list[str]) -> dict[str, Any]:
         item = original_product(row, labels)
+
+        # Correção operacional pontual confirmada pelo administrador.
+        # O PDF fonte de 01/10/2026 ainda traz 457 un. para o código 3845,
+        # porém o estoque real atual é zero. A exceção fica restrita à
+        # Inteligência Comercial até a fonte oficial ser atualizada.
+        if str(item.get("codigo") or "").strip() == "3845":
+            item["estoque"] = 0.0
+            item["valorEstoque"] = 0.0
+            item["dde"] = 0.0
+            item["estoqueAlto"] = False
+            item["pressaoEstoque"] = False
+
         days = _days_since(item.get("ultimaEntrada"))
         no_sales = float(item.get("mediaUnidades") or 0) <= 0
         has_stock = float(item.get("estoque") or 0) > 0
 
-        # Regra comercial: entre 1 e 30 dias da última entrada, se ainda não
-        # houve giro, o item continua em "Sem giro", mas recebe a observação
-        # "PRODUTO NOVO". Não existe aba separada para produtos novos.
+        # Regra comercial: de 1 a 30 dias da última entrada, se ainda não
+        # houve giro, o produto continua na aba "Sem giro", mas recebe a
+        # observação "PRODUTO NOVO". Não existe aba separada.
         is_new = bool(
             has_stock
             and no_sales
@@ -64,8 +76,8 @@ def install_commercial_intelligence_recent_entry() -> None:
             item["observacao"] = "PRODUTO NOVO"
             item["acao"] = "PRODUTO NOVO / AGUARDAR GIRO"
 
-            # Mantém o item na aba Sem giro, mas ele não é tratado como crítico
-            # apenas pelo fato de ainda não ter vendido dentro da janela inicial.
+            # Mantém o item em Sem giro, mas não o trata como crítico apenas
+            # pela ausência de venda durante a janela inicial de 30 dias.
             reasons = [
                 reason
                 for reason in (item.get("motivosCriticos") or [])
@@ -80,20 +92,21 @@ def install_commercial_intelligence_recent_entry() -> None:
         else:
             item["observacao"] = str(item.get("observacao") or "")
 
-        rupture = bool(item.get("ruptura"))
+        # Recalcula ruptura/risco depois de qualquer ajuste pontual de estoque.
+        average_units = float(item.get("mediaUnidades") or 0)
+        stock = float(item.get("estoque") or 0)
+        rupture = bool(stock <= 0 and average_units > 0)
+        item["ruptura"] = rupture
         dde = float(item.get("dde") or 0)
         risk = bool(
             rupture
-            or (
-                has_stock
-                and float(item.get("mediaUnidades") or 0) > 0
-                and dde >= 30
-            )
+            or (stock > 0 and average_units > 0 and dde >= 30)
         )
         item["riscoRuptura"] = risk
         item["riscoRupturaAlto"] = bool(rupture or dde >= 60)
         if rupture:
             item["nivelRuptura"] = "RUPTURA"
+            item["acao"] = "REPOR / VERIFICAR RUPTURA"
         elif dde >= 60:
             item["nivelRuptura"] = "RISCO ALTO"
         elif dde >= 30:
