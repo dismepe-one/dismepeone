@@ -15,8 +15,10 @@ from .monthly_competence_guard import install_monthly_competence_guard
 from .industry_operational_sales_guard import install_industry_operational_sales_guard
 from .industry_competence_fields import install_industry_competence_fields
 from .industry_mes_ano_alias import install_industry_mes_ano_alias
+from .industry_stock_month_rollover import install_industry_stock_month_rollover
 from .positivacao_total_source import install_positivacao_total_source
 from .resumo_monthly_overlay import install_resumo_monthly_overlay
+from .resumo_objective_sync import install_resumo_objective_sync
 from .pdf_branding import install_pdf_branding
 
 
@@ -114,8 +116,10 @@ install_monthly_competence_guard()
 install_industry_operational_sales_guard()
 install_industry_competence_fields()
 install_industry_mes_ano_alias()
+install_industry_stock_month_rollover()
 install_positivacao_total_source()
 install_resumo_monthly_overlay(app)
+install_resumo_objective_sync(app)
 install_extras_positivacao_ranking(app)
 install_extras_positivacao_schema_fix(app)
 install_extras_positivacao_client_match_fix(app)
