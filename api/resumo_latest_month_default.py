@@ -3,16 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 
 
-_MARKER = "DISMEPE_RESUMO_LATEST_MONTH_DEFAULT_V2"
+_MARKER = "DISMEPE_RESUMO_LATEST_MONTH_DEFAULT_V3"
 
 
 def install_resumo_latest_month_default() -> None:
-    """Pré-seleciona a competência mais recente disponível no Resumo de Ganhos.
+    """Faz o Resumo de Ganhos abrir na competência mais recente cadastrada.
 
-    Mantém a opção "Todos os meses" disponível para escolha manual, mas na
-    abertura/primeiro carregamento usa o último mês realmente cadastrado no
-    snapshot do resumo. O patch é inserido antes do ÚLTIMO </body> do portal,
-    evitando atingir templates HTML embutidos em strings JavaScript.
+    A alteração é feita diretamente na função cm32PopulateMonthSelect do portal,
+    evitando wrappers em window (a função original vive no escopo do próprio
+    script). A opção "Todos os meses" continua disponível para escolha manual.
     """
     from . import main as main_module
 
@@ -28,56 +27,19 @@ def install_resumo_latest_month_default() -> None:
     if _MARKER in text:
         return
 
-    anchor = "</body>"
-    position = text.lower().rfind(anchor)
-    if position < 0:
+    old = """    if(previous&&[...sel.options].some(o=>o.value===previous)){\n      sel.value=previous;\n    }else if(ordered.includes(current)){\n      sel.value=current;\n    }else if(ordered.length){\n      sel.value=ordered[0];\n    }else{"""
+
+    new = """    const previousExists=previous&&[...sel.options].some(o=>o.value===previous);\n\n    // No Resumo de Ganhos, o primeiro carregamento não deve preservar ALL.\n    // Usa sempre a competência mais recente realmente cadastrada. Depois que\n    // o usuário escolher outro mês manualmente, a seleção passa a ser mantida.\n    if(id==='sumPremMes' && (!previous || previous==='ALL')){\n      if(ordered.includes(current)){\n        sel.value=current;\n      }else if(ordered.length){\n        sel.value=ordered[0];\n      }else{\n        sel.value='ALL';\n      }\n    }else if(previousExists){\n      sel.value=previous;\n    }else if(ordered.includes(current)){\n      sel.value=current;\n    }else if(ordered.length){\n      sel.value=ordered[0];\n    }else{"""
+
+    if old not in text:
         return
 
-    patch = r'''
-<script>
-// DISMEPE_RESUMO_LATEST_MONTH_DEFAULT_V2
-(function(){
-  function install(){
-    const original = window.cm32PopulateMonthSelect;
-    if(typeof original !== 'function' || original.__dismepeLatestMonthDefault) return;
+    patched = text.replace(old, new, 1)
+    marker = "\n<!-- " + _MARKER + " -->\n"
+    body_pos = patched.lower().rfind("</body>")
+    if body_pos >= 0:
+        patched = patched[:body_pos] + marker + patched[body_pos:]
 
-    function wrapped(id, rows){
-      const sel = document.getElementById(id);
-      const previous = sel ? String(sel.value || '') : '';
-
-      original(id, rows);
-
-      if(id !== 'sumPremMes' || !sel) return;
-
-      // Só aplica o padrão quando o seletor ainda está no estado inicial.
-      // Depois que o usuário escolhe outro mês, a escolha é preservada.
-      if(previous && previous !== 'ALL') return;
-
-      const months = Array.from(sel.options || [])
-        .map(option => String(option.value || '').trim())
-        .filter(value => value && value !== 'ALL')
-        .sort((a,b) => b.localeCompare(a));
-
-      if(months.length){
-        sel.value = months[0];
-      }
-    }
-
-    wrapped.__dismepeLatestMonthDefault = true;
-    wrapped.__wrapped = original;
-    window.cm32PopulateMonthSelect = wrapped;
-  }
-
-  if(document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', install, {once:true});
-  }else{
-    install();
-  }
-})();
-</script>
-'''
-
-    patched = text[:position] + patch + "\n" + text[position:]
     try:
         temp = portal.with_name(portal.name + ".resumo-latest-month.tmp")
         temp.write_text(patched, encoding="utf-8")
