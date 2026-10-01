@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from . import main as main_module
@@ -215,6 +216,130 @@ def preferred_operational_competence(payload: dict[str, Any]) -> str:
     return ""
 
 
+def _general_sales_from_snapshot(industries_module, snapshot: Any, lab: str, competencia: str):
+    if not isinstance(snapshot, dict):
+        return None
+    rows = snapshot.get("linhas")
+    if not isinstance(rows, list):
+        return None
+
+    target_comp = _comp_value(competencia)
+    snapshot_comp = _comp_value(snapshot.get("competencia"))
+    if target_comp and snapshot_comp and snapshot_comp != target_comp:
+        return None
+
+    all_labs = industries_module._is_all_labs_request(lab)
+    lab_keys = industries_module._portal_source_keys(lab)
+    total = 0.0
+    objective = 0.0
+    positivity = 0.0
+    found = False
+    has_objective = False
+    has_positivity = False
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_comp = _comp_value(row.get("competencia") or row.get("mes") or row.get("periodo") or "")
+        if target_comp and row_comp and row_comp != target_comp:
+            continue
+        row_lab = row.get("laboratorio") or row.get("lab") or row.get("fornecedor") or row.get("industria")
+        if not all_labs and industries_module._lab_key(row_lab) not in lab_keys:
+            continue
+
+        raw_value = row.get("venda_total")
+        if raw_value is None:
+            raw_value = row.get("venda")
+        if raw_value is None:
+            raw_value = row.get("total")
+        if raw_value is None:
+            raw_value = row.get("faturamento")
+        total += industries_module._num(raw_value)
+        found = True
+
+        raw_obj = row.get("objetivo_total")
+        if raw_obj is None:
+            raw_obj = row.get("objetivo")
+        if raw_obj not in (None, ""):
+            objective += industries_module._num(raw_obj)
+            has_objective = True
+
+        raw_pos = row.get("positivacao_total")
+        if raw_pos is None:
+            raw_pos = row.get("positivacao")
+        if raw_pos is None:
+            raw_pos = row.get("positivação")
+        if raw_pos is None:
+            raw_pos = row.get("positivados")
+        if raw_pos not in (None, ""):
+            positivity += industries_module._num(raw_pos)
+            has_positivity = True
+
+    if not found:
+        return None
+    return {
+        "venda": round(total, 2),
+        "objetivo": round(objective, 2) if has_objective else None,
+        "positivacao": int(round(positivity)) if has_positivity else None,
+        "atualizadoEm": str(snapshot.get("gerado_em") or snapshot.get("atualizado_em") or ""),
+        "arquivoOrigem": str(snapshot.get("fonte") or snapshot.get("arquivo_origem") or ""),
+    }
+
+
+def _install_industries_competence_guard() -> None:
+    """Mantém a tela Indústrias na mesma competência operacional do mensal.
+
+    A base geral do portal é sincronizada pelo Drive e historicamente era
+    carimbada com o mês do relógio. Se o calendário virar antes de a nova
+    competência mensal estar pronta, usamos a fotografia histórica que pertence
+    à competência ainda operacional, sem alterar nem recalcular os números.
+    """
+    try:
+        from . import industries as industries_module
+    except Exception:
+        return
+
+    original_all = getattr(industries_module, "_all_competences", None)
+    if callable(original_all) and not getattr(original_all, "__dismepe_operational_order__", False):
+        def operational_all_competences(payload, rows):
+            comps = list(original_all(payload, rows))
+            preferred = preferred_operational_competence(payload)
+            if preferred and preferred in comps:
+                comps = [preferred] + [item for item in comps if item != preferred]
+            return comps
+
+        operational_all_competences.__dismepe_operational_order__ = True
+        operational_all_competences.__wrapped__ = original_all
+        industries_module._all_competences = operational_all_competences
+
+    original_general = getattr(industries_module, "_general_sales_snapshot", None)
+    if callable(original_general) and not getattr(original_general, "__dismepe_competence_history_fallback__", False):
+        def guarded_general_sales_snapshot(lab: str, competencia: str):
+            current = original_general(lab, competencia)
+            if current is not None:
+                return current
+
+            history_path = getattr(industries_module, "GENERAL_SALES_HISTORY_FILE", None)
+            if history_path is None or not history_path.exists():
+                return None
+            try:
+                history = json.loads(history_path.read_text(encoding="utf-8"))
+            except Exception:
+                return None
+            updates = history.get("atualizacoes") if isinstance(history, dict) else None
+            if not isinstance(updates, list):
+                return None
+            for snapshot in updates:
+                fallback = _general_sales_from_snapshot(industries_module, snapshot, lab, competencia)
+                if fallback is not None:
+                    return fallback
+            return None
+
+        guarded_general_sales_snapshot.__dismepe_competence_history_fallback__ = True
+        guarded_general_sales_snapshot.__wrapped__ = original_general
+        industries_module._general_sales_snapshot = guarded_general_sales_snapshot
+
+
 def install_monthly_competence_guard() -> None:
     global _INSTALLED, _ORIGINAL_SCOPE
     if _INSTALLED:
@@ -247,4 +372,5 @@ def install_monthly_competence_guard() -> None:
     guarded_scope.__dismepe_monthly_competence_guard__ = True
     guarded_scope.__wrapped__ = original
     main_module.scope_mensal_dashboard = guarded_scope
+    _install_industries_competence_guard()
     _INSTALLED = True
