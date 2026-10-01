@@ -12,8 +12,8 @@
 <body>
 <header class="top"><div class="bar"><img class="logo" src="/positivacoes/logo.png" alt="DISMEPE ONE"><div class="actions"><span class="pill">CRM • ADMINISTRADOR DANTON</span><a class="btn" href="/">← Início</a></div></div></header>
 <main class="shell">
-<section class="intro"><div><div class="kicker">Inteligência Comercial</div><h1>CRM DISMEPE ONE</h1><div class="sub">Clientes, produtos, estoque e oportunidades comerciais em uma única visão.</div></div><div class="actions"><div class="import"><input id="file" type="file" accept=".xlsx,.csv"><button id="import" class="btn primary">Importar base de vendas</button></div><span id="status" class="status"></span></div></section>
-<div id="notice" class="notice">Primeiro importe a base detalhada de vendas. A tela permanece restrita ao administrador Danton.</div>
+<section class="intro"><div><div class="kicker">Inteligência Comercial</div><h1>CRM DISMEPE ONE</h1><div class="sub">Clientes, produtos, estoque e oportunidades comerciais em uma única visão.</div></div><div class="actions"><div class="import"><input id="file" type="file" accept=".xlsx,.csv"><button id="import" class="btn primary">Importar base leve</button></div><span id="status" class="status"></span></div></section>
+<div id="notice" class="notice">Base leve: Cód. Produto + Total Unidade. O CRM compara a venda atual com a média histórica do MAPA e mantém a tela restrita ao administrador Danton.</div>
 <section class="grid">
 <div class="card metric"><small>Vendas no histórico</small><strong id="mVenda">—</strong></div>
 <div class="card metric"><small>Unidades</small><strong id="mUn">—</strong></div>
@@ -38,13 +38,27 @@ async function load(){
   renderAll(d);
  }catch(e){$('#status').textContent=e.message;$('#notice').textContent='Importe a base de vendas para iniciar o diagnóstico.';}
 }
+function fornecedorSelect(items,id){
+ const names=[...new Set(items.map(x=>String(x.fornecedor||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+ return '<div class="filters"><label>Fornecedor <select id="'+id+'"><option value="">Todos os fornecedores</option>'+names.map(n=>'<option>'+n.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</option>').join('')+'</select></label></div>';
+}
+function renderProductPanel(el,title,items,emptyText){
+ if(!items.length){el.innerHTML='<h3>'+title+'</h3><div class="status">'+emptyText+'</div>';return;}
+ const fid=el.id+'Fornecedor';
+ el.innerHTML='<h3>'+title+'</h3>'+fornecedorSelect(items,fid)+
+ table(['Produto','Fornecedor','Média MAPA','Atual','Variação','Estoque'],items.map(x=>'<tr data-fornecedor="'+String(x.fornecedor||'').replace(/"/g,'&quot;')+'"><td><b>'+x.codProduto+'</b>'+(x.descricao?' — '+x.descricao:'')+'</td><td>'+((x.fornecedor||'—'))+'</td><td>'+num(x.mediaUnidades)+'</td><td>'+num(x.unidadesAtual)+'</td><td class="'+(Number(x.variacaoPct)<=-40?'neg':'warn')+'">'+Number(x.variacaoPct).toFixed(1)+'%</td><td>'+num(x.estoque)+'</td></tr>')).replace(/<table /,'<table ');
+ const sel=$('#'+fid);
+ sel.onchange=()=>{const v=sel.value;el.querySelectorAll('tbody tr').forEach(tr=>tr.style.display=!v||tr.dataset.fornecedor===v?'':'none');};
+}
 function renderAll(d){
  const q=d.produtosQueda||[], p=d.produtosParados||[], c=d.clientesRisco||[], a=d.acoes||[];
- $('#queda').innerHTML='<h3>Produtos em queda</h3>'+table(['Produto','Fornecedor','Média 3M','Atual','Variação','Unidades','Dias sem venda'],q.map(x=>'<tr><td>'+x.codProduto+'</td><td>'+x.fornecedor+'</td><td>'+fmt(x.mediaVenda)+'</td><td>'+fmt(x.vendaAtual)+'</td><td class="neg">'+Number(x.variacaoPct).toFixed(1)+'%</td><td>'+num(x.unidadesAtual)+'</td><td>'+num(x.diasSemVenda)+'</td></tr>'));
- $('#parados').innerHTML='<h3>Produtos parados</h3>'+table(['Produto','Fornecedor','Média 3M','Última venda','Dias parado','Unidades médias'],p.map(x=>'<tr><td>'+x.codProduto+'</td><td>'+x.fornecedor+'</td><td>'+fmt(x.mediaVenda)+'</td><td>'+x.ultimaVenda+'</td><td class="neg">'+x.diasSemVenda+'</td><td>'+num(x.mediaUnidades)+'</td></tr>'));
+ renderProductPanel($('#queda'),'Produtos em queda',q,'Nenhum produto em queda encontrado.');
+ renderProductPanel($('#parados'),'Produtos parados',p,'Nenhum produto parado encontrado.');
  $('#clientes').innerHTML='<h3>Clientes em risco</h3>'+table(['Cliente','Variação','Média 3M','Atual','Dias sem compra','Responsável'],c.map(x=>'<tr><td>'+x.codCliente+'</td><td class="neg">'+Number(x.variacaoPct).toFixed(1)+'%</td><td>'+fmt(x.mediaVenda)+'</td><td>'+fmt(x.vendaAtual)+'</td><td>'+x.diasSemCompra+'</td><td>'+((x.vendedor||'—')+' / '+(x.televendas||'—'))+'</td></tr>'));
- $('#oportunidades').innerHTML='<h3>Ações comerciais</h3>'+table(['Produto','Fornecedor','Queda','Estoque','Situação','Clientes'],a.map(x=>'<tr><td>'+x.codProduto+'</td><td>'+x.fornecedor+'</td><td class="neg">'+Number(x.variacaoPct).toFixed(1)+'%</td><td>'+num(x.estoque)+'</td><td class="'+(x.prioridade==='ALTA'?'neg':'warn')+'">'+x.situacao+'</td><td>'+num(x.clientesAfetados)+'</td></tr>'));
+ $('#oportunidades').innerHTML='<h3>Ações comerciais</h3>'+fornecedorSelect(a,'acoesFornecedor')+table(['Produto','Fornecedor','Queda','Estoque','Situação','Clientes'],a.map(x=>'<tr data-fornecedor="'+String(x.fornecedor||'').replace(/"/g,'&quot;')+'"><td>'+x.codProduto+'</td><td>'+x.fornecedor+'</td><td class="neg">'+Number(x.variacaoPct).toFixed(1)+'%</td><td>'+num(x.estoque)+'</td><td class="'+(x.prioridade==='ALTA'?'neg':'warn')+'">'+x.situacao+'</td><td>'+num(x.clientesAfetados)+'</td></tr>'));
+ const af=$('#acoesFornecedor'); if(af) af.onchange=()=>{const v=af.value;$('#oportunidades tbody').querySelectorAll('tr').forEach(tr=>tr.style.display=!v||tr.dataset.fornecedor===v?'':'none');};
 }
+
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');['queda','parados','clientes','oportunidades'].forEach(id=>$('#'+id).classList.toggle('hidden',id!==b.dataset.tab));});
 let importTimer=null;
 function stopImportTimer(){if(importTimer){clearInterval(importTimer);importTimer=null;}}
@@ -92,7 +106,7 @@ $('#import').onclick=async()=>{
     const init=await fetch('/crm/api/importar/iniciar?ts='+Date.now(),{
       method:'POST',credentials:'include',cache:'no-store',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({nomeArquivo:f.name,totalBytes:f.size,totalChunks})
+      body:JSON.stringify({nomeArquivo:f.name,totalBytes:f.size,totalChunks,tipoBase:'PRODUTOS_LEVE'})
     });
     if(!init.ok)throw new Error((await init.text()).slice(0,500)||('HTTP '+init.status));
     const meta=await init.json(), id=meta.importacaoId;
