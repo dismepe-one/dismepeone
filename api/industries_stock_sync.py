@@ -1066,6 +1066,145 @@ def _persist_stock_snapshot_blocking(data: dict[str, Any]) -> None:
         )
 
 
+
+def _persist_crm_auto_snapshot_blocking(stock: dict[str, Any]) -> None:
+    """Grava no PostgreSQL a fotografia já consolidada para o CRM.
+    O CRM não precisa reler o MAPA/Produto Foco a cada abertura.
+    """
+    from .config import get_settings
+    import httpx
+
+    cfg_settings = get_settings()
+    endpoint = cfg_settings.supabase_url.rstrip("/") + "/functions/v1/dismepe-admin"
+    headers = {
+        "apikey": cfg_settings.supabase_publishable_key,
+        "x-dismepe-token": cfg_settings.edge_token,
+        "content-type": "application/json",
+        "accept": "application/json",
+    }
+
+    # Produto Foco vem da fotografia mensal já publicada no PostgreSQL.
+    try:
+        with httpx.Client(timeout=max(30.0, cfg_settings.request_timeout_seconds)) as client:
+            resp = client.post(
+                endpoint,
+                json={"acao": "CACHE_GET", "modulo": "MENSAL_COMERCIAL"},
+                headers=headers,
+            )
+        mensal = resp.json() if 200 <= resp.status_code < 300 else {}
+    except Exception:
+        return
+    payload = mensal.get("cache", {}).get("payload") if isinstance(mensal, dict) else {}
+    if not isinstance(payload, dict):
+        return
+
+    focus_codes: set[str] = set()
+    for key in ("dadosVendedores", "dadosTelevendas"):
+        rows = payload.get(key) if isinstance(payload.get(key), list) else []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            code = re.sub(r"\D", "", str(
+                row.get("__CODIGO_FOCO")
+                or row.get("codigoProdutoFoco")
+                or row.get("codProdutoFoco")
+                or row.get("__COD_PROD_FOCO")
+                or row.get("codigo_foco")
+                or row.get("cod_foco")
+                or ""
+            ))
+            if code:
+                focus_codes.add(code)
+
+    if not focus_codes:
+        return
+
+    month_key, month_label = _map_latest_month(list(stock.get("linhas") or []))
+    rows_by_code = {
+        re.sub(r"\D", "", str(row.get("codigo") or "")): row
+        for row in (stock.get("linhas") or [])
+        if isinstance(row, dict)
+    }
+    produtos = []
+    fornecedores = set()
+    for code in sorted(focus_codes):
+        row = rows_by_code.get(code)
+        if not row:
+            continue
+        media = _to_float_stock(row.get("media"))
+        atual = _to_float_stock(row.get(month_key))
+        estoque = _to_float_stock(row.get("estoque"))
+        fornecedor = _clean_spaces(row.get("fornecedor")).upper()
+        fornecedores.add(fornecedor) if fornecedor else None
+        variacao = ((atual / media) - 1) * 100 if media > 0 else 0
+        parado = atual <= 0 and media > 0
+        queda = media > 0 and atual > 0 and variacao <= -20
+        produtos.append({
+            "codProduto": code,
+            "fornecedor": fornecedor,
+            "descricao": _clean_spaces(row.get("descricao")),
+            "mediaUnidades": media,
+            "unidadesAtual": atual,
+            "variacaoPct": variacao,
+            "estoque": estoque,
+            "parado": parado,
+            "emQueda": queda,
+            "curva": _clean_spaces(row.get("curva")),
+        })
+
+    parados = sorted(
+        [x for x in produtos if x["parado"] and x["estoque"] > 0],
+        key=lambda x: (x["estoque"], x["mediaUnidades"]), reverse=True,
+    )[:500]
+    queda = sorted(
+        [x for x in produtos if x["emQueda"]],
+        key=lambda x: x["variacaoPct"],
+    )[:500]
+    acoes = sorted(
+        [x for x in produtos if x["estoque"] > 0 and (x["parado"] or x["emQueda"])],
+        key=lambda x: (0 if x["parado"] else 1, x["variacaoPct"]),
+    )[:500]
+
+    snapshot = {
+        "produtosQueda": queda,
+        "produtosParados": parados,
+        "acoes": acoes,
+        "fornecedoresProdutos": sorted(fornecedores),
+        "resumoAuto": {
+            "produtosFoco": len(focus_codes),
+            "produtosNoMapa": len(produtos),
+            "produtosParadosEstoque": len(parados),
+            "produtosQueda20": len(queda),
+            "competenciaFoco": str(payload.get("competencia") or ""),
+            "mesMapa": month_label,
+            "fonteFoco": "MENSAL_COMERCIAL_POSTGRESQL",
+            "fonteMapa": "MAPA_ESTOQUE",
+            "atualizadoEm": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+    encoded = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    try:
+        with httpx.Client(timeout=max(60.0, cfg_settings.request_timeout_seconds)) as client:
+            response = client.post(
+                endpoint,
+                json={
+                    "acao": "CACHE_SET",
+                    "modulo": "CRM_AUTO_PRODUTOS",
+                    "payload": snapshot,
+                    "atualizado_por": "STOCK_WORKER",
+                    "nome": "CRM — Produto Foco x MAPA",
+                    "tamanho": len(encoded),
+                    "versao": "CRM_AUTO_FOCO_V1",
+                },
+                headers=headers,
+            )
+        if response.status_code < 200 or response.status_code >= 300:
+            raise RuntimeError(f"CRM_AUTO_PRODUTOS HTTP {response.status_code}")
+    except Exception:
+        # O MAPA não deve deixar de atualizar por uma falha secundária do CRM.
+        return
+
+
 def _load_persisted_stock_snapshot_blocking() -> dict[str, Any] | None:
     # Lê somente o último mapa confirmado no Supabase.
     # Falha desta consulta nunca derruba a atualização.
@@ -1180,6 +1319,7 @@ def _sync_stock_once_blocking(force: bool = False) -> dict[str, Any]:
 
     _state_update(lastStatus="PERSISTING", lastAttemptAt=now_iso, lastError=None)
     _persist_stock_snapshot_blocking(parsed)
+    _persist_crm_auto_snapshot_blocking(parsed)
     _atomic_json(CURRENT_FILE, parsed)
     _save_history(parsed, file_id=str(newest.get("id") or "drive"))
     return _state_update(
