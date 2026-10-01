@@ -97,7 +97,54 @@ def _focus_status(focus_row: dict[str, Any] | None) -> tuple[float, float, bool]
     return goal, actual, goal > 0 and actual >= goal
 
 
-def _sync_normal_monthly(summary: dict[str, Any], publication: dict[str, Any]) -> dict[str, Any]:
+def _natulab_tiers(monthly_payload: dict[str, Any] | None, competence: str) -> list[tuple[float, dict[str, Any]]]:
+    if not isinstance(monthly_payload, dict):
+        return []
+    rules = monthly_payload.get("regrasPremiacao")
+    if not isinstance(rules, list):
+        return []
+
+    tiers: dict[float, dict[str, Any]] = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if rule.get("ativo") is False:
+            continue
+        if _base_lab(rule.get("laboratorio") or rule.get("LABORATORIO")) != "NATULAB":
+            continue
+        comp = str(rule.get("competencia") or rule.get("COMPETENCIA") or "").strip()
+        if competence and comp and comp != competence:
+            continue
+        if _norm(rule.get("metrica") or rule.get("METRICA")) != "OBJETIVO":
+            continue
+
+        minimum = _number(rule.get("minAtingimento"))
+        prize = _number(rule.get("valor"))
+        if minimum is None or minimum <= 0 or prize is None or prize < 0:
+            continue
+        tiers[minimum] = rule
+
+    return sorted(tiers.items(), key=lambda pair: pair[0])
+
+
+def _natulab_rule_for_sale(
+    monthly_payload: dict[str, Any] | None,
+    competence: str,
+    sale: float,
+) -> tuple[float, dict[str, Any]] | None:
+    selected: tuple[float, dict[str, Any]] | None = None
+    for minimum, rule in _natulab_tiers(monthly_payload, competence):
+        if sale < minimum:
+            break
+        selected = (minimum, rule)
+    return selected
+
+
+def _sync_normal_monthly(
+    summary: dict[str, Any],
+    publication: dict[str, Any],
+    monthly_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if not isinstance(summary, dict):
         return summary
     records = summary.get("registros")
@@ -110,12 +157,16 @@ def _sync_normal_monthly(summary: dict[str, Any], publication: dict[str, Any]) -
 
     out = copy.deepcopy(summary)
     changed = 0
+    natulab_changed = 0
+
     for item in out.get("registros") or []:
         if not isinstance(item, dict):
             continue
         if str(item.get("tipoRegistro") or "").upper() == "CAMPANHA_EXTRA":
             continue
-        current = base.get(_summary_key(item))
+
+        key = _summary_key(item)
+        current = base.get(key)
         if current is None:
             continue
 
@@ -126,52 +177,78 @@ def _sync_normal_monthly(summary: dict[str, Any], publication: dict[str, Any]) -
 
         old_objective = _number(item.get("objetivo"))
         old_sale = _number(item.get("venda"))
+        old_prize = _number(item.get("premiacao")) or 0.0
+
         item["objetivo"] = round(objective, 4)
         item["venda"] = round(sale, 4)
         item["atingimento"] = round((sale / objective * 100.0) if objective > 0 else 0.0, 6)
         item["objetivoVendaOK"] = bool(objective > 0 and sale >= objective)
 
-        # NATULAB usa a regra mensal normal de objetivo + produto foco. O resumo
-        # antigo congelava objetivo/venda/foco no momento em que foi consolidado.
-        # Reaplicamos apenas essa regra conhecida, usando a fotografia já
-        # publicada nas Parciais, sem alterar a configuração da campanha.
+        # NATULAB: a premiacao e por FAIXA DE FATURAMENTO REALIZADO, nao pela
+        # meta individual. A configuracao mensal continua sendo a fonte das
+        # faixas/premios. O Produto Foco permanece como gatilho adicional.
         if _base_lab(item.get("laboratorio")) == "NATULAB":
-            rule = item.get("regra") if isinstance(item.get("regra"), dict) else {}
-            metric = _norm(rule.get("metrica") or item.get("metrica"))
-            if metric == "OBJETIVO":
-                focus_goal, focus_actual, focus_ok = _focus_status(focus.get(_summary_key(item)))
-                requires_focus = rule.get("exigeFoco") is True or item.get("temFoco") is True
+            competence = str(item.get("competencia") or item.get("periodo") or "").strip()
+            tiers = _natulab_tiers(monthly_payload, competence)
+            selected = _natulab_rule_for_sale(monthly_payload, competence, sale)
+
+            if tiers:
+                minimum, selected_rule = selected if selected is not None else (0.0, tiers[0][1])
+                requires_focus = selected_rule.get("exigeFoco") is True
+                focus_goal, focus_actual, focus_ok = _focus_status(focus.get(key))
+
+                item["temFoco"] = requires_focus
+                item["possuiLinhaFoco"] = focus_goal > 0
+                item["objetivoFoco"] = round(focus_goal, 4)
+                item["vendaFoco"] = round(focus_actual, 4)
+                item["focoOK"] = focus_ok if requires_focus else True
+
+                revenue_ok = selected is not None
+                gates_ok = bool(
+                    revenue_ok
+                    and (not requires_focus or focus_ok)
+                    and item.get("somaLaboratorioOK", True) is not False
+                )
+                item["duploGatilhoFocoOK"] = bool(
+                    revenue_ok and (not requires_focus or focus_ok)
+                )
                 if requires_focus:
-                    item["temFoco"] = True
-                    item["possuiLinhaFoco"] = focus_goal > 0
-                    item["objetivoFoco"] = round(focus_goal, 4)
-                    item["vendaFoco"] = round(focus_actual, 4)
-                    item["focoOK"] = focus_ok
-                    item["duploGatilhoFocoOK"] = bool(item["objetivoVendaOK"] and focus_ok)
                     item["motivoFoco"] = (
-                        "Objetivo de venda + Produto Foco atingidos."
+                        "Faixa de faturamento + Produto Foco atingidos."
                         if item["duploGatilhoFocoOK"]
-                        else "Objetivo de venda ou Produto Foco ainda não atingido."
+                        else "Faixa de faturamento ou Produto Foco ainda não atingido."
                     )
                 else:
-                    item["focoOK"] = True
-                    item["duploGatilhoFocoOK"] = bool(item["objetivoVendaOK"])
+                    item["motivoFoco"] = (
+                        "Faixa de faturamento atingida."
+                        if revenue_ok
+                        else "Faixa mínima de faturamento ainda não atingida."
+                    )
 
-                minimum_objective = _number(rule.get("minAtingimento")) or 0.0
-                maximum_objective = _number(rule.get("maxAtingimento"))
-                objective_eligible = objective >= minimum_objective
-                if maximum_objective is not None and maximum_objective > 0:
-                    objective_eligible = objective_eligible and objective <= maximum_objective
-                gates_ok = bool(
-                    item["objetivoVendaOK"]
-                    and (not requires_focus or item.get("focoOK") is True)
-                    and item.get("somaLaboratorioOK", True) is not False
-                    and objective_eligible
-                )
-                configured_prize = _number(rule.get("valor")) or 0.0
-                item["premiacao"] = round(configured_prize if gates_ok else 0.0, 2)
+                prize = (_number(selected_rule.get("valor")) or 0.0) if selected is not None else 0.0
+                item["premiacao"] = round(prize if gates_ok else 0.0, 2)
+                item["metricaCalculoPremiacao"] = "FATURAMENTO"
+                item["faixaFaturamentoMinimo"] = round(minimum, 2) if selected is not None else None
 
-        if old_objective != objective or old_sale != sale:
+                if selected is not None:
+                    item["regra"] = copy.deepcopy(selected_rule)
+                    item["regraAplicada"] = (
+                        f"FATURAMENTO • VALOR_FIXO • R$ {minimum:,.2f}+"
+                        .replace(",", "X")
+                        .replace(".", ",")
+                        .replace("X", ".")
+                    )
+                else:
+                    item["regraAplicada"] = "FATURAMENTO • ABAIXO DA FAIXA MÍNIMA"
+
+                if old_prize != (_number(item.get("premiacao")) or 0.0):
+                    natulab_changed += 1
+
+        if (
+            old_objective != objective
+            or old_sale != sale
+            or old_prize != (_number(item.get("premiacao")) or 0.0)
+        ):
             changed += 1
 
     if changed:
@@ -183,6 +260,9 @@ def _sync_normal_monthly(summary: dict[str, Any], publication: dict[str, Any]) -
             pass
         out["objetivosMensaisSincronizados"] = True
         out["linhasObjetivosSincronizadas"] = changed
+        if natulab_changed:
+            out["natulabFaixasFaturamentoSincronizadas"] = True
+            out["linhasNatulabPremiacaoAtualizadas"] = natulab_changed
     return out
 
 
@@ -200,7 +280,8 @@ def install_resumo_objective_sync(app) -> None:
             result = await original_get(*args, **kwargs)
             try:
                 publication, row = await cache_get(modulo="HOME_PUBLICATION", settings=main_module.settings)
-                result = _sync_normal_monthly(result, publication)
+                monthly_payload, _ = await cache_get(modulo="MENSAL", settings=main_module.settings)
+                result = _sync_normal_monthly(result, publication, monthly_payload)
                 if isinstance(result, dict) and result.get("objetivosMensaisSincronizados"):
                     result["objetivosAtualizadosEm"] = str(row.get("atualizado_em") or "")
             except (CacheReadError, ValueError, TypeError):
@@ -226,7 +307,8 @@ def install_resumo_objective_sync(app) -> None:
 
             persisted, _ = await cache_get(modulo="RESUMO_PREMIACOES", settings=prod_module.settings)
             publication, _ = await cache_get(modulo="HOME_PUBLICATION", settings=prod_module.settings)
-            corrected = _sync_normal_monthly(persisted, publication)
+            monthly_payload, _ = await cache_get(modulo="MENSAL", settings=prod_module.settings)
+            corrected = _sync_normal_monthly(persisted, publication, monthly_payload)
 
             profile = decode_session_token(
                 session,
