@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-_MARKER = "DISMEPE_RESUMO_LATEST_MONTH_DEFAULT_V1"
+_MARKER = "DISMEPE_RESUMO_LATEST_MONTH_DEFAULT_V2"
 
 
 def install_resumo_latest_month_default() -> None:
@@ -11,8 +11,8 @@ def install_resumo_latest_month_default() -> None:
 
     Mantém a opção "Todos os meses" disponível para escolha manual, mas na
     abertura/primeiro carregamento usa o último mês realmente cadastrado no
-    snapshot do resumo. Assim o calendário atual não força uma competência
-    ainda inexistente.
+    snapshot do resumo. O patch é inserido antes do ÚLTIMO </body> do portal,
+    evitando atingir templates HTML embutidos em strings JavaScript.
     """
     from . import main as main_module
 
@@ -29,12 +29,13 @@ def install_resumo_latest_month_default() -> None:
         return
 
     anchor = "</body>"
-    if anchor not in text:
+    position = text.lower().rfind(anchor)
+    if position < 0:
         return
 
     patch = r'''
 <script>
-// DISMEPE_RESUMO_LATEST_MONTH_DEFAULT_V1
+// DISMEPE_RESUMO_LATEST_MONTH_DEFAULT_V2
 (function(){
   function install(){
     const original = window.cm32PopulateMonthSelect;
@@ -76,7 +77,7 @@ def install_resumo_latest_month_default() -> None:
 </script>
 '''
 
-    patched = text.replace(anchor, patch + "\n" + anchor, 1)
+    patched = text[:position] + patch + "\n" + text[position:]
     try:
         temp = portal.with_name(portal.name + ".resumo-latest-month.tmp")
         temp.write_text(patched, encoding="utf-8")
