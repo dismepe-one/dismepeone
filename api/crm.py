@@ -21,7 +21,7 @@ router = APIRouter()
 settings = get_settings()
 ROOT = Path(__file__).resolve().parents[1]
 PAGE = ROOT / "frontend" / "crm.html"
-CRM_BUILD = "CRM-DEV1-20261001"
+CRM_BUILD = "CRM-DEV2-20261001-AUTO-FOCO"
 CRM_MODULE = "CRM_VENDAS_V1"
 STOCK_JSON = ROOT / "data" / "industries" / "mapa_estoque_atual.json"
 STOCK_FALLBACK = ROOT / "data" / "industries" / "mapa_estoque_2026-09-16.json"
@@ -152,77 +152,167 @@ async def crm_access(session: str | None = Cookie(default=None, alias=settings.c
     return _json({"sucesso": True, "usuario": "DANTON", "build": CRM_BUILD})
 
 
+def _month_number(label: str) -> int:
+    names = {"jan":1,"fev":2,"mar":3,"abr":4,"mai":5,"jun":6,"jul":7,"ago":8,"set":9,"out":10,"nov":11,"dez":12}
+    m = re.match(r"^([a-z]{3})_(\d{2})$", str(label or "").strip().lower())
+    if not m:
+        return 0
+    return 2000 + int(m.group(2)), names.get(m.group(1), 0)
+
+
+def _map_latest_month(rows: list[dict[str, Any]]) -> tuple[str, str]:
+    candidates: set[str] = set()
+    for row in rows:
+        for key in row:
+            if re.fullmatch(r"[a-z]{3}_\d{2}", str(key or "").lower()):
+                if _month_number(str(key)) != 0:
+                    candidates.add(str(key))
+    if not candidates:
+        return "", ""
+    latest = max(candidates, key=_month_number)
+    return latest, latest.replace("_", "/").upper()
+
+
+def _to_number(value: Any) -> float:
+    text = str(value or "").strip().replace(".", "").replace(",", ".")
+    try:
+        return float(text)
+    except Exception:
+        try:
+            return float(value or 0)
+        except Exception:
+            return 0.0
+
+
+async def _produto_foco_atual() -> tuple[dict[str, float], str]:
+    """Lê a fotografia comercial que o DISMEPE ONE já publica.
+    Não cria nova base nem depende de upload. O valor acumulado é financeiro;
+    as unidades atuais vêm do MAPA, que é a fonte de quantidade mensal.
+    """
+    for modulo in ("MENSAL_COMERCIAL", "MENSAL"):
+        try:
+            payload, _ = await cache_get(modulo=modulo, settings=settings)
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        values: dict[str, float] = {}
+        found = 0
+        for key in ("dadosVendedores", "dadosTelevendas"):
+            rows = payload.get(key) if isinstance(payload.get(key), list) else []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                is_focus = row.get("__TEM_FOCO") is True or bool(row.get("__CODIGO_FOCO"))
+                code = re.sub(r"\D", "", str(row.get("__CODIGO_FOCO") or ""))
+                if not is_focus or not code:
+                    continue
+                sale = _to_number(row.get("__VENDA_FOCO") if row.get("__VENDA_FOCO") is not None else row.get("__VENDA"))
+                values[code] = values.get(code, 0.0) + sale
+                found += 1
+        if found:
+            comp = str(payload.get("competencia") or "")
+            return values, comp
+    return {}, ""
+
+
+async def _crm_auto_products() -> dict[str, Any]:
+    stock = _stock_map()
+    rows = list(stock.values())
+    month_key, month_label = _map_latest_month(rows)
+    foco_sales, competencia = await _produto_foco_atual()
+    focus_codes = set(foco_sales)
+    produtos: list[dict[str, Any]] = []
+    fornecedores: set[str] = set()
+
+    for code in sorted(focus_codes):
+        row = stock.get(code)
+        if not row:
+            # O produto foco pode ainda não estar no MAPA; mantemos o código
+            # visível, mas ele não entra em ação de estoque sem cadastro.
+            produtos.append({
+                "codProduto": code, "fornecedor": "", "descricao": "",
+                "mediaUnidades": 0, "unidadesAtual": 0, "variacaoPct": 0,
+                "estoque": 0, "vendaFocoAtual": foco_sales.get(code, 0),
+                "temMapa": False, "parado": False, "emQueda": False,
+            })
+            continue
+
+        media = _to_number(row.get("media"))
+        atual = _to_number(row.get(month_key))
+        estoque = _to_number(row.get("estoque"))
+        fornecedor = str(row.get("fornecedor") or "").strip()
+        if fornecedor:
+            fornecedores.add(fornecedor)
+        variacao = ((atual / media) - 1) * 100 if media > 0 else 0
+        parado = atual <= 0 and media > 0
+        queda = media > 0 and atual > 0 and variacao <= -20
+        produtos.append({
+            "codProduto": code,
+            "fornecedor": fornecedor,
+            "descricao": str(row.get("descricao") or ""),
+            "mediaUnidades": media,
+            "unidadesAtual": atual,
+            "variacaoPct": variacao,
+            "estoque": estoque,
+            "vendaFocoAtual": foco_sales.get(code, 0),
+            "temMapa": True,
+            "parado": parado,
+            "emQueda": queda,
+            "curva": str(row.get("curva") or ""),
+        })
+
+    parados = sorted(
+        [x for x in produtos if x["parado"] and x["estoque"] > 0],
+        key=lambda x: (x["estoque"], x["mediaUnidades"]),
+        reverse=True,
+    )[:500]
+    queda = sorted(
+        [x for x in produtos if x["emQueda"]],
+        key=lambda x: x["variacaoPct"],
+    )[:500]
+    acoes = sorted(
+        [x for x in produtos if x["estoque"] > 0 and (x["parado"] or x["emQueda"])],
+        key=lambda x: (0 if x["parado"] else 1, x["variacaoPct"]),
+    )[:500]
+
+    return {
+        "produtosQueda": queda,
+        "produtosParados": parados,
+        "acoes": acoes,
+        "fornecedoresProdutos": sorted(fornecedores, key=lambda x: _norm(x)),
+        "resumoAuto": {
+            "produtosFoco": len(focus_codes),
+            "produtosNoMapa": sum(x["temMapa"] for x in produtos),
+            "produtosParadosEstoque": len(parados),
+            "produtosQueda20": len(queda),
+            "competenciaFoco": competencia,
+            "mesMapa": month_label,
+            "fonteFoco": "MENSAL_COMERCIAL_POSTGRESQL",
+            "fonteMapa": "MAPA_ESTOQUE",
+        },
+    }
+
+
 @router.get("/crm/api/resumo")
 async def crm_summary(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
     _admin_danton(session)
     result = await _edge("CRM_RESUMO", {})
-    try:
-        light = await _edge("CRM_BASE_LEVE_GET", {})
-        if light.get("encontrado"):
-            base_rows = light.get("produtos") if isinstance(light.get("produtos"), list) else []
-            stock = _stock_map()
-            def snum(v):
-                text = str(v or "").strip().replace(".", "").replace(",", ".")
-                try:
-                    return float(text)
-                except Exception:
-                    try:
-                        return float(v)
-                    except Exception:
-                        return 0.0
-            base = {re.sub(r"\D", "", str(x.get("cod_produto") or "")): snum(x.get("total_unidade")) for x in base_rows if isinstance(x, dict)}
-            produtos = []
-            fornecedores = set()
-            for code, row in stock.items():
-                media = snum(row.get("media"))
-                atual = base.get(code, 0.0)
-                vari = ((atual / media) - 1) * 100 if media > 0 else 0.0
-                estoque = snum(row.get("estoque"))
-                fornecedor = str(row.get("fornecedor") or "").strip()
-                if fornecedor:
-                    fornecedores.add(fornecedor)
-                produtos.append({
-                    "codProduto": code,
-                    "fornecedor": fornecedor,
-                    "descricao": str(row.get("descricao") or ""),
-                    "mediaUnidades": media,
-                    "mediaVenda": 0,
-                    "vendaAtual": 0,
-                    "unidadesAtual": atual,
-                    "variacaoPct": vari,
-                    "diasSemVenda": 0 if atual > 0 else 9999,
-                    "estoque": estoque,
-                    "clientesAfetados": 0,
-                    "ultimaVenda": "",
-                })
-            for code, atual in base.items():
-                if code and code not in stock:
-                    produtos.append({
-                        "codProduto": code, "fornecedor": "", "descricao": "",
-                        "mediaUnidades": 0, "mediaVenda": 0, "vendaAtual": 0,
-                        "unidadesAtual": atual, "variacaoPct": 0, "diasSemVenda": 0,
-                        "estoque": 0, "clientesAfetados": 0, "ultimaVenda": "",
-                    })
-            queda = sorted([x for x in produtos if x["mediaUnidades"] > 0 and x["variacaoPct"] <= -20],
-                           key=lambda x: x["variacaoPct"])[:200]
-            parados = sorted([x for x in produtos if x["mediaUnidades"] > 0 and x["unidadesAtual"] <= 0],
-                             key=lambda x: x["mediaUnidades"], reverse=True)[:200]
-            acoes = [dict(x, situacao=("ALTA" if x["variacaoPct"] <= -40 and x["estoque"] > 0 else "ATENÇÃO"),
-                          prioridade=("ALTA" if x["variacaoPct"] <= -40 and x["estoque"] > 0 else "MÉDIA"))
-                     for x in queda if x["estoque"] > 0][:200]
-            result["produtosQueda"] = queda
-            result["produtosParados"] = parados
-            result["acoes"] = acoes
-            result["fornecedoresProdutos"] = sorted(fornecedores)
-            result.setdefault("resumo", {})["produtos"] = len(base)
-            result["resumo"]["unidadesHistorico"] = sum(base.values())
-            result["resumo"]["produtosQueda20"] = len(queda)
-            result["resumo"]["produtosParados30"] = len(parados)
-            result["resumo"]["baseProdutos"] = True
-            result["resumo"]["baseProdutosArquivo"] = str((light.get("importacao") or {}).get("nome_arquivo") or "")
-            result["resumo"]["baseProdutosAtualizadaEm"] = str((light.get("importacao") or {}).get("atualizado_em") or "")
-    except Exception as exc:
-        result["crmBaseLeveErro"] = str(exc)[:300]
+    auto = await _crm_auto_products()
+    result.update(auto)
+    r = result.setdefault("resumo", {})
+    ar = auto["resumoAuto"]
+    r["produtos"] = ar["produtosFoco"]
+    r["produtosQueda20"] = ar["produtosQueda20"]
+    r["produtosParados30"] = ar["produtosParadosEstoque"]
+    r["baseProdutos"] = True
+    r["baseProdutosAutomatica"] = True
+    r["baseProdutosArquivo"] = ""
+    r["baseProdutosAtualizadaEm"] = str(result.get("atualizadoEm") or "")
+    r["mesMapa"] = ar["mesMapa"]
+    r["competenciaFoco"] = ar["competenciaFoco"]
+    r["fonteFoco"] = ar["fonteFoco"]
+    r["fonteMapa"] = ar["fonteMapa"]
     result["build"] = CRM_BUILD
     return _json(result)
 
@@ -243,292 +333,3 @@ async def crm_clients(session: str | None = Cookie(default=None, alias=settings.
     return _json(result)
 
 
-CRM_UPLOAD_DIR = Path("/tmp/dismepe_crm_imports")
-CRM_CHUNK_SIZE = 4 * 1024 * 1024
-CRM_MAX_UPLOAD = 35 * 1024 * 1024
-CRM_EXPECTED_HEADERS = ["Data", "Número NF", "Cód. Cliente", "Total Unidade", "Venda Líquida (R$)", "Fornecedor", "Cód. Produto"]
-
-
-def _crm_upload_path(importacao_id: str) -> Path:
-    CRM_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    return CRM_UPLOAD_DIR / (importacao_id + ".part")
-
-
-async def _crm_send_batch_with_retry(batch: list[dict[str, Any]], importacao_id: str) -> None:
-    last: Exception | None = None
-    for tentativa in range(3):
-        try:
-            await _edge("CRM_VENDAS_IMPORTAR", {
-                "registros": batch,
-                "importacao_id": importacao_id,
-            })
-            return
-        except Exception as exc:
-            last = exc
-            if tentativa < 2:
-                import asyncio
-                await asyncio.sleep(2 * (tentativa + 1))
-    raise last or RuntimeError("Falha ao importar lote CRM.")
-
-
-async def _crm_process_import_file(path: Path, filename: str, importacao_id: str, tipo_base: str) -> None:
-    try:
-        ext = "csv" if filename.lower().endswith(".csv") else "xlsx"
-        source = f"upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{importacao_id[:8]}.{ext}"
-        if tipo_base == "PRODUTOS_LEVE":
-            expected = ["Cód. Produto", "Total Unidade"]
-            registros: list[dict[str, Any]] = []
-            if ext == "csv":
-                import csv
-                with path.open("r", encoding="utf-8-sig", newline="") as fh:
-                    reader = csv.DictReader(fh)
-                    headers = [str(x or "").strip() for x in (reader.fieldnames or [])]
-                    if headers[:2] != expected:
-                        raise ValueError("Cabeçalhos incompatíveis. Esperado: Cód. Produto, Total Unidade.")
-                    for row in reader:
-                        if not row or all(v is None or str(v).strip() == "" for v in row.values()):
-                            continue
-                        try:
-                            cod = int(float(row.get("Cód. Produto") or 0))
-                            unidades = float(row.get("Total Unidade") or 0)
-                        except (TypeError, ValueError):
-                            continue
-                        if cod > 0:
-                            registros.append({"cod_produto": cod, "total_unidade": unidades})
-            else:
-                from openpyxl import load_workbook
-                wb = load_workbook(path, read_only=True, data_only=True)
-                try:
-                    ws = wb.active
-                    header = [str(x or "").strip() for x in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
-                    if header[:2] != expected:
-                        raise ValueError("Cabeçalhos incompatíveis. Esperado: Cód. Produto, Total Unidade.")
-                    for values in ws.iter_rows(min_row=2, values_only=True):
-                        if not values or all(v is None or str(v).strip() == "" for v in values):
-                            continue
-                        try:
-                            cod = int(float(values[0] or 0))
-                            unidades = float(values[1] or 0)
-                        except (TypeError, ValueError):
-                            continue
-                        if cod > 0:
-                            registros.append({"cod_produto": cod, "total_unidade": unidades})
-                finally:
-                    wb.close()
-            total_linhas = len(registros)
-            await _edge("CRM_IMPORT_ATUALIZAR", {
-                "importacao_id": importacao_id,
-                "processadas": 0,
-                "total_linhas": total_linhas,
-            })
-            for inicio in range(0, len(registros), 500):
-                lote = registros[inicio:inicio + 500]
-                await _edge("CRM_PRODUTOS_BASE_IMPORTAR", {
-                    "importacao_id": importacao_id,
-                    "periodo": datetime.now().strftime("%Y-%m"),
-                    "registros": lote,
-                })
-                await _edge("CRM_IMPORT_ATUALIZAR", {
-                    "importacao_id": importacao_id,
-                    "processadas": min(inicio + len(lote), total_linhas),
-                    "total_linhas": total_linhas,
-                })
-            await _edge("CRM_IMPORT_FINALIZAR", {"importacao_id": importacao_id, "sucesso": True})
-            return
-
-        # Compatibilidade com a base detalhada anterior.
-        if ext == "csv":
-            import csv
-            with path.open("r", encoding="utf-8-sig", newline="") as fh:
-                raw_lines = sum(1 for _ in fh)
-            total_linhas = max(0, raw_lines - 1)
-            await _edge("CRM_IMPORT_ATUALIZAR", {"importacao_id": importacao_id, "processadas": 0, "total_linhas": total_linhas})
-            fh = path.open("r", encoding="utf-8-sig", newline="")
-            try:
-                reader = csv.DictReader(fh)
-                headers = [str(x or "").strip() for x in (reader.fieldnames or [])]
-                if headers[:7] != CRM_EXPECTED_HEADERS:
-                    raise ValueError("Cabeçalhos incompatíveis. Envie a base leve com Cód. Produto e Total Unidade.")
-                rows = reader
-                batch: list[dict[str, Any]] = []
-                processadas = 0
-                for row in rows:
-                    if not row or all(v is None or str(v).strip() == "" for v in row.values()):
-                        continue
-                    dbrow = _row_to_db(row, source)
-                    if dbrow["cod_cliente"] <= 0 or dbrow["cod_produto"] <= 0 or not dbrow["data_venda"]:
-                        continue
-                    batch.append(dbrow)
-                    if len(batch) >= 1000:
-                        await _crm_send_batch_with_retry(batch, importacao_id)
-                        processadas += len(batch)
-                        await _edge("CRM_IMPORT_ATUALIZAR", {"importacao_id": importacao_id, "processadas": processadas, "total_linhas": total_linhas})
-                        batch = []
-                if batch:
-                    await _crm_send_batch_with_retry(batch, importacao_id)
-                    processadas += len(batch)
-                    await _edge("CRM_IMPORT_ATUALIZAR", {"importacao_id": importacao_id, "processadas": processadas, "total_linhas": total_linhas})
-            finally:
-                fh.close()
-        else:
-            from openpyxl import load_workbook
-            wb = load_workbook(path, read_only=True, data_only=True)
-            try:
-                ws = wb.active
-                total_linhas = max(0, int(ws.max_row or 0) - 1)
-                await _edge("CRM_IMPORT_ATUALIZAR", {"importacao_id": importacao_id, "processadas": 0, "total_linhas": total_linhas})
-                rows = (dict(zip(CRM_EXPECTED_HEADERS, values)) for values in ws.iter_rows(min_row=2, values_only=True))
-                batch = []
-                processadas = 0
-                for row in rows:
-                    if not row or all(v is None or str(v).strip() == "" for v in row.values()):
-                        continue
-                    dbrow = _row_to_db(row, source)
-                    if dbrow["cod_cliente"] <= 0 or dbrow["cod_produto"] <= 0 or not dbrow["data_venda"]:
-                        continue
-                    batch.append(dbrow)
-                    if len(batch) >= 1000:
-                        await _crm_send_batch_with_retry(batch, importacao_id)
-                        processadas += len(batch)
-                        await _edge("CRM_IMPORT_ATUALIZAR", {"importacao_id": importacao_id, "processadas": processadas, "total_linhas": total_linhas})
-                        batch = []
-                if batch:
-                    await _crm_send_batch_with_retry(batch, importacao_id)
-                    processadas += len(batch)
-                    await _edge("CRM_IMPORT_ATUALIZAR", {"importacao_id": importacao_id, "processadas": processadas, "total_linhas": total_linhas})
-            finally:
-                wb.close()
-        await _edge("CRM_IMPORT_FINALIZAR", {"importacao_id": importacao_id, "sucesso": True})
-    except Exception as exc:
-        try:
-            await _edge("CRM_IMPORT_FINALIZAR", {
-                "importacao_id": importacao_id,
-                "sucesso": False,
-                "erro": str(exc)[:1000],
-            })
-        except Exception:
-            pass
-    finally:
-        try:
-            path.unlink(missing_ok=True)
-        except Exception:
-            pass
-
-
-@router.post("/crm/api/importar/iniciar")
-async def crm_importar_iniciar(
-    request: Request,
-    session: str | None = Cookie(default=None, alias=settings.cookie_name),
-):
-    profile = _admin_danton(session)
-    try:
-        body = await request.json()
-    except Exception as exc:
-        raise HTTPException(400, "Dados de início da importação inválidos.") from exc
-    filename = str(body.get("nomeArquivo") or "base_crm.xlsx").strip()
-    if not (filename.lower().endswith(".xlsx") or filename.lower().endswith(".csv")):
-        raise HTTPException(400, "Formato não suportado. Envie XLSX ou CSV.")
-    total_bytes = int(body.get("totalBytes") or 0)
-    total_chunks = int(body.get("totalChunks") or 0)
-    tipo_base = str(body.get("tipoBase") or "DETALHADA").strip().upper()
-    if tipo_base not in {"DETALHADA", "PRODUTOS_LEVE"}:
-        raise HTTPException(400, "Tipo de base inválido.")
-    if total_bytes <= 0:
-        raise HTTPException(400, "Arquivo vazio.")
-    if total_bytes > CRM_MAX_UPLOAD:
-        raise HTTPException(413, "Arquivo acima do limite de 35 MB.")
-    if total_chunks <= 0 or total_chunks > 100:
-        raise HTTPException(400, "Quantidade de partes inválida.")
-    created = await _edge("CRM_IMPORT_CRIAR", {
-        "nome_arquivo": filename,
-        "total_linhas": 0,
-        "usuario": str(profile.get("usuario") or "DANTON"),
-        "tipo_base": tipo_base,
-    })
-    importacao_id = str(created.get("id") or "")
-    if not importacao_id:
-        raise HTTPException(500, "O servidor não retornou o identificador da importação.")
-    path = _crm_upload_path(importacao_id)
-    path.write_bytes(b"")
-    return _json({
-        "sucesso": True,
-        "importacaoId": importacao_id,
-        "chunkSize": CRM_CHUNK_SIZE,
-        "totalBytes": total_bytes,
-        "totalChunks": total_chunks,
-    }, status=201)
-
-
-@router.post("/crm/api/importar/chunk")
-async def crm_importar_chunk(
-    request: Request,
-    session: str | None = Cookie(default=None, alias=settings.cookie_name),
-):
-    _admin_danton(session)
-    importacao_id = (request.headers.get("x-importacao-id") or "").strip()
-    if not importacao_id:
-        raise HTTPException(400, "Identificador da importação ausente.")
-    try:
-        chunk_index = int(request.headers.get("x-chunk-index") or "-1")
-        total_chunks = int(request.headers.get("x-total-chunks") or "0")
-        total_bytes = int(request.headers.get("x-total-bytes") or "0")
-    except ValueError as exc:
-        raise HTTPException(400, "Metadados da parte inválidos.") from exc
-    if chunk_index < 0 or total_chunks <= 0 or chunk_index >= total_chunks:
-        raise HTTPException(400, "Índice da parte inválido.")
-    if total_bytes <= 0 or total_bytes > CRM_MAX_UPLOAD:
-        raise HTTPException(413, "Arquivo acima do limite permitido.")
-    raw = await request.body()
-    if not raw or len(raw) > CRM_CHUNK_SIZE:
-        raise HTTPException(400, "Parte do arquivo inválida.")
-    path = _crm_upload_path(importacao_id)
-    mode = "r+b" if path.exists() else "wb"
-    with path.open(mode) as fh:
-        fh.seek(chunk_index * CRM_CHUNK_SIZE)
-        fh.write(raw)
-    return _json({
-        "sucesso": True,
-        "importacaoId": importacao_id,
-        "chunk": chunk_index + 1,
-        "totalChunks": total_chunks,
-        "bytesRecebidos": len(raw),
-    })
-
-
-@router.post("/crm/api/importar/finalizar")
-async def crm_importar_finalizar(
-    request: Request,
-    background_tasks: BackgroundTasks,
-    session: str | None = Cookie(default=None, alias=settings.cookie_name),
-):
-    _admin_danton(session)
-    try:
-        body = await request.json()
-    except Exception as exc:
-        raise HTTPException(400, "Dados de finalização inválidos.") from exc
-    importacao_id = str(body.get("importacaoId") or "").strip()
-    filename = str(body.get("nomeArquivo") or "base_crm.xlsx").strip()
-    total_bytes = int(body.get("totalBytes") or 0)
-    if not importacao_id:
-        raise HTTPException(400, "Identificador da importação ausente.")
-    path = _crm_upload_path(importacao_id)
-    if not path.exists():
-        raise HTTPException(404, "Arquivo temporário da importação não encontrado.")
-    if path.stat().st_size != total_bytes:
-        raise HTTPException(400, f"Upload incompleto: {path.stat().st_size} de {total_bytes} bytes.")
-    background_tasks.add_task(_crm_process_import_file, path, filename, importacao_id, str((await _edge("CRM_IMPORT_STATUS", {"importacao_id": importacao_id})).get("importacao", {}).get("tipo_base") or "DETALHADA"))
-    return _json({
-        "sucesso": True,
-        "aceito": True,
-        "importacaoId": importacao_id,
-        "mensagem": "Upload concluído. O processamento da base foi iniciado.",
-    }, status=202)
-
-
-@router.get("/crm/api/import/status/{importacao_id}")
-async def crm_import_status(
-    importacao_id: str,
-    session: str | None = Cookie(default=None, alias=settings.cookie_name),
-):
-    _admin_danton(session)
-    return _json(await _edge("CRM_IMPORT_STATUS", {"importacao_id": importacao_id}))
