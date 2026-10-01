@@ -187,21 +187,37 @@ async def crm_importar(
     if not raw:
         raise HTTPException(400, "Arquivo vazio.")
     try:
-        from openpyxl import load_workbook
-        wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
-        ws = wb.active
-        rows = ws.iter_rows(values_only=True)
-        headers = [str(x or "").strip() for x in next(rows)]
-        expected = ["Data", "Número NF", "Cód. Cliente", "Total Unidade", "Venda Líquida (R$)", "Fornecedor", "Cód. Produto"]
-        if headers[:7] != expected:
-            raise ValueError("Cabeçalhos incompatíveis. Esperado: Data, Número NF, Cód. Cliente, Total Unidade, Venda Líquida (R$), Fornecedor, Cód. Produto.")
+        filename = request.headers.get("x-filename") or "base_crm"
+        filename = filename.replace("%20", " ").strip()
+        is_csv = filename.lower().endswith(".csv") or "text/csv" in (request.headers.get("content-type") or "").lower()
+
+        if is_csv:
+            import csv
+            import io as _io
+            text_csv = raw.decode("utf-8-sig", errors="replace")
+            reader = csv.DictReader(_io.StringIO(text_csv))
+            headers = [str(x or "").strip() for x in (reader.fieldnames or [])]
+            expected = ["Data", "Número NF", "Cód. Cliente", "Total Unidade", "Venda Líquida (R$)", "Fornecedor", "Cód. Produto"]
+            if headers[:7] != expected:
+                raise ValueError("Cabeçalhos incompatíveis. Esperado: Data, Número NF, Cód. Cliente, Total Unidade, Venda Líquida (R$), Fornecedor, Cód. Produto.")
+            rows = reader
+            source = f"upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        else:
+            from openpyxl import load_workbook
+            wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+            ws = wb.active
+            rows = (dict(zip(
+                ["Data", "Número NF", "Cód. Cliente", "Total Unidade", "Venda Líquida (R$)", "Fornecedor", "Cód. Produto"],
+                values,
+            )) for values in ws.iter_rows(min_row=2, values_only=True))
+            headers = ["Data", "Número NF", "Cód. Cliente", "Total Unidade", "Venda Líquida (R$)", "Fornecedor", "Cód. Produto"]
+            source = f"upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+
         batch = []
         total = 0
-        source = f"upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-        for values in rows:
-            if not values or all(v is None for v in values):
+        for row in rows:
+            if not row or all(v is None or str(v).strip() == "" for v in row.values()):
                 continue
-            row = dict(zip(headers, values))
             dbrow = _row_to_db(row, source)
             if dbrow["cod_cliente"] <= 0 or dbrow["cod_produto"] <= 0 or not dbrow["data_venda"]:
                 continue
