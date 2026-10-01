@@ -34,8 +34,13 @@ create table if not exists public.dismepe_crm_vendas (
 
 alter table public.dismepe_crm_vendas enable row level security;
 
+-- A NF pode se repetir em datas diferentes. A combinação data + NF + cliente + produto
+-- foi validada na base recebida e não apresentou duplicidade.
 create unique index if not exists dismepe_crm_vendas_chave_origem_uidx
     on public.dismepe_crm_vendas(chave_origem);
+
+create unique index if not exists dismepe_crm_vendas_natural_key_uidx
+    on public.dismepe_crm_vendas(data_venda, numero_nf, cod_cliente, cod_produto);
 
 create index if not exists dismepe_crm_vendas_data_idx
     on public.dismepe_crm_vendas(data_venda);
