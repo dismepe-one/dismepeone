@@ -329,6 +329,19 @@ async def industries_admin_script():
     )
 
 
+@app.get("/crm-launcher.js", include_in_schema=False)
+async def crm_home_launcher_script():
+    return FileResponse(
+        ROOT / "frontend" / "crm-launcher.js",
+        media_type="application/javascript",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
 @app.get("/positivacao-launcher.js", include_in_schema=False)
 async def positivacao_home_launcher_script():
     return FileResponse(
