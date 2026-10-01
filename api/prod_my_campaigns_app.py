@@ -19,6 +19,7 @@ from .pulsy_product_names_display import install_pulsy_product_names_display
 from .resumo_latest_month_default import install_resumo_latest_month_default
 from .commercial_intelligence import install_commercial_intelligence
 from .commercial_intelligence_recent_entry import install_commercial_intelligence_recent_entry
+from .commercial_intelligence_ui_patch import install_commercial_intelligence_ui_patch
 from .industry_operational_sales_guard import install_industry_operational_sales_guard
 from .industry_competence_fields import install_industry_competence_fields
 from .industry_mes_ano_alias import install_industry_mes_ano_alias
@@ -125,6 +126,7 @@ install_pulsy_product_names_display()
 install_resumo_latest_month_default()
 install_commercial_intelligence_recent_entry()
 install_commercial_intelligence(app)
+install_commercial_intelligence_ui_patch()
 install_industry_operational_sales_guard()
 install_industry_competence_fields()
 install_industry_mes_ano_alias()
