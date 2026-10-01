@@ -135,7 +135,10 @@ def _portal_response(*, authenticated: bool = False, terms_admin: bool = False) 
         pos = html.lower().rfind(marker)
         if pos < 0:
             raise RuntimeError("Fechamento do portal nao encontrado.")
-        html = html[:pos] + '<script src="/termo/admin/mais.js?v=TERM-MAIS-1"></script>\n' + html[pos:]
+        html = html[:pos] + (
+            '<script src="/termo/admin/mais.js?v=TERM-MAIS-1"></script>\n'
+            '<script src="/crm-launcher.js?v=CRM-ADMIN-DANTON-2"></script>\n'
+        ) + html[pos:]
 
     # Remove a identidade antiga embutida antes de inserir os links oficiais.
     # A presença de apple-touch-icon legado não pode bloquear a atualização.
