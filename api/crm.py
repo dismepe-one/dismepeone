@@ -185,118 +185,35 @@ def _to_number(value: Any) -> float:
 
 
 async def _produto_foco_atual() -> tuple[dict[str, float], str]:
-    """Lê a fotografia comercial que o DISMEPE ONE já publica.
-    Não cria nova base nem depende de upload. O valor acumulado é financeiro;
-    as unidades atuais vêm do MAPA, que é a fonte de quantidade mensal.
-    """
-    for modulo in ("MENSAL_COMERCIAL", "MENSAL"):
-        try:
-            payload, _ = await cache_get(modulo=modulo, settings=settings)
-        except Exception:
-            continue
-        if not isinstance(payload, dict):
-            continue
-        values: dict[str, float] = {}
-        found = 0
-        for key in ("dadosVendedores", "dadosTelevendas"):
-            rows = payload.get(key) if isinstance(payload.get(key), list) else []
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                is_focus = row.get("__TEM_FOCO") is True or bool(row.get("__CODIGO_FOCO"))
-                code = re.sub(r"\D", "", str(row.get("__CODIGO_FOCO") or ""))
-                # Algumas fotografias mensais guardam o código em campos de foco
-                # diferentes; aceitar também os nomes já usados pelo módulo.
-                if not code:
-                    for k in ("codigoProdutoFoco","codProdutoFoco","__COD_PROD_FOCO","codigo_foco","cod_foco"):
-                        code = re.sub(r"\D", "", str(row.get(k) or ""))
-                        if code:
-                            break
-                if not is_focus and not code:
-                    continue
-                sale = _to_number(row.get("__VENDA_FOCO") if row.get("__VENDA_FOCO") is not None else row.get("__VENDA"))
-                values[code] = values.get(code, 0.0) + sale
-                found += 1
-        if found:
-            comp = str(payload.get("competencia") or "")
-            return values, comp
+    # Mantém compatibilidade apenas para diagnóstico; a tela usa o snapshot SQL.
     return {}, ""
 
 
 async def _crm_auto_products() -> dict[str, Any]:
-    stock = _stock_map()
-    rows = list(stock.values())
-    month_key, month_label = _map_latest_month(rows)
-    foco_sales, competencia = await _produto_foco_atual()
-    focus_codes = set(foco_sales)
-    produtos: list[dict[str, Any]] = []
-    fornecedores: set[str] = set()
-
-    for code in sorted(focus_codes):
-        row = stock.get(code)
-        if not row:
-            # O produto foco pode ainda não estar no MAPA; mantemos o código
-            # visível, mas ele não entra em ação de estoque sem cadastro.
-            produtos.append({
-                "codProduto": code, "fornecedor": "", "descricao": "",
-                "mediaUnidades": 0, "unidadesAtual": 0, "variacaoPct": 0,
-                "estoque": 0, "vendaFocoAtual": foco_sales.get(code, 0),
-                "temMapa": False, "parado": False, "emQueda": False,
-            })
-            continue
-
-        media = _to_number(row.get("media"))
-        atual = _to_number(row.get(month_key))
-        estoque = _to_number(row.get("estoque"))
-        fornecedor = str(row.get("fornecedor") or "").strip()
-        if fornecedor:
-            fornecedores.add(fornecedor)
-        variacao = ((atual / media) - 1) * 100 if media > 0 else 0
-        parado = atual <= 0 and media > 0
-        queda = media > 0 and atual > 0 and variacao <= -20
-        produtos.append({
-            "codProduto": code,
-            "fornecedor": fornecedor,
-            "descricao": str(row.get("descricao") or ""),
-            "mediaUnidades": media,
-            "unidadesAtual": atual,
-            "variacaoPct": variacao,
-            "estoque": estoque,
-            "vendaFocoAtual": foco_sales.get(code, 0),
-            "temMapa": True,
-            "parado": parado,
-            "emQueda": queda,
-            "curva": str(row.get("curva") or ""),
-        })
-
-    parados = sorted(
-        [x for x in produtos if x["parado"] and x["estoque"] > 0],
-        key=lambda x: (x["estoque"], x["mediaUnidades"]),
-        reverse=True,
-    )[:500]
-    queda = sorted(
-        [x for x in produtos if x["emQueda"]],
-        key=lambda x: x["variacaoPct"],
-    )[:500]
-    acoes = sorted(
-        [x for x in produtos if x["estoque"] > 0 and (x["parado"] or x["emQueda"])],
-        key=lambda x: (0 if x["parado"] else 1, x["variacaoPct"]),
-    )[:500]
-
+    try:
+        snapshot, _ = await cache_get(modulo="CRM_AUTO_PRODUTOS", settings=settings)
+    except Exception:
+        snapshot = None
+    if isinstance(snapshot, dict):
+        snapshot = dict(snapshot)
+        snapshot["fonteSnapshot"] = "SQL"
+        return snapshot
     return {
-        "produtosQueda": queda,
-        "produtosParados": parados,
-        "acoes": acoes,
-        "fornecedoresProdutos": sorted(fornecedores, key=lambda x: _norm(x)),
+        "produtosQueda": [],
+        "produtosParados": [],
+        "acoes": [],
+        "fornecedoresProdutos": [],
         "resumoAuto": {
-            "produtosFoco": len(focus_codes),
-            "produtosNoMapa": sum(x["temMapa"] for x in produtos),
-            "produtosParadosEstoque": len(parados),
-            "produtosQueda20": len(queda),
-            "competenciaFoco": competencia,
-            "mesMapa": month_label,
+            "produtosFoco": 0,
+            "produtosNoMapa": 0,
+            "produtosParadosEstoque": 0,
+            "produtosQueda20": 0,
+            "competenciaFoco": "",
+            "mesMapa": "",
             "fonteFoco": "MENSAL_COMERCIAL_POSTGRESQL",
             "fonteMapa": "MAPA_ESTOQUE",
+            "fonteSnapshot": "SQL",
+            "semSnapshot": True,
         },
     }
 
@@ -308,18 +225,19 @@ async def crm_summary(session: str | None = Cookie(default=None, alias=settings.
     auto = await _crm_auto_products()
     result.update(auto)
     r = result.setdefault("resumo", {})
-    ar = auto["resumoAuto"]
-    r["produtos"] = ar["produtosFoco"]
-    r["produtosQueda20"] = ar["produtosQueda20"]
-    r["produtosParados30"] = ar["produtosParadosEstoque"]
+    ar = auto.get("resumoAuto") if isinstance(auto.get("resumoAuto"), dict) else {}
+    r["produtos"] = int(ar.get("produtosFoco") or 0)
+    r["produtosQueda20"] = int(ar.get("produtosQueda20") or 0)
+    r["produtosParados30"] = int(ar.get("produtosParadosEstoque") or 0)
     r["baseProdutos"] = True
     r["baseProdutosAutomatica"] = True
     r["baseProdutosArquivo"] = ""
-    r["baseProdutosAtualizadaEm"] = str(result.get("atualizadoEm") or "")
-    r["mesMapa"] = ar["mesMapa"]
-    r["competenciaFoco"] = ar["competenciaFoco"]
-    r["fonteFoco"] = ar["fonteFoco"]
-    r["fonteMapa"] = ar["fonteMapa"]
+    r["baseProdutosAtualizadaEm"] = str(ar.get("atualizadoEm") or "")
+    r["mesMapa"] = str(ar.get("mesMapa") or "")
+    r["competenciaFoco"] = str(ar.get("competenciaFoco") or "")
+    r["fonteFoco"] = str(ar.get("fonteFoco") or "")
+    r["fonteMapa"] = str(ar.get("fonteMapa") or "")
+    r["fonteSnapshot"] = str(auto.get("fonteSnapshot") or "SQL")
     result["build"] = CRM_BUILD
     return _json(result)
 
