@@ -156,6 +156,73 @@ async def crm_access(session: str | None = Cookie(default=None, alias=settings.c
 async def crm_summary(session: str | None = Cookie(default=None, alias=settings.cookie_name)):
     _admin_danton(session)
     result = await _edge("CRM_RESUMO", {})
+    try:
+        light = await _edge("CRM_BASE_LEVE_GET", {})
+        if light.get("encontrado"):
+            base_rows = light.get("produtos") if isinstance(light.get("produtos"), list) else []
+            stock = _stock_map()
+            def snum(v):
+                text = str(v or "").strip().replace(".", "").replace(",", ".")
+                try:
+                    return float(text)
+                except Exception:
+                    try:
+                        return float(v)
+                    except Exception:
+                        return 0.0
+            base = {re.sub(r"\D", "", str(x.get("cod_produto") or "")): snum(x.get("total_unidade")) for x in base_rows if isinstance(x, dict)}
+            produtos = []
+            fornecedores = set()
+            for code, row in stock.items():
+                media = snum(row.get("media"))
+                atual = base.get(code, 0.0)
+                vari = ((atual / media) - 1) * 100 if media > 0 else 0.0
+                estoque = snum(row.get("estoque"))
+                fornecedor = str(row.get("fornecedor") or "").strip()
+                if fornecedor:
+                    fornecedores.add(fornecedor)
+                produtos.append({
+                    "codProduto": code,
+                    "fornecedor": fornecedor,
+                    "descricao": str(row.get("descricao") or ""),
+                    "mediaUnidades": media,
+                    "mediaVenda": 0,
+                    "vendaAtual": 0,
+                    "unidadesAtual": atual,
+                    "variacaoPct": vari,
+                    "diasSemVenda": 0 if atual > 0 else 9999,
+                    "estoque": estoque,
+                    "clientesAfetados": 0,
+                    "ultimaVenda": "",
+                })
+            for code, atual in base.items():
+                if code and code not in stock:
+                    produtos.append({
+                        "codProduto": code, "fornecedor": "", "descricao": "",
+                        "mediaUnidades": 0, "mediaVenda": 0, "vendaAtual": 0,
+                        "unidadesAtual": atual, "variacaoPct": 0, "diasSemVenda": 0,
+                        "estoque": 0, "clientesAfetados": 0, "ultimaVenda": "",
+                    })
+            queda = sorted([x for x in produtos if x["mediaUnidades"] > 0 and x["variacaoPct"] <= -20],
+                           key=lambda x: x["variacaoPct"])[:200]
+            parados = sorted([x for x in produtos if x["mediaUnidades"] > 0 and x["unidadesAtual"] <= 0],
+                             key=lambda x: x["mediaUnidades"], reverse=True)[:200]
+            acoes = [dict(x, situacao=("ALTA" if x["variacaoPct"] <= -40 and x["estoque"] > 0 else "ATENÇÃO"),
+                          prioridade=("ALTA" if x["variacaoPct"] <= -40 and x["estoque"] > 0 else "MÉDIA"))
+                     for x in queda if x["estoque"] > 0][:200]
+            result["produtosQueda"] = queda
+            result["produtosParados"] = parados
+            result["acoes"] = acoes
+            result["fornecedoresProdutos"] = sorted(fornecedores)
+            result.setdefault("resumo", {})["produtos"] = len(base)
+            result["resumo"]["unidadesHistorico"] = sum(base.values())
+            result["resumo"]["produtosQueda20"] = len(queda)
+            result["resumo"]["produtosParados30"] = len(parados)
+            result["resumo"]["baseProdutos"] = True
+            result["resumo"]["baseProdutosArquivo"] = str((light.get("importacao") or {}).get("nome_arquivo") or "")
+            result["resumo"]["baseProdutosAtualizadaEm"] = str((light.get("importacao") or {}).get("atualizado_em") or "")
+    except Exception as exc:
+        result["crmBaseLeveErro"] = str(exc)[:300]
     result["build"] = CRM_BUILD
     return _json(result)
 
@@ -204,26 +271,84 @@ async def _crm_send_batch_with_retry(batch: list[dict[str, Any]], importacao_id:
     raise last or RuntimeError("Falha ao importar lote CRM.")
 
 
-async def _crm_process_import_file(path: Path, filename: str, importacao_id: str) -> None:
+async def _crm_process_import_file(path: Path, filename: str, importacao_id: str, tipo_base: str) -> None:
     try:
         ext = "csv" if filename.lower().endswith(".csv") else "xlsx"
         source = f"upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{importacao_id[:8]}.{ext}"
-        if ext == "csv":
-            import csv
-            with path.open("r", encoding="utf-8-sig", newline="") as fh:
-                raw_lines = sum(1 for _ in fh)
-            total_linhas = max(0, raw_lines - 1)
+        if tipo_base == "PRODUTOS_LEVE":
+            expected = ["Cód. Produto", "Total Unidade"]
+            registros: list[dict[str, Any]] = []
+            if ext == "csv":
+                import csv
+                with path.open("r", encoding="utf-8-sig", newline="") as fh:
+                    reader = csv.DictReader(fh)
+                    headers = [str(x or "").strip() for x in (reader.fieldnames or [])]
+                    if headers[:2] != expected:
+                        raise ValueError("Cabeçalhos incompatíveis. Esperado: Cód. Produto, Total Unidade.")
+                    for row in reader:
+                        if not row or all(v is None or str(v).strip() == "" for v in row.values()):
+                            continue
+                        try:
+                            cod = int(float(row.get("Cód. Produto") or 0))
+                            unidades = float(row.get("Total Unidade") or 0)
+                        except (TypeError, ValueError):
+                            continue
+                        if cod > 0:
+                            registros.append({"cod_produto": cod, "total_unidade": unidades})
+            else:
+                from openpyxl import load_workbook
+                wb = load_workbook(path, read_only=True, data_only=True)
+                try:
+                    ws = wb.active
+                    header = [str(x or "").strip() for x in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
+                    if header[:2] != expected:
+                        raise ValueError("Cabeçalhos incompatíveis. Esperado: Cód. Produto, Total Unidade.")
+                    for values in ws.iter_rows(min_row=2, values_only=True):
+                        if not values or all(v is None or str(v).strip() == "" for v in values):
+                            continue
+                        try:
+                            cod = int(float(values[0] or 0))
+                            unidades = float(values[1] or 0)
+                        except (TypeError, ValueError):
+                            continue
+                        if cod > 0:
+                            registros.append({"cod_produto": cod, "total_unidade": unidades})
+                finally:
+                    wb.close()
+            total_linhas = len(registros)
             await _edge("CRM_IMPORT_ATUALIZAR", {
                 "importacao_id": importacao_id,
                 "processadas": 0,
                 "total_linhas": total_linhas,
             })
+            for inicio in range(0, len(registros), 500):
+                lote = registros[inicio:inicio + 500]
+                await _edge("CRM_PRODUTOS_BASE_IMPORTAR", {
+                    "importacao_id": importacao_id,
+                    "periodo": datetime.now().strftime("%Y-%m"),
+                    "registros": lote,
+                })
+                await _edge("CRM_IMPORT_ATUALIZAR", {
+                    "importacao_id": importacao_id,
+                    "processadas": min(inicio + len(lote), total_linhas),
+                    "total_linhas": total_linhas,
+                })
+            await _edge("CRM_IMPORT_FINALIZAR", {"importacao_id": importacao_id, "sucesso": True})
+            return
+
+        # Compatibilidade com a base detalhada anterior.
+        if ext == "csv":
+            import csv
+            with path.open("r", encoding="utf-8-sig", newline="") as fh:
+                raw_lines = sum(1 for _ in fh)
+            total_linhas = max(0, raw_lines - 1)
+            await _edge("CRM_IMPORT_ATUALIZAR", {"importacao_id": importacao_id, "processadas": 0, "total_linhas": total_linhas})
             fh = path.open("r", encoding="utf-8-sig", newline="")
             try:
                 reader = csv.DictReader(fh)
                 headers = [str(x or "").strip() for x in (reader.fieldnames or [])]
                 if headers[:7] != CRM_EXPECTED_HEADERS:
-                    raise ValueError("Cabeçalhos incompatíveis. Esperado: Data, Número NF, Cód. Cliente, Total Unidade, Venda Líquida (R$), Fornecedor, Cód. Produto.")
+                    raise ValueError("Cabeçalhos incompatíveis. Envie a base leve com Cód. Produto e Total Unidade.")
                 rows = reader
                 batch: list[dict[str, Any]] = []
                 processadas = 0
@@ -251,11 +376,7 @@ async def _crm_process_import_file(path: Path, filename: str, importacao_id: str
             try:
                 ws = wb.active
                 total_linhas = max(0, int(ws.max_row or 0) - 1)
-                await _edge("CRM_IMPORT_ATUALIZAR", {
-                    "importacao_id": importacao_id,
-                    "processadas": 0,
-                    "total_linhas": total_linhas,
-                })
+                await _edge("CRM_IMPORT_ATUALIZAR", {"importacao_id": importacao_id, "processadas": 0, "total_linhas": total_linhas})
                 rows = (dict(zip(CRM_EXPECTED_HEADERS, values)) for values in ws.iter_rows(min_row=2, values_only=True))
                 batch = []
                 processadas = 0
@@ -309,6 +430,9 @@ async def crm_importar_iniciar(
         raise HTTPException(400, "Formato não suportado. Envie XLSX ou CSV.")
     total_bytes = int(body.get("totalBytes") or 0)
     total_chunks = int(body.get("totalChunks") or 0)
+    tipo_base = str(body.get("tipoBase") or "DETALHADA").strip().upper()
+    if tipo_base not in {"DETALHADA", "PRODUTOS_LEVE"}:
+        raise HTTPException(400, "Tipo de base inválido.")
     if total_bytes <= 0:
         raise HTTPException(400, "Arquivo vazio.")
     if total_bytes > CRM_MAX_UPLOAD:
@@ -319,6 +443,7 @@ async def crm_importar_iniciar(
         "nome_arquivo": filename,
         "total_linhas": 0,
         "usuario": str(profile.get("usuario") or "DANTON"),
+        "tipo_base": tipo_base,
     })
     importacao_id = str(created.get("id") or "")
     if not importacao_id:
@@ -391,7 +516,7 @@ async def crm_importar_finalizar(
         raise HTTPException(404, "Arquivo temporário da importação não encontrado.")
     if path.stat().st_size != total_bytes:
         raise HTTPException(400, f"Upload incompleto: {path.stat().st_size} de {total_bytes} bytes.")
-    background_tasks.add_task(_crm_process_import_file, path, filename, importacao_id)
+    background_tasks.add_task(_crm_process_import_file, path, filename, importacao_id, str((await _edge("CRM_IMPORT_STATUS", {"importacao_id": importacao_id})).get("importacao", {}).get("tipo_base") or "DETALHADA"))
     return _json({
         "sucesso": True,
         "aceito": True,
