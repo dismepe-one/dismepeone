@@ -63,23 +63,70 @@ async function pollImport(id){
   await tick();
   importTimer=setInterval(tick,2000);
 }
+let importTimer=null;
+function stopImportTimer(){if(importTimer){clearInterval(importTimer);importTimer=null;}}
+async function pollImport(id){
+  stopImportTimer();
+  const tick=async()=>{
+    try{
+      const r=await api('/crm/api/import/status/'+encodeURIComponent(id));
+      const x=r.importacao||{};
+      const pct=Number(x.percentual||0);
+      $('#status').textContent=(x.status==='CONCLUIDA'?'Importação concluída: ':x.status==='ERRO'?'Erro na importação: ':'Processando base: ')+num(x.processadas||0)+' / '+num(x.total_linhas||0)+' ('+pct.toFixed(0)+'%)'+(x.erro?' — '+x.erro:'');
+      if(x.status==='CONCLUIDA'){stopImportTimer();$('#import').disabled=false;$('#file').disabled=false;await load();}
+      if(x.status==='ERRO'){stopImportTimer();$('#import').disabled=false;$('#file').disabled=false;}
+    }catch(e){$('#status').textContent='Acompanhando importação... '+e.message;}
+  };
+  await tick();
+  importTimer=setInterval(tick,2000);
+}
 $('#import').onclick=async()=>{
   const f=$('#file').files[0];
   if(!f){$('#status').textContent='Selecione o XLSX ou CSV.';return}
+  const CHUNK=4*1024*1024;
   if(f.size>35*1024*1024){$('#status').textContent='Arquivo acima do limite de 35 MB.';return}
-  $('#import').disabled=true;$('#file').disabled=true;$('#status').textContent='Enviando arquivo e iniciando importação...';
+  const totalChunks=Math.ceil(f.size/CHUNK);
+  $('#import').disabled=true;$('#file').disabled=true;
   try{
-    const r=await fetch('/crm/api/importar',{method:'POST',credentials:'include',headers:{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(f.name)},body:f});
-    if(!r.ok){const t=await r.text();throw new Error((t&&t.trim())||('HTTP '+r.status+' — o servidor recusou o upload. Verifique o tamanho do arquivo e tente CSV.'));}
-    const d=await r.json();
-    if(!d.importacaoId)throw new Error('O servidor não retornou o identificador da importação.');
-    $('#status').textContent='Importação iniciada. Acompanhe o progresso abaixo.';
-    await pollImport(d.importacaoId);
+    $('#status').textContent='Preparando upload em '+num(totalChunks)+' partes...';
+    const init=await fetch('/crm/api/importar/iniciar?ts='+Date.now(),{
+      method:'POST',credentials:'include',cache:'no-store',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({nomeArquivo:f.name,totalBytes:f.size,totalChunks})
+    });
+    if(!init.ok)throw new Error((await init.text()).slice(0,500)||('HTTP '+init.status));
+    const meta=await init.json(), id=meta.importacaoId;
+    for(let i=0;i<totalChunks;i++){
+      const chunk=f.slice(i*CHUNK,Math.min(f.size,(i+1)*CHUNK));
+      let ok=false,last='';
+      for(let tentativa=0;tentativa<3&&!ok;tentativa++){
+        const r=await fetch('/crm/api/importar/chunk',{
+          method:'POST',credentials:'include',cache:'no-store',
+          headers:{
+            'Content-Type':'application/octet-stream',
+            'X-Importacao-Id':id,
+            'X-Chunk-Index':String(i),
+            'X-Total-Chunks':String(totalChunks),
+            'X-Total-Bytes':String(f.size)
+          },body:chunk
+        });
+        if(r.ok)ok=true;else last=(await r.text()).slice(0,500);
+      }
+      if(!ok)throw new Error('Falha no envio da parte '+(i+1)+'/'+totalChunks+(last?' — '+last:''));
+      $('#status').textContent='Enviando base: '+num(i+1)+' / '+num(totalChunks)+' partes ('+Math.round((i+1)/totalChunks*100)+'%)';
+    }
+    const fin=await fetch('/crm/api/importar/finalizar',{
+      method:'POST',credentials:'include',cache:'no-store',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({importacaoId:id,nomeArquivo:f.name,totalBytes:f.size})
+    });
+    if(!fin.ok)throw new Error((await fin.text()).slice(0,500)||('HTTP '+fin.status));
+    $('#status').textContent='Upload concluído. Processando a base...';
+    await pollImport(id);
   }catch(e){
-    $('#import').disabled=false;$('#file').disabled=false;
-    $('#status').textContent='Falha ao iniciar: '+e.message;
+    stopImportTimer();$('#import').disabled=false;$('#file').disabled=false;
+    $('#status').textContent='Falha ao iniciar: '+(e.message||e);
   }
-};
-load();
+}load();
 </script>
 </body></html>
