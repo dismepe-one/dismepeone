@@ -12,8 +12,8 @@
 <body>
 <header class="top"><div class="bar"><img class="logo" src="/positivacoes/logo.png" alt="DISMEPE ONE"><div class="actions"><span class="pill">CRM • ADMINISTRADOR DANTON</span><a class="btn" href="/">← Início</a></div></div></header>
 <main class="shell">
-<section class="intro"><div><div class="kicker">Inteligência Comercial</div><h1>CRM DISMEPE ONE</h1><div class="sub">Clientes, produtos, estoque e oportunidades comerciais em uma única visão.</div></div><div class="actions"><div class="import"><input id="file" type="file" accept=".xlsx,.csv"><button id="import" class="btn primary">Importar base leve</button></div><span id="status" class="status"></span></div></section>
-<div id="notice" class="notice">Base leve: Cód. Produto + Total Unidade. O CRM compara a venda atual com a média histórica do MAPA e mantém a tela restrita ao administrador Danton.</div>
+<section class="intro"><div><div class="kicker">Inteligência Comercial</div><h1>CRM DISMEPE ONE</h1><div class="sub">Clientes, produtos, estoque e oportunidades comerciais em uma única visão.</div></div><div class="actions"><span class="pill" id="autoSource">Atualização automática</span><span id="status" class="status"></span></div></section>
+<div id="notice" class="notice">O CRM utiliza automaticamente os produtos foco da Campanha Mensal e cruza com o MAPA de Estoque. Não é necessário importar uma nova base de vendas.</div>
 <section class="grid">
 <div class="card metric"><small>Vendas no histórico</small><strong id="mVenda">—</strong></div>
 <div class="card metric"><small>Unidades</small><strong id="mUn">—</strong></div>
@@ -34,9 +34,9 @@ async function load(){
   const d=await api('/crm/api/resumo');
   const r=d.resumo||d;
   $('#mVenda').textContent=fmt(r.vendaHistorico);$('#mUn').textContent=num(r.unidadesHistorico);$('#mCli').textContent=num(r.clientes);$('#mProd').textContent=num(r.produtos);$('#mQueda').textContent=num(r.produtosQueda20);$('#mParados').textContent=num(r.produtosParados30);
-  $('#notice').textContent='Base: '+(r.dataInicio||'—')+' a '+(r.dataFim||'—')+'. Comparação do mês atual até a última data contra a média dos três meses anteriores.';
+  $('#notice').textContent='Fonte automática: Produto Foco ('+(r.competenciaFoco||'—')+') + MAPA de Estoque ('+(r.mesMapa||'—')+'). Última atualização: '+(r.baseProdutosAtualizadaEm||'—')+'.';
   renderAll(d);
- }catch(e){$('#status').textContent=e.message;$('#notice').textContent='Importe a base de vendas para iniciar o diagnóstico.';}
+ }catch(e){$('#status').textContent=e.message;$('#notice').textContent='Não foi possível carregar a inteligência comercial automática. A última fotografia publicada foi preservada.';}
 }
 function fornecedorSelect(items,id){
  const names=[...new Set(items.map(x=>String(x.fornecedor||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
@@ -60,17 +60,8 @@ function renderAll(d){
 }
 
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');['queda','parados','clientes','oportunidades'].forEach(id=>$('#'+id).classList.toggle('hidden',id!==b.dataset.tab));});
-let importTimer=null;
-function stopImportTimer(){if(importTimer){clearInterval(importTimer);importTimer=null;}}
-async function pollImport(id){
-  stopImportTimer();
-  const tick=async()=>{
-    try{
-      const r=await api('/crm/api/import/status/'+encodeURIComponent(id));
-      const x=r.importacao||{};
-      const pct=Number(x.percentual||0);
-      $('#status').textContent=(x.status==='CONCLUIDA'?'Importação concluída: ':x.status==='ERRO'?'Erro na importação: ':'Importando base: ')+num(x.processadas||0)+' / '+num(x.total_linhas||0)+' ('+pct.toFixed(0)+'%)'+(x.erro?' — '+x.erro:'');
-      if(x.status==='CONCLUIDA'){stopImportTimer();$('#import').disabled=false;$('#file').disabled=false;await load();}
+load();
+}
       if(x.status==='ERRO'){stopImportTimer();$('#import').disabled=false;$('#file').disabled=false;}
     }catch(e){$('#status').textContent='Acompanhando importação... '+e.message;}
   };
