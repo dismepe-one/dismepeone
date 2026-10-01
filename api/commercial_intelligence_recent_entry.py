@@ -45,13 +45,27 @@ def install_commercial_intelligence_recent_entry() -> None:
         days = _days_since(item.get("ultimaEntrada"))
         no_sales = float(item.get("mediaUnidades") or 0) <= 0
         has_stock = float(item.get("estoque") or 0) > 0
-        is_new = bool(has_stock and no_sales and days is not None and days <= 15)
+
+        # Regra comercial: entre 1 e 30 dias da última entrada, se ainda não
+        # houve giro, o item continua em "Sem giro", mas recebe a observação
+        # "PRODUTO NOVO". Não existe aba separada para produtos novos.
+        is_new = bool(
+            has_stock
+            and no_sales
+            and days is not None
+            and 1 <= days <= 30
+        )
 
         item["diasUltimaEntrada"] = days
         item["produtoNovo"] = is_new
 
         if is_new:
-            item["semGiro"] = False
+            item["semGiro"] = True
+            item["observacao"] = "PRODUTO NOVO"
+            item["acao"] = "PRODUTO NOVO / AGUARDAR GIRO"
+
+            # Mantém o item na aba Sem giro, mas ele não é tratado como crítico
+            # apenas pelo fato de ainda não ter vendido dentro da janela inicial.
             reasons = [
                 reason
                 for reason in (item.get("motivosCriticos") or [])
@@ -63,11 +77,19 @@ def install_commercial_intelligence_recent_entry() -> None:
                 or float(item.get("dde") or 0) >= 60
                 or any("Venda caiu" in str(reason) for reason in reasons)
             )
-            item["acao"] = "PRODUTO NOVO / AGUARDAR GIRO"
+        else:
+            item["observacao"] = str(item.get("observacao") or "")
 
         rupture = bool(item.get("ruptura"))
         dde = float(item.get("dde") or 0)
-        risk = bool(rupture or (has_stock and float(item.get("mediaUnidades") or 0) > 0 and dde >= 30))
+        risk = bool(
+            rupture
+            or (
+                has_stock
+                and float(item.get("mediaUnidades") or 0) > 0
+                and dde >= 30
+            )
+        )
         item["riscoRuptura"] = risk
         item["riscoRupturaAlto"] = bool(rupture or dde >= 60)
         if rupture:
@@ -90,8 +112,6 @@ def install_commercial_intelligence_recent_entry() -> None:
     ci._product = product_with_recent_entry
     ci._summary = summary_with_recent_entry
 
-    # Ativa também o filtro dinâmico de laboratórios sem venda nos três
-    # últimos meses fechados, mantendo as seis exceções autorizadas.
     from .commercial_intelligence_zero_sales_filter import (
         install_commercial_intelligence_zero_sales_filter,
     )
