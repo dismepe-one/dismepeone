@@ -1067,6 +1067,30 @@ def _persist_stock_snapshot_blocking(data: dict[str, Any]) -> None:
 
 
 
+def _crm_num(value: Any) -> float:
+    try:
+        return float(str(value or "0").replace(".", "").replace(",", "."))
+    except Exception:
+        try:
+            return float(value or 0)
+        except Exception:
+            return 0.0
+
+
+def _crm_month_key(rows: list[dict[str, Any]]) -> tuple[str, str]:
+    names = {"jan":1,"fev":2,"mar":3,"abr":4,"mai":5,"jun":6,"jul":7,"ago":8,"set":9,"out":10,"nov":11,"dez":12}
+    candidates = []
+    for row in rows:
+        for key in row:
+            m = re.fullmatch(r"([a-z]{3})_(\d{2})", str(key or "").lower())
+            if m and m.group(1) in names:
+                candidates.append((2000 + int(m.group(2)), names[m.group(1)], str(key)))
+    if not candidates:
+        return "", ""
+    _, _, key = max(candidates)
+    return key, key.replace("_", "/").upper()
+
+
 def _persist_crm_auto_snapshot_blocking(stock: dict[str, Any]) -> None:
     """Grava no PostgreSQL a fotografia já consolidada para o CRM.
     O CRM não precisa reler o MAPA/Produto Foco a cada abertura.
@@ -1131,9 +1155,9 @@ def _persist_crm_auto_snapshot_blocking(stock: dict[str, Any]) -> None:
         row = rows_by_code.get(code)
         if not row:
             continue
-        media = _to_float_stock(row.get("media"))
-        atual = _to_float_stock(row.get(month_key))
-        estoque = _to_float_stock(row.get("estoque"))
+        media = _crm_num(row.get("media"))
+        atual = _crm_num(row.get(month_key))
+        estoque = _crm_num(row.get("estoque"))
         fornecedor = _clean_spaces(row.get("fornecedor")).upper()
         fornecedores.add(fornecedor) if fornecedor else None
         variacao = ((atual / media) - 1) * 100 if media > 0 else 0
@@ -1448,9 +1472,20 @@ async def _sync_loop() -> None:
             raise
 
 
+async def refresh_crm_snapshot_from_current_map() -> None:
+    """Reconstrói a fotografia do CRM a partir do último MAPA já confirmado no SQL."""
+    try:
+        stock = await asyncio.to_thread(_load_persisted_stock_snapshot_blocking)
+        if isinstance(stock, dict) and stock.get("linhas"):
+            await asyncio.to_thread(_persist_crm_auto_snapshot_blocking, stock)
+    except Exception:
+        pass
+
+
 async def start_stock_sync() -> None:
     global _TASK
     await load_stock_sync_schedule_config()
+    await refresh_crm_snapshot_from_current_map()
     if not drive_sync_config()["configured"]:
         return
     if _TASK and not _TASK.done():
