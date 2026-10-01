@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import jwt
-from fastapi import APIRouter, Cookie, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Cookie, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 
 from .cache_reads import cache_get
@@ -175,46 +175,44 @@ async def crm_clients(session: str | None = Cookie(default=None, alias=settings.
     return _json(result)
 
 
-@router.post("/crm/api/importar")
-async def crm_importar(
-    request: Request,
-    session: str | None = Cookie(default=None, alias=settings.cookie_name),
-):
-    profile = _admin_danton(session)
-    raw = await request.body()
-    if len(raw) > 35 * 1024 * 1024:
-        raise HTTPException(413, "Arquivo acima do limite de 35 MB.")
-    if not raw:
-        raise HTTPException(400, "Arquivo vazio.")
-    try:
-        filename = request.headers.get("x-filename") or "base_crm"
-        filename = filename.replace("%20", " ").strip()
-        is_csv = filename.lower().endswith(".csv") or "text/csv" in (request.headers.get("content-type") or "").lower()
+async def _crm_send_batch_with_retry(batch: list[dict[str, Any]], importacao_id: str) -> None:
+    last: Exception | None = None
+    for tentativa in range(3):
+        try:
+            await _edge("CRM_VENDAS_IMPORTAR", {
+                "registros": batch,
+                "importacao_id": importacao_id,
+            })
+            return
+        except Exception as exc:
+            last = exc
+            if tentativa < 2:
+                import asyncio
+                await asyncio.sleep(2 * (tentativa + 1))
+    raise last or RuntimeError("Falha ao importar lote CRM.")
 
-        if is_csv:
+
+async def _crm_process_import(raw: bytes, filename: str, importacao_id: str, total_linhas: int) -> None:
+    try:
+        ext = "csv" if filename.lower().endswith(".csv") else "xlsx"
+        source = f"upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{importacao_id[:8]}.{ext}"
+        if ext == "csv":
             import csv
-            import io as _io
             text_csv = raw.decode("utf-8-sig", errors="replace")
-            reader = csv.DictReader(_io.StringIO(text_csv))
+            reader = csv.DictReader(io.StringIO(text_csv))
             headers = [str(x or "").strip() for x in (reader.fieldnames or [])]
             expected = ["Data", "Número NF", "Cód. Cliente", "Total Unidade", "Venda Líquida (R$)", "Fornecedor", "Cód. Produto"]
             if headers[:7] != expected:
                 raise ValueError("Cabeçalhos incompatíveis. Esperado: Data, Número NF, Cód. Cliente, Total Unidade, Venda Líquida (R$), Fornecedor, Cód. Produto.")
             rows = reader
-            source = f"upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         else:
             from openpyxl import load_workbook
             wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
             ws = wb.active
-            rows = (dict(zip(
-                ["Data", "Número NF", "Cód. Cliente", "Total Unidade", "Venda Líquida (R$)", "Fornecedor", "Cód. Produto"],
-                values,
-            )) for values in ws.iter_rows(min_row=2, values_only=True))
-            headers = ["Data", "Número NF", "Cód. Cliente", "Total Unidade", "Venda Líquida (R$)", "Fornecedor", "Cód. Produto"]
-            source = f"upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-
-        batch = []
-        total = 0
+            expected = ["Data", "Número NF", "Cód. Cliente", "Total Unidade", "Venda Líquida (R$)", "Fornecedor", "Cód. Produto"]
+            rows = (dict(zip(expected, values)) for values in ws.iter_rows(min_row=2, values_only=True))
+        batch: list[dict[str, Any]] = []
+        processadas = 0
         for row in rows:
             if not row or all(v is None or str(v).strip() == "" for v in row.values()):
                 continue
@@ -223,14 +221,71 @@ async def crm_importar(
                 continue
             batch.append(dbrow)
             if len(batch) >= 1000:
-                await _edge("CRM_VENDAS_IMPORTAR", {"registros": batch, "substituir": total == 0})
-                total += len(batch)
+                await _crm_send_batch_with_retry(batch, importacao_id)
+                processadas += len(batch)
+                await _edge("CRM_IMPORT_ATUALIZAR", {"importacao_id": importacao_id, "processadas": processadas, "total_linhas": total_linhas})
                 batch = []
         if batch:
-            await _edge("CRM_VENDAS_IMPORTAR", {"registros": batch, "substituir": total == 0})
-            total += len(batch)
-        return _json({"sucesso": True, "linhasImportadas": total, "arquivo": source, "importadoPor": str(profile.get("usuario") or "")})
-    except HTTPException:
-        raise
+            await _crm_send_batch_with_retry(batch, importacao_id)
+            processadas += len(batch)
+            await _edge("CRM_IMPORT_ATUALIZAR", {"importacao_id": importacao_id, "processadas": processadas, "total_linhas": total_linhas})
+        await _edge("CRM_IMPORT_FINALIZAR", {"importacao_id": importacao_id, "sucesso": True})
     except Exception as exc:
-        raise HTTPException(400, f"Não foi possível importar a base: {str(exc)[:400]}") from exc
+        try:
+            await _edge("CRM_IMPORT_FINALIZAR", {"importacao_id": importacao_id, "sucesso": False, "erro": str(exc)[:1000]})
+        except Exception:
+            pass
+
+
+@router.post("/crm/api/importar")
+async def crm_importar(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    profile = _admin_danton(session)
+    raw = await request.body()
+    if len(raw) > 35 * 1024 * 1024:
+        raise HTTPException(413, "Arquivo acima do limite de 35 MB.")
+    if not raw:
+        raise HTTPException(400, "Arquivo vazio.")
+    filename = request.headers.get("x-filename") or "base_crm"
+    filename = filename.replace("%20", " ").strip()
+    if not (filename.lower().endswith(".xlsx") or filename.lower().endswith(".csv")):
+        raise HTTPException(400, "Formato não suportado. Envie XLSX ou CSV.")
+    if filename.lower().endswith(".xlsx"):
+        try:
+            from openpyxl import load_workbook
+            wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+            total_linhas = max(0, int(wb.active.max_row or 0) - 1)
+            wb.close()
+        except Exception as exc:
+            raise HTTPException(400, f"Não foi possível ler o XLSX: {str(exc)[:300]}") from exc
+    else:
+        total_linhas = max(0, raw.count(b"\n") - 1)
+    created = await _edge("CRM_IMPORT_CRIAR", {
+        "nome_arquivo": filename,
+        "total_linhas": total_linhas,
+        "usuario": str(profile.get("usuario") or "DANTON"),
+    })
+    importacao_id = str(created.get("id") or "")
+    if not importacao_id:
+        raise HTTPException(500, "O servidor não retornou o identificador da importação.")
+    background_tasks.add_task(_crm_process_import, raw, filename, importacao_id, total_linhas)
+    return _json({
+        "sucesso": True,
+        "aceito": True,
+        "importacaoId": importacao_id,
+        "totalLinhas": total_linhas,
+        "mensagem": "Importação iniciada. O processamento continuará em segundo plano.",
+    }, status=202)
+
+
+@router.get("/crm/api/import/status/{importacao_id}")
+async def crm_import_status(
+    importacao_id: str,
+    session: str | None = Cookie(default=None, alias=settings.cookie_name),
+):
+    _admin_danton(session)
+    return _json(await _edge("CRM_IMPORT_STATUS", {"importacao_id": importacao_id}))
+
