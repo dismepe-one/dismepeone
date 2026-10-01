@@ -35,6 +35,11 @@ def install_commercial_intelligence_safe_loading(app: Any) -> None:
         return
     _INSTALLED = True
 
+    # As rotas de rascunhos de promoção usam a mesma autenticação da
+    # Inteligência Comercial e persistem por usuário no Supabase.
+    from .commercial_intelligence_promotions import install_commercial_intelligence_promotions
+    install_commercial_intelligence_promotions(app)
+
     @app.middleware("http")
     async def commercial_intelligence_safe_loading(request: Request, call_next):
         path = request.url.path
