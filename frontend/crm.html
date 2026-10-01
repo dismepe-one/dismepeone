@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DISMEPE ONE — CRM</title>
+<style>
+:root{--g:#005548;--g2:#0a8064;--bg:#f4f7f6;--card:#fff;--line:#d7e4e0;--text:#123b34;--muted:#60746f;--red:#b42318;--amber:#a8610b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Segoe UI,Arial,sans-serif}.top{background:linear-gradient(135deg,#dff0e8,#e4efeb);border-bottom:1px solid #cde5da;position:sticky;top:0;z-index:5}.bar{max-width:1320px;margin:auto;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px}.logo{width:180px;height:52px;object-fit:contain;object-position:left}.pill{background:#e7f5ef;color:#075548;border:1px solid #b9dccc;border-radius:999px;padding:7px 11px;font-size:11px;font-weight:900}.shell{max-width:1320px;margin:auto;padding:22px}.intro{display:flex;justify-content:space-between;gap:20px;align-items:end;margin-bottom:18px}.kicker{font-size:11px;color:var(--muted);font-weight:900;text-transform:uppercase;letter-spacing:.08em}h1{margin:4px 0;font-size:28px}.sub{font-size:13px;color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;box-shadow:0 5px 18px #003f3610}.metric small{font-size:11px;color:var(--muted);font-weight:800}.metric strong{display:block;font-size:24px;margin-top:5px}.tabs{display:flex;gap:7px;flex-wrap:wrap;margin:18px 0}.tab,.btn{border:1px solid var(--line);background:#fff;color:var(--text);border-radius:10px;padding:9px 13px;font-weight:800;cursor:pointer}.tab.active,.btn.primary{background:var(--g);color:#fff;border-color:var(--g)}.panel{margin-top:12px}.tablewrap{overflow:auto}.table{width:100%;border-collapse:collapse;min-width:900px}.table th,.table td{text-align:left;padding:10px 9px;border-bottom:1px solid #e6eeeb;font-size:12px}.table th{font-size:10px;text-transform:uppercase;color:var(--muted);background:#f7faf9}.neg{color:var(--red);font-weight:900}.warn{color:var(--amber);font-weight:900}.pos{color:#08705a;font-weight:900}.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.import{display:flex;gap:8px;align-items:center}.status{font-size:12px;color:var(--muted)}.notice{padding:11px;border-radius:10px;background:#eef7f3;border:1px solid #cde5da;margin-bottom:12px;font-size:12px}.hidden{display:none!important}@media(max-width:1000px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:650px){.shell{padding:13px}.bar{padding:9px 13px}.logo{width:145px}.intro{align-items:start;flex-direction:column}h1{font-size:23px}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.metric strong{font-size:19px}}
+</style>
+</head>
+<body>
+<header class="top"><div class="bar"><img class="logo" src="/positivacoes/logo.png" alt="DISMEPE ONE"><div class="actions"><span class="pill">CRM • ADMINISTRADOR DANTON</span><a class="btn" href="/">← Início</a></div></div></header>
+<main class="shell">
+<section class="intro"><div><div class="kicker">Inteligência Comercial</div><h1>CRM DISMEPE ONE</h1><div class="sub">Clientes, produtos, estoque e oportunidades comerciais em uma única visão.</div></div><div class="actions"><div class="import"><input id="file" type="file" accept=".xlsx"><button id="import" class="btn primary">Importar base de vendas</button></div><span id="status" class="status"></span></div></section>
+<div id="notice" class="notice">Primeiro importe a base detalhada de vendas. A tela permanece restrita ao administrador Danton.</div>
+<section class="grid">
+<div class="card metric"><small>Vendas no histórico</small><strong id="mVenda">—</strong></div>
+<div class="card metric"><small>Unidades</small><strong id="mUn">—</strong></div>
+<div class="card metric"><small>Clientes</small><strong id="mCli">—</strong></div>
+<div class="card metric"><small>Produtos</small><strong id="mProd">—</strong></div>
+<div class="card metric"><small>Produtos em queda ≥20%</small><strong id="mQueda">—</strong></div>
+<div class="card metric"><small>Produtos parados ≥30 dias</small><strong id="mParados">—</strong></div>
+</section>
+<div class="tabs"><button class="tab active" data-tab="queda">Produtos em queda</button><button class="tab" data-tab="parados">Produtos parados</button><button class="tab" data-tab="clientes">Clientes em risco</button><button class="tab" data-tab="oportunidades">Ações comerciais</button></div>
+<section id="queda" class="card panel"></section><section id="parados" class="card panel hidden"></section><section id="clientes" class="card panel hidden"></section><section id="oportunidades" class="card panel hidden"></section>
+</main>
+<script>
+const $=s=>document.querySelector(s), fmt=n=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(n)||0), num=n=>new Intl.NumberFormat('pt-BR',{maximumFractionDigits:0}).format(Number(n)||0);
+async function api(url,opt){const r=await fetch(url,{credentials:'include',cache:'no-store',...opt});if(!r.ok)throw new Error((await r.text()).slice(0,300)||'Erro');return r.json();}
+function table(headers,rows){return '<div class="tablewrap"><table class="table"><thead><tr>'+headers.map(x=>'<th>'+x+'</th>').join('')+'</tr></thead><tbody>'+rows.join('')+'</tbody></table></div>'}
+async function load(){
+ try{
+  const d=await api('/crm/api/resumo');
+  const r=d.resumo||d;
+  $('#mVenda').textContent=fmt(r.vendaHistorico);$('#mUn').textContent=num(r.unidadesHistorico);$('#mCli').textContent=num(r.clientes);$('#mProd').textContent=num(r.produtos);$('#mQueda').textContent=num(r.produtosQueda20);$('#mParados').textContent=num(r.produtosParados30);
+  $('#notice').textContent='Base: '+(r.dataInicio||'—')+' a '+(r.dataFim||'—')+'. Comparação do mês atual até a última data contra a média dos três meses anteriores.';
+  renderAll(d);
+ }catch(e){$('#status').textContent=e.message;$('#notice').textContent='Importe a base de vendas para iniciar o diagnóstico.';}
+}
+function renderAll(d){
+ const q=d.produtosQueda||[], p=d.produtosParados||[], c=d.clientesRisco||[], a=d.acoes||[];
+ $('#queda').innerHTML='<h3>Produtos em queda</h3>'+table(['Produto','Fornecedor','Média 3M','Atual','Variação','Unidades','Dias sem venda'],q.map(x=>'<tr><td>'+x.codProduto+'</td><td>'+x.fornecedor+'</td><td>'+fmt(x.mediaVenda)+'</td><td>'+fmt(x.vendaAtual)+'</td><td class="neg">'+Number(x.variacaoPct).toFixed(1)+'%</td><td>'+num(x.unidadesAtual)+'</td><td>'+num(x.diasSemVenda)+'</td></tr>'));
+ $('#parados').innerHTML='<h3>Produtos parados</h3>'+table(['Produto','Fornecedor','Média 3M','Última venda','Dias parado','Unidades médias'],p.map(x=>'<tr><td>'+x.codProduto+'</td><td>'+x.fornecedor+'</td><td>'+fmt(x.mediaVenda)+'</td><td>'+x.ultimaVenda+'</td><td class="neg">'+x.diasSemVenda+'</td><td>'+num(x.mediaUnidades)+'</td></tr>'));
+ $('#clientes').innerHTML='<h3>Clientes em risco</h3>'+table(['Cliente','Variação','Média 3M','Atual','Dias sem compra','Responsável'],c.map(x=>'<tr><td>'+x.codCliente+'</td><td class="neg">'+Number(x.variacaoPct).toFixed(1)+'%</td><td>'+fmt(x.mediaVenda)+'</td><td>'+fmt(x.vendaAtual)+'</td><td>'+x.diasSemCompra+'</td><td>'+((x.vendedor||'—')+' / '+(x.televendas||'—'))+'</td></tr>'));
+ $('#oportunidades').innerHTML='<h3>Ações comerciais</h3>'+table(['Produto','Fornecedor','Queda','Estoque','Situação','Clientes'],a.map(x=>'<tr><td>'+x.codProduto+'</td><td>'+x.fornecedor+'</td><td class="neg">'+Number(x.variacaoPct).toFixed(1)+'%</td><td>'+num(x.estoque)+'</td><td class="'+(x.prioridade==='ALTA'?'neg':'warn')+'">'+x.situacao+'</td><td>'+num(x.clientesAfetados)+'</td></tr>'));
+}
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');['queda','parados','clientes','oportunidades'].forEach(id=>$('#'+id).classList.toggle('hidden',id!==b.dataset.tab));});
+$('#import').onclick=async()=>{const f=$('#file').files[0];if(!f){$('#status').textContent='Selecione o XLSX.';return}$('#status').textContent='Importando...';try{const r=await fetch('/crm/api/importar',{method:'POST',credentials:'include',headers:{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(f.name)},body:f});if(!r.ok)throw new Error((await r.text()).slice(0,400));const d=await r.json();$('#status').textContent=num(d.linhasImportadas)+' linhas importadas.';await load()}catch(e){$('#status').textContent=e.message}});
+load();
+</script>
+</body></html>
