@@ -17,6 +17,10 @@ def install_commercial_intelligence_ui_v7() -> None:
     except Exception:
         return
     if _MARKER in text:
+        # Mesmo quando o V7 já estiver aplicado ao arquivo temporário, garante
+        # que o patch seguinte de promoção seja executado nesta instância.
+        from .commercial_intelligence_ui_v8 import install_commercial_intelligence_ui_v8
+        install_commercial_intelligence_ui_v8()
         return
 
     # A API passa a receber explicitamente a visão solicitada.
@@ -78,4 +82,7 @@ def install_commercial_intelligence_ui_v7() -> None:
         temp.write_text(text, encoding="utf-8")
         temp.replace(page)
     except Exception:
-        pass
+        return
+
+    from .commercial_intelligence_ui_v8 import install_commercial_intelligence_ui_v8
+    install_commercial_intelligence_ui_v8()
