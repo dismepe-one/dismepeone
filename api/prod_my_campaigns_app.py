@@ -8,6 +8,7 @@ from .prod597_app import app, settings  # noqa: F401
 from .my_campaigns import router as my_campaigns_router
 from . import home_publication as home_module
 from .extras_positivacao_ranking import install_extras_positivacao_ranking
+from .extras_manual_ranking import install_extras_manual_ranking
 from .extras_positivacao_schema_fix import install_extras_positivacao_schema_fix
 from .extras_positivacao_client_match_fix import install_extras_positivacao_client_match_fix
 from .extras_positivacao_partial_display import install_extras_positivacao_partial_display
@@ -121,6 +122,7 @@ install_positivacao_total_source()
 install_resumo_monthly_overlay(app)
 install_resumo_objective_sync(app)
 install_extras_positivacao_ranking(app)
+install_extras_manual_ranking(app)
 install_extras_positivacao_schema_fix(app)
 install_extras_positivacao_client_match_fix(app)
 install_extras_positivacao_partial_display(app)
