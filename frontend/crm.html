@@ -70,7 +70,7 @@ $('#import').onclick=async()=>{
   $('#import').disabled=true;$('#file').disabled=true;$('#status').textContent='Enviando arquivo e iniciando importação...';
   try{
     const r=await fetch('/crm/api/importar',{method:'POST',credentials:'include',headers:{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(f.name)},body:f});
-    if(!r.ok)throw new Error((await r.text()).slice(0,500));
+    if(!r.ok){const t=await r.text();throw new Error((t&&t.trim())||('HTTP '+r.status+' — o servidor recusou o upload. Verifique o tamanho do arquivo e tente CSV.'));}
     const d=await r.json();
     if(!d.importacaoId)throw new Error('O servidor não retornou o identificador da importação.');
     $('#status').textContent='Importação iniciada. Acompanhe o progresso abaixo.';
