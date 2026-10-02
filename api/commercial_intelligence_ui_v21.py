@@ -6,6 +6,11 @@ from pathlib import Path
 _MARKER = "DISMEPE_COMMERCIAL_INTELLIGENCE_UI_V21"
 
 
+def _install_next_layer() -> None:
+    from .commercial_intelligence_ui_v22 import install_commercial_intelligence_ui_v22
+    install_commercial_intelligence_ui_v22()
+
+
 def install_commercial_intelligence_ui_v21() -> None:
     from . import commercial_intelligence as ci
 
@@ -17,6 +22,7 @@ def install_commercial_intelligence_ui_v21() -> None:
     except Exception:
         return
     if _MARKER in text:
+        _install_next_layer()
         return
 
     # A base completa já está carregada em S.all/S.filtered. Trocar entre as
@@ -110,3 +116,5 @@ def install_commercial_intelligence_ui_v21() -> None:
         temp.replace(page)
     except Exception:
         pass
+
+    _install_next_layer()
