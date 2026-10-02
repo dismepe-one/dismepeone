@@ -17,6 +17,8 @@ def install_commercial_intelligence_ui_v12() -> None:
     except Exception:
         return
     if _MARKER in text:
+        from .commercial_intelligence_ui_v13 import install_commercial_intelligence_ui_v13
+        install_commercial_intelligence_ui_v13()
         return
 
     # Coluna de custo na tabela principal, imediatamente antes do preço promocional.
@@ -59,4 +61,7 @@ def install_commercial_intelligence_ui_v12() -> None:
         temp.write_text(text, encoding="utf-8")
         temp.replace(page)
     except Exception:
-        pass
+        return
+
+    from .commercial_intelligence_ui_v13 import install_commercial_intelligence_ui_v13
+    install_commercial_intelligence_ui_v13()
