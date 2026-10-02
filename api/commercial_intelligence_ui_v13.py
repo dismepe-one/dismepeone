@@ -69,8 +69,9 @@ def install_commercial_intelligence_ui_v13() -> None:
   const $=id=>document.getElementById(id);
   async function api(url,opts={}){
     const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...opts});
-    const d=await r.json().catch(()=>({}));
-    if(!r.ok)throw new Error(d.detail||'Falha no mapa complementar.');
+    let d={};
+    try{d=await r.json()}catch(_){d={detail:`Falha HTTP ${r.status||0}`}}
+    if(!r.ok)throw new Error(d.detail||`Falha HTTP ${r.status||0}`);
     return d;
   }
   function renderStatus(d){
@@ -83,18 +84,43 @@ def install_commercial_intelligence_ui_v13() -> None:
     remove?.classList.remove('hidden');
   }
   async function loadStatus(){try{renderStatus(await api('/data/inteligencia-comercial/complemento'))}catch(e){console.error(e)}}
+  function makeUploadId(){
+    const a=new Uint32Array(4);crypto.getRandomValues(a);
+    return `u${Date.now().toString(36)}_${Array.from(a).map(n=>n.toString(36)).join('')}`;
+  }
   async function upload(file){
     if(!file)return;
-    const bar=$('complementToolbar');bar?.classList.add('loading');
+    const bar=$('complementToolbar'),status=$('complementStatus'),meta=$('complementMeta');
+    bar?.classList.add('loading');
     try{
-      const d=await api('/data/inteligencia-comercial/complemento/upload',{method:'POST',headers:{'content-type':'application/octet-stream','x-file-name':encodeURIComponent(file.name)},body:file});
+      const max=12*1024*1024;if(file.size>max)throw new Error('O arquivo complementar deve ter no máximo 12 MB.');
+      const chunkSize=512*1024,total=Math.ceil(file.size/chunkSize),uploadId=makeUploadId();
+      for(let i=0;i<total;i++){
+        status&&(status.textContent=`Enviando arquivo… ${i+1}/${total}`);
+        meta&&(meta.textContent='O envio é feito em blocos para evitar falhas em redes móveis.');
+        const chunk=file.slice(i*chunkSize,Math.min(file.size,(i+1)*chunkSize));
+        await api('/data/inteligencia-comercial/complemento/upload-chunk',{
+          method:'POST',
+          headers:{'content-type':'application/octet-stream','x-upload-id':uploadId,'x-chunk-index':String(i),'x-chunk-total':String(total)},
+          body:chunk
+        });
+      }
+      status&&(status.textContent='Processando PDF…');
+      meta&&(meta.textContent='Lendo Pc.Custo, Lote, Qtd e Venc. e cruzando pelo código do produto.');
+      const d=await api('/data/inteligencia-comercial/complemento/upload-finalize',{
+        method:'POST',
+        headers:{'x-upload-id':uploadId,'x-file-name':encodeURIComponent(file.name)}
+      });
       alert(`Mapa complementar importado com sucesso. ${Number(d.codigos||0).toLocaleString('pt-BR')} códigos reconhecidos.`);
       location.reload();
-    }catch(e){alert(e?.message||'Falha ao importar o mapa complementar.');bar?.classList.remove('loading')}
+    }catch(e){
+      alert(e?.message||'Falha ao importar o mapa complementar.');
+      bar?.classList.remove('loading');loadStatus();
+    }
   }
   function init(){
     $('complementUpload')?.addEventListener('click',()=>$('complementFile')?.click());
-    $('complementFile')?.addEventListener('change',e=>upload(e.target.files?.[0]));
+    $('complementFile')?.addEventListener('change',e=>{const f=e.target.files?.[0];e.target.value='';upload(f)});
     $('complementRemove')?.addEventListener('click',async()=>{
       if(!confirm('Deseja realmente remover o mapa complementar temporário? O Mapa principal não será alterado.'))return;
       try{await api('/data/inteligencia-comercial/complemento',{method:'DELETE'});location.reload()}catch(e){alert(e?.message||'Falha ao remover o complemento.')}
