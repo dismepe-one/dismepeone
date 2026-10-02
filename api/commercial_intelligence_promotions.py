@@ -38,6 +38,8 @@ class PromotionItem(BaseModel):
     fornecedor: str = ""
     custo: float = 0.0
     precoPromocional: float = Field(default=0.0, ge=0)
+    vencimento: str = ""
+    vencimentoProximo: bool = False
 
 
 class PromotionSave(BaseModel):
@@ -119,6 +121,8 @@ def _normalize_items(items: list[PromotionItem]) -> list[dict[str, Any]]:
             "custo": round(cost, 4),
             "precoPromocional": round(price, 2),
             "markupPromocao": round(markup, 2),
+            "vencimento": str(source.vencimento or "").strip(),
+            "vencimentoProximo": bool(source.vencimentoProximo),
         })
     return result
 
