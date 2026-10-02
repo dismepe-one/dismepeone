@@ -8,6 +8,9 @@ _MARKER = "DISMEPE_COMMERCIAL_INTELLIGENCE_UI_V20"
 
 def install_commercial_intelligence_ui_v20() -> None:
     from . import commercial_intelligence as ci
+    from .commercial_intelligence_filtered_exports import install_commercial_intelligence_filtered_exports
+
+    install_commercial_intelligence_filtered_exports()
 
     page = getattr(ci, "PAGE_FILE", None)
     if not isinstance(page, Path):
@@ -27,15 +30,12 @@ def install_commercial_intelligence_ui_v20() -> None:
     )
 
     # DDE é um indicador em dias e deve ser exibido sem casas decimais.
-    # Mantém o valor numérico original para cálculos e ordenação; altera
-    # somente a apresentação na tabela.
     text = text.replace(
         "<b>${fmt(x.dde)}</b>",
         "<b>${String(Math.round(Number(x.dde||0)))}</b>",
     )
 
     # Nos gráficos de Estatísticas, identifica produtos por código + nome.
-    # Fornecedores continuam exibidos apenas pelo nome, sem mudar cálculos.
     text = text.replace(
         "title=\"${esc(x.produto||x.fornecedor||'')}\"",
         "title=\"${esc(x.produto?((x.codigo?x.codigo+' - ':'')+x.produto):(x.fornecedor||''))}\"",
@@ -68,6 +68,25 @@ def install_commercial_intelligence_ui_v20() -> None:
   const limit=new Date(today.getFullYear(),today.getMonth()+12,today.getDate());
   return d>=today&&d<=limit;
 }
+function ciOverviewExportAllowed(){return S.tab!=='overview'||!!E.onlyBlocked?.checked||!!E.onlyExpiring?.checked}
+function ciExportUrl(ext){
+  if(S.tab==='overview'&&(E.onlyBlocked?.checked||E.onlyExpiring?.checked)){
+    const p=new URLSearchParams();
+    if(E.search?.value?.trim())p.set('q',E.search.value.trim());
+    selectedSuppliers().forEach(v=>p.append('fornecedor',v));
+    if(E.curve?.value)p.set('curva',E.curve.value);
+    p.set('aba',S.tab);p.set('ordenar',S.sort);p.set('direcao',String(S.dir));
+    if(E.onlyBlocked?.checked)p.set('bloq_compra','true');
+    if(E.onlyExpiring?.checked)p.set('vencimento','true');
+    return `/data/inteligencia-comercial/filtered-export.${ext}?${p.toString()}`;
+  }
+  return exportUrl(ext);
+}
+function ciSyncExportState(){
+  const allowed=ciOverviewExportAllowed();
+  if(E.exportXlsx){E.exportXlsx.disabled=!allowed;E.exportXlsx.title=allowed?'':'A exportação da Visão geral é liberada quando Bloq. compra ou Venc. ≤ 12 meses estiver marcado';}
+  if(E.exportPdf){E.exportPdf.disabled=!allowed;E.exportPdf.title=allowed?'':'A exportação da Visão geral é liberada quando Bloq. compra ou Venc. ≤ 12 meses estiver marcado';}
+}
 '''
     if "function ciNearExpiry(x)" not in text:
         text = text.replace("function applyFilter(){", helper + "function applyFilter(){", 1)
@@ -81,6 +100,21 @@ def install_commercial_intelligence_ui_v20() -> None:
     text = text.replace(
         "<div class=\"detail-cell\"><span>Validade</span><b>${esc(x.vencimento||'—')}</b></div>",
         "<div class=\"detail-cell\"><span>Validade</span><b style=\"${ciNearExpiry(x)?'color:#be123c':''}\">${esc(x.vencimento||'—')}</b></div>",
+    )
+
+    # Libera Excel/PDF na Visão geral somente quando Bloq. compra ou Validade
+    # estiver marcado, mantendo o bloqueio original da visão geral sem recorte.
+    text = text.replace(
+        "if(E.exportXlsx)E.exportXlsx.disabled=S.tab==='overview';if(E.exportPdf)E.exportPdf.disabled=S.tab==='overview';if(E.exportXlsx)E.exportXlsx.title=S.tab==='overview'?'A exportação da Visão geral é bloqueada para proteger o desempenho':'';if(E.exportPdf)E.exportPdf.title=S.tab==='overview'?'A exportação da Visão geral é bloqueada para proteger o desempenho':'';",
+        "ciSyncExportState();",
+    )
+    text = text.replace(
+        "E.exportXlsx?.addEventListener('click',()=>{if(S.tab!=='overview')location.href=exportUrl('xlsx')});E.exportPdf?.addEventListener('click',()=>{if(S.tab!=='overview')location.href=exportUrl('pdf')});",
+        "E.exportXlsx?.addEventListener('click',()=>{if(ciOverviewExportAllowed())location.href=ciExportUrl('xlsx')});E.exportPdf?.addEventListener('click',()=>{if(ciOverviewExportAllowed())location.href=ciExportUrl('pdf')});",
+    )
+    text = text.replace(
+        "[E.onlyBlocked,E.onlyExpiring].filter(Boolean).forEach(x=>x.addEventListener('change',applyFilter));",
+        "[E.onlyBlocked,E.onlyExpiring].filter(Boolean).forEach(x=>x.addEventListener('change',()=>{applyFilter();ciSyncExportState()}));",
     )
 
     marker = "\n<!-- " + _MARKER + " -->\n"
