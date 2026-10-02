@@ -34,6 +34,21 @@ def install_commercial_intelligence_ui_v20() -> None:
         "<b>${String(Math.round(Number(x.dde||0)))}</b>",
     )
 
+    # Nos gráficos de Estatísticas, identifica produtos por código + nome.
+    # Fornecedores continuam exibidos apenas pelo nome, sem mudar cálculos.
+    text = text.replace(
+        "title=\"${esc(x.produto||x.fornecedor||'')}\"",
+        "title=\"${esc(x.produto?((x.codigo?x.codigo+' - ':'')+x.produto):(x.fornecedor||''))}\"",
+    )
+    text = text.replace(
+        "shortName(x.produto||x.fornecedor||'')",
+        "shortName(x.produto?((x.codigo?x.codigo+' - ':'')+x.produto):(x.fornecedor||''),42)",
+    )
+    text = text.replace(
+        "title=\"${esc(x.produto)} · Giro",
+        "title=\"${esc((x.codigo?x.codigo+' - ':'')+(x.produto||''))} · Giro",
+    )
+
     marker = "\n<!-- " + _MARKER + " -->\n"
     pos = text.lower().rfind("</body>")
     if pos >= 0:
