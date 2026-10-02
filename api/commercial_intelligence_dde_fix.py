@@ -49,19 +49,26 @@ def install_commercial_intelligence_dde_fix() -> None:
         high_sales = bool(item.get("alta"))
         no_turnover = bool(item.get("semGiro"))
         is_new = bool(item.get("produtoNovo"))
-        strong_drop = float(item.get("variacaoPct") or 0) <= -50.0
+
+        old_reasons = [
+            str(reason)
+            for reason in (item.get("motivosCriticos") or [])
+            if str(reason) not in {
+                "Pressão alta de venda sobre o estoque",
+                "Sem estoque com histórico de venda",
+            }
+        ]
+        if is_new:
+            old_reasons = [reason for reason in old_reasons if reason != "Estoque sem giro"]
 
         reasons: list[str] = []
         if rupture:
             reasons.append("Sem estoque com histórico de venda")
         if risk_high:
             reasons.append("Cobertura de estoque igual ou inferior a 15 dias")
-        if strong_drop:
-            reasons.append("Venda caiu mais de 50% no último mês fechado")
-        if no_turnover and not is_new:
-            reasons.append("Estoque sem giro")
+        reasons.extend(reason for reason in old_reasons if reason not in reasons)
         item["motivosCriticos"] = reasons
-        item["critico"] = bool(rupture or risk_high or strong_drop or (no_turnover and not is_new))
+        item["critico"] = bool(reasons)
 
         if rupture:
             item["acao"] = "REPOR / VERIFICAR RUPTURA"
