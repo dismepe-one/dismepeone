@@ -49,6 +49,17 @@ def install_commercial_intelligence_ui_v20() -> None:
         "title=\"${esc((x.codigo?x.codigo+' - ':'')+(x.produto||''))} · Giro",
     )
 
+    # Regra visual de vencimento: até 12 meses é considerado próximo.
+    text = text.replace("Venc. ≤ 90 dias", "Venc. ≤ 12 meses")
+    text = text.replace(
+        "<td>${esc(x.vencimento||'—')}</td>",
+        "<td>${x.vencimentoProximo?'<span style=\"color:#be123c;font-weight:900\">'+esc(x.vencimento||'—')+'</span>':esc(x.vencimento||'—')}</td>",
+    )
+    text = text.replace(
+        "<div class=\"detail-cell\"><span>Validade</span><b>${esc(x.vencimento||'—')}</b></div>",
+        "<div class=\"detail-cell\"><span>Validade</span><b style=\"${x.vencimentoProximo?'color:#be123c':''}\">${esc(x.vencimento||'—')}</b></div>",
+    )
+
     marker = "\n<!-- " + _MARKER + " -->\n"
     pos = text.lower().rfind("</body>")
     if pos >= 0:
