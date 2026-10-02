@@ -6,6 +6,14 @@ from pathlib import Path
 _MARKER = "DISMEPE_COMMERCIAL_INTELLIGENCE_UI_V7"
 
 
+def _install_next_layers() -> None:
+    from .commercial_intelligence_ui_v8 import install_commercial_intelligence_ui_v8
+    from .commercial_intelligence_ui_v9 import install_commercial_intelligence_ui_v9
+
+    install_commercial_intelligence_ui_v8()
+    install_commercial_intelligence_ui_v9()
+
+
 def install_commercial_intelligence_ui_v7() -> None:
     from . import commercial_intelligence as ci
 
@@ -17,8 +25,7 @@ def install_commercial_intelligence_ui_v7() -> None:
     except Exception:
         return
     if _MARKER in text:
-        from .commercial_intelligence_ui_v8 import install_commercial_intelligence_ui_v8
-        install_commercial_intelligence_ui_v8()
+        _install_next_layers()
         return
 
     text = text.replace(
@@ -44,7 +51,6 @@ def install_commercial_intelligence_ui_v7() -> None:
         1,
     )
 
-    # Visão geral exibe produtos normalmente. Apenas as exportações ficam bloqueadas.
     render_start = "function render(){if(E.viewSelect)E.viewSelect.value=S.tab;"
     render_guard = "function render(){if(E.viewSelect)E.viewSelect.value=S.tab;if(E.exportXlsx)E.exportXlsx.disabled=S.tab==='overview';if(E.exportPdf)E.exportPdf.disabled=S.tab==='overview';if(E.exportXlsx)E.exportXlsx.title=S.tab==='overview'?'A exportação da Visão geral é bloqueada para proteger o desempenho':'';if(E.exportPdf)E.exportPdf.title=S.tab==='overview'?'A exportação da Visão geral é bloqueada para proteger o desempenho':'';"
     if render_start in text:
@@ -69,5 +75,4 @@ def install_commercial_intelligence_ui_v7() -> None:
     except Exception:
         return
 
-    from .commercial_intelligence_ui_v8 import install_commercial_intelligence_ui_v8
-    install_commercial_intelligence_ui_v8()
+    _install_next_layers()
