@@ -35,8 +35,6 @@ def install_commercial_intelligence_safe_loading(app: Any) -> None:
         return
     _INSTALLED = True
 
-    # As rotas de rascunhos de promoção usam a mesma autenticação da
-    # Inteligência Comercial e persistem por usuário no Supabase.
     from .commercial_intelligence_promotions import install_commercial_intelligence_promotions
     install_commercial_intelligence_promotions(app)
 
@@ -44,8 +42,8 @@ def install_commercial_intelligence_safe_loading(app: Any) -> None:
     async def commercial_intelligence_safe_loading(request: Request, call_next):
         path = request.url.path
 
-        # Segurança de carga: nunca permitir exportação de todos os produtos a
-        # partir da Visão geral. O usuário precisa escolher um recorte detalhado.
+        # A Visão geral pode ser consultada normalmente, mas não pode ser
+        # exportada inteira como PDF/Excel. As exportações exigem um recorte.
         if path in {
             "/data/inteligencia-comercial/export.xlsx",
             "/data/inteligencia-comercial/export.pdf",
@@ -89,22 +87,38 @@ def install_commercial_intelligence_safe_loading(app: Any) -> None:
 
         result = ci._analyze(payload, row)
         products = [item for item in (result.get("produtos") or []) if isinstance(item, dict)]
+        total_base = int((result.get("resumo") or {}).get("produtos") or len(products))
+        curves = sorted({
+            str(item.get("curva") or "").strip()
+            for item in products
+            if str(item.get("curva") or "").strip()
+        })
 
-        # A Visão geral NUNCA devolve a relação completa de produtos.
-        # Ela carrega apenas resumo, fornecedores e insights executivos.
-        if view in {"overview", "suppliers"}:
+        # Fornecedores é uma visão agregada e não precisa carregar linhas de produto.
+        if view == "suppliers":
             result["produtos"] = []
             result["listagemProdutos"] = False
             result["visao"] = view
-            result["totalProdutosBase"] = int((result.get("resumo") or {}).get("produtos") or len(products))
-            result["curvasDisponiveis"] = sorted({str(item.get("curva") or "").strip() for item in products if str(item.get("curva") or "").strip()})
+            result["totalProdutosBase"] = total_base
+            result["curvasDisponiveis"] = curves
+            return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+        # Visão geral mostra a relação normalmente. O frontend mantém a tabela
+        # em blocos de 250 linhas para evitar renderização excessiva no navegador.
+        if view == "overview":
+            result["produtos"] = products
+            result["listagemProdutos"] = True
+            result["visao"] = view
+            result["totalProdutosBase"] = total_base
+            result["totalProdutosVisao"] = len(products)
+            result["curvasDisponiveis"] = curves
             return JSONResponse(result, headers={"Cache-Control": "no-store"})
 
         filtered = [item for item in products if _matches(item, view)]
         result["produtos"] = filtered
         result["listagemProdutos"] = True
         result["visao"] = view
-        result["totalProdutosBase"] = int((result.get("resumo") or {}).get("produtos") or len(products))
+        result["totalProdutosBase"] = total_base
         result["totalProdutosVisao"] = len(filtered)
-        result["curvasDisponiveis"] = sorted({str(item.get("curva") or "").strip() for item in products if str(item.get("curva") or "").strip()})
+        result["curvasDisponiveis"] = curves
         return JSONResponse(result, headers={"Cache-Control": "no-store"})
