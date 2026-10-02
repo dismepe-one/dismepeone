@@ -34,6 +34,11 @@ def install_commercial_intelligence_quantity_fix() -> None:
 
     from . import commercial_intelligence as ci
     from . import commercial_intelligence_complement_pdf as pdfmod
+    from .commercial_intelligence_complement_repair import (
+        install_commercial_intelligence_complement_repair,
+    )
+
+    install_commercial_intelligence_complement_repair()
 
     original_parse = pdfmod._parse_product_line
     original_product = ci._product
