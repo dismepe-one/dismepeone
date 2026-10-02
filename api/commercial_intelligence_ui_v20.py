@@ -6,6 +6,11 @@ from pathlib import Path
 _MARKER = "DISMEPE_COMMERCIAL_INTELLIGENCE_UI_V20"
 
 
+def _install_next_layer() -> None:
+    from .commercial_intelligence_ui_v21 import install_commercial_intelligence_ui_v21
+    install_commercial_intelligence_ui_v21()
+
+
 def install_commercial_intelligence_ui_v20() -> None:
     from . import commercial_intelligence as ci
     from .commercial_intelligence_filtered_exports import install_commercial_intelligence_filtered_exports
@@ -20,6 +25,7 @@ def install_commercial_intelligence_ui_v20() -> None:
     except Exception:
         return
     if _MARKER in text:
+        _install_next_layer()
         return
 
     # Qtd. última entrada representa unidades inteiras. Não usa formatação
@@ -128,3 +134,5 @@ function ciSyncExportState(){
         temp.replace(page)
     except Exception:
         pass
+
+    _install_next_layer()
