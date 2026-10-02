@@ -19,15 +19,15 @@ def install_commercial_intelligence_ui_v15() -> None:
     if _MARKER in text:
         return
 
-    # Nome solicitado para o Pc.Custo vindo do mapa complementar.
-    text = text.replace("['preco','Custo médio']", "['preco','Preço médio']", 1)
-    text = text.replace('<th>Código</th><th>Produto</th><th>Custo</th><th>Preço promoção</th><th>Markup promoção</th><th></th>', '<th>Código</th><th>Produto</th><th>Preço médio</th><th>Preço promoção</th><th>Markup promoção</th><th></th>', 1)
+    # Pc.Custo do mapa complementar passa a ser exibido como Custo Médio.
+    text = text.replace("['preco','Custo médio']", "['preco','Custo Médio']", 1)
+    text = text.replace('<th>Código</th><th>Produto</th><th>Custo</th><th>Preço promoção</th><th>Markup promoção</th><th></th>', '<th>Código</th><th>Produto</th><th>Custo Médio</th><th>Preço promoção</th><th>Markup promoção</th><th></th>', 1)
 
     # Exibe os dados complementares logo abaixo do produto, principalmente útil no celular.
     # Não depende apenas da flag complementoTemporario: alguns fluxos podem manter os
     # campos complementares disponíveis mesmo quando a flag não vier marcada.
     old_product = '<td><b>${esc(x.produto)}</b><br>${badge(x)}</td>'
-    new_product = '''<td><b>${esc(x.produto)}</b><br>${badge(x)}${(x.complementoTemporario||Number(x.precoMedioComplemento||0)>0||x.lote||x.vencimento||Number(x.quantidadeUltimaEntrada||0)>0)?`<div class="ci-complement-inline"><span><b>Preço médio:</b> ${money(Number(x.precoMedioComplemento||0)>0?x.precoMedioComplemento:(x.preco||0))}</span><span><b>Lote:</b> ${esc(x.lote||'—')}</span><span><b>Validade:</b> <strong style="${x.vencimentoProximo?'color:#be123c':''}">${esc(x.vencimento||'—')}</strong></span><span><b>Qtd. últ. entrada:</b> ${fmt(x.quantidadeUltimaEntrada||0)}</span></div>`:''}</td>'''
+    new_product = '''<td><b>${esc(x.produto)}</b><br>${badge(x)}${(x.complementoTemporario||Number(x.precoMedioComplemento||0)>0||x.lote||x.vencimento||Number(x.quantidadeUltimaEntrada||0)>0)?`<div class="ci-complement-inline"><span><b>Custo Médio:</b> ${money(Number(x.precoMedioComplemento||0)>0?x.precoMedioComplemento:(x.preco||0))}</span><span><b>Lote:</b> ${esc(x.lote||'—')}</span><span><b>Validade:</b> <strong style="${x.vencimentoProximo?'color:#be123c':''}">${esc(x.vencimento||'—')}</strong></span><span><b>Qtd. últ. entrada:</b> ${fmt(x.quantidadeUltimaEntrada||0)}</span></div>`:''}</td>'''
     if old_product in text:
         text = text.replace(old_product, new_product, 1)
 
@@ -38,10 +38,10 @@ def install_commercial_intelligence_ui_v15() -> None:
     if css_anchor in text:
         text = text.replace(css_anchor, css_patch + '\n' + css_anchor, 1)
 
-    # Detalhe do produto: garante que o preço médio fique identificado como Pc.Custo.
+    # Detalhe do produto: identifica claramente o Pc.Custo como Custo Médio.
     detail_anchor = '<div class="detail-cell"><span>Estoque</span><b>${fmt(x.estoque)}</b></div>'
-    if detail_anchor in text and '<span>Preço médio</span>' not in text:
-        detail_price = '<div class="detail-cell"><span>Preço médio</span><b>${money(Number(x.precoMedioComplemento||0)>0?x.precoMedioComplemento:(x.preco||0))}</b></div>'
+    if detail_anchor in text and '<span>Custo Médio</span>' not in text:
+        detail_price = '<div class="detail-cell"><span>Custo Médio</span><b>${money(Number(x.precoMedioComplemento||0)>0?x.precoMedioComplemento:(x.preco||0))}</b></div>'
         text = text.replace(detail_anchor, detail_anchor + detail_price, 1)
 
     marker = "\n<!-- " + _MARKER + " -->\n"
