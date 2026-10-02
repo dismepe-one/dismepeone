@@ -27,6 +27,9 @@ from .commercial_intelligence_ui_v4 import install_commercial_intelligence_ui_v4
 from .commercial_intelligence_ui_v5 import install_commercial_intelligence_ui_v5
 from .commercial_intelligence_ui_v6 import install_commercial_intelligence_ui_v6
 from .commercial_intelligence_ui_v7 import install_commercial_intelligence_ui_v7
+from .commercial_intelligence_ui_v9 import install_commercial_intelligence_ui_v9
+from .commercial_intelligence_ui_v10 import install_commercial_intelligence_ui_v10
+from .commercial_intelligence_ui_v11 import install_commercial_intelligence_ui_v11
 from .industry_operational_sales_guard import install_industry_operational_sales_guard
 from .industry_competence_fields import install_industry_competence_fields
 from .industry_mes_ano_alias import install_industry_mes_ano_alias
@@ -118,7 +121,6 @@ async def _monthly_publish_with_supervisor_notice(body, background_tasks, sessio
         if str(registered.get("id") or "") == notification_id:
             background_tasks.add_task(home_module.deliver_notice, notification_id)
     except Exception:
-        # A notificação não pode invalidar uma publicação mensal já confirmada.
         pass
     return result
 
@@ -141,6 +143,9 @@ install_commercial_intelligence_ui_v4()
 install_commercial_intelligence_ui_v5()
 install_commercial_intelligence_ui_v6()
 install_commercial_intelligence_ui_v7()
+install_commercial_intelligence_ui_v9()
+install_commercial_intelligence_ui_v10()
+install_commercial_intelligence_ui_v11()
 install_industry_operational_sales_guard()
 install_industry_competence_fields()
 install_industry_mes_ano_alias()
