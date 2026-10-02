@@ -67,7 +67,9 @@ def install_commercial_intelligence_portfolio_insights() -> None:
         item["lote"] = lot
         item["vencimento"] = expiry
         item["diasVencimento"] = days_expiry
-        item["vencimentoProximo"] = bool(days_expiry is not None and 0 <= days_expiry <= 90)
+        # Regra comercial: considera próximo do vencimento todo produto com
+        # validade entre hoje e os próximos 12 meses.
+        item["vencimentoProximo"] = bool(days_expiry is not None and 0 <= days_expiry <= 365)
         item["vencido"] = bool(days_expiry is not None and days_expiry < 0)
         return item
 
