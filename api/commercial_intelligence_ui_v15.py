@@ -25,7 +25,7 @@ def install_commercial_intelligence_ui_v15() -> None:
 
     # Exibe os dados complementares logo abaixo do produto, principalmente útil no celular.
     old_product = '<td><b>${esc(x.produto)}</b><br>${badge(x)}</td>'
-    new_product = '''<td><b>${esc(x.produto)}</b><br>${badge(x)}${x.complementoTemporario?`<div class="ci-complement-inline"><span><b>Preço médio:</b> ${money(x.preco||0)}</span><span><b>Lote:</b> ${esc(x.lote||'—')}</span><span><b>Validade:</b> ${esc(x.vencimento||'—')}</span><span><b>Qtd. últ. entrada:</b> ${fmt(x.quantidadeUltimaEntrada||0)}</span></div>`:''}</td>'''
+    new_product = '''<td><b>${esc(x.produto)}</b><br>${badge(x)}${x.complementoTemporario?`<div class="ci-complement-inline"><span><b>Preço médio:</b> ${money(x.preco||0)}</span><span><b>Lote:</b> ${esc(x.lote||'—')}</span><span><b>Validade:</b> <strong style="${x.vencimentoProximo?'color:#be123c':''}">${esc(x.vencimento||'—')}</strong></span><span><b>Qtd. últ. entrada:</b> ${fmt(x.quantidadeUltimaEntrada||0)}</span></div>`:''}</td>'''
     if old_product in text:
         text = text.replace(old_product, new_product, 1)
 
