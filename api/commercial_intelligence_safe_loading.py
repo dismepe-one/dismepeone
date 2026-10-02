@@ -36,14 +36,18 @@ def install_commercial_intelligence_safe_loading(app: Any) -> None:
     _INSTALLED = True
 
     from .commercial_intelligence_promotions import install_commercial_intelligence_promotions
+    from .commercial_intelligence_complement import (
+        install_commercial_intelligence_complement,
+        merge_complement_for_session,
+    )
+
     install_commercial_intelligence_promotions(app)
+    install_commercial_intelligence_complement(app)
 
     @app.middleware("http")
     async def commercial_intelligence_safe_loading(request: Request, call_next):
         path = request.url.path
 
-        # A Visão geral pode ser consultada normalmente, mas não pode ser
-        # exportada inteira como PDF/Excel. As exportações exigem um recorte.
         if path in {
             "/data/inteligencia-comercial/export.xlsx",
             "/data/inteligencia-comercial/export.pdf",
@@ -82,10 +86,16 @@ def install_commercial_intelligence_safe_loading(app: Any) -> None:
 
         try:
             payload, row = await cache_get(modulo="MAPA_ESTOQUE", settings=settings)
+            payload, complement_meta = await merge_complement_for_session(payload, session)
         except CacheReadError as exc:
             return JSONResponse({"detail": str(exc)}, status_code=503)
+        except Exception as exc:
+            status = int(getattr(exc, "status_code", 503) or 503)
+            detail = getattr(exc, "detail", "Falha ao aplicar o mapa complementar.")
+            return JSONResponse({"detail": detail}, status_code=status)
 
         result = ci._analyze(payload, row)
+        result["complementoTemporario"] = complement_meta
         products = [item for item in (result.get("produtos") or []) if isinstance(item, dict)]
         total_base = int((result.get("resumo") or {}).get("produtos") or len(products))
         curves = sorted({
@@ -94,7 +104,6 @@ def install_commercial_intelligence_safe_loading(app: Any) -> None:
             if str(item.get("curva") or "").strip()
         })
 
-        # Fornecedores é uma visão agregada e não precisa carregar linhas de produto.
         if view == "suppliers":
             result["produtos"] = []
             result["listagemProdutos"] = False
@@ -103,8 +112,6 @@ def install_commercial_intelligence_safe_loading(app: Any) -> None:
             result["curvasDisponiveis"] = curves
             return JSONResponse(result, headers={"Cache-Control": "no-store"})
 
-        # Visão geral mostra a relação normalmente. O frontend mantém a tabela
-        # em blocos de 250 linhas para evitar renderização excessiva no navegador.
         if view == "overview":
             result["produtos"] = products
             result["listagemProdutos"] = True
