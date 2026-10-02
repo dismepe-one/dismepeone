@@ -76,6 +76,7 @@ def install_commercial_intelligence_ui_v18() -> None:
     document.querySelectorAll('#ciProductsView table.table').forEach(table=>{
       const labels=[...table.querySelectorAll('thead th')].map(th=>(th.textContent||'').trim());
       table.querySelectorAll('tbody tr').forEach(row=>{
+        const hasInlineComplement=!!row.querySelector('.ci-complement-inline');
         [...row.children].forEach((td,i)=>{
           const label=labels[i]||'';
           td.dataset.label=label;
@@ -83,9 +84,10 @@ def install_commercial_intelligence_ui_v18() -> None:
           td.classList.toggle('ci-mobile-product',i===1);
           const normalized=label.toLowerCase();
           const hidePromo=normalized.includes('preço promoção')||normalized.includes('markup promoção');
-          const hideComplementDuplicate=normalized==='preço médio'||normalized==='lote'||normalized==='validade'||normalized==='qtd. últ. entrada'||normalized==='qtd últ. entrada'||normalized==='qtd. última entrada';
+          const hidePriceDuplicate=normalized==='preço médio'&&hasInlineComplement;
+          const hideOtherComplement=normalized==='lote'||normalized==='validade'||normalized==='qtd. últ. entrada'||normalized==='qtd últ. entrada'||normalized==='qtd. última entrada';
           const hideHistory=/^(jul|ago|set|out|nov|dez|jan|fev|mar|abr|mai|jun)\b/i.test(normalized)||normalized==='histórico';
-          td.classList.toggle('ci-mobile-hide',hidePromo||hideComplementDuplicate||hideHistory);
+          td.classList.toggle('ci-mobile-hide',hidePromo||hidePriceDuplicate||hideOtherComplement||hideHistory);
         });
       });
     });
