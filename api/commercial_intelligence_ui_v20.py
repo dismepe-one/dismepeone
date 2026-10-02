@@ -50,8 +50,7 @@ def install_commercial_intelligence_ui_v20() -> None:
     )
 
     # Regra visual e de filtro de vencimento: até 12 meses é considerado próximo.
-    # O frontend recalcula pela data quando necessário, evitando depender apenas
-    # do booleano vindo do backend.
+    # Reconhece também MM/AAAA, formato utilizado no mapa complementar.
     text = text.replace("Venc. ≤ 90 dias", "Venc. ≤ 12 meses")
     helper = r'''function ciNearExpiry(x){
   const raw=String(x?.vencimento||x?.validade||'').trim();
@@ -59,7 +58,11 @@ def install_commercial_intelligence_ui_v20() -> None:
   let d=null;
   let m=raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
   if(m){let y=Number(m[3]);if(y<100)y+=2000;d=new Date(y,Number(m[2])-1,Number(m[1]));}
-  else{m=raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);if(m)d=new Date(Number(m[1]),Number(m[2])-1,Number(m[3]));}
+  else{
+    m=raw.match(/^(\d{1,2})[\/-](\d{4})$/);
+    if(m){const month=Number(m[1]),year=Number(m[2]);d=new Date(year,month,0);}
+    else{m=raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);if(m)d=new Date(Number(m[1]),Number(m[2])-1,Number(m[3]));}
+  }
   if(!d||Number.isNaN(d.getTime()))return !!x?.vencimentoProximo;
   const now=new Date();const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
   const limit=new Date(today.getFullYear(),today.getMonth()+12,today.getDate());
