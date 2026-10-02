@@ -8,6 +8,16 @@ _MARKER = "DISMEPE_COMMERCIAL_INTELLIGENCE_UI_V19"
 
 def install_commercial_intelligence_ui_v19() -> None:
     from . import commercial_intelligence as ci
+    from .commercial_intelligence_quantity_fix import install_commercial_intelligence_quantity_fix
+    from .commercial_intelligence_dde_fix import install_commercial_intelligence_dde_fix
+    from .commercial_intelligence_promotion_export_details import install_commercial_intelligence_promotion_export_details
+    from .commercial_intelligence_ui_v20 import install_commercial_intelligence_ui_v20
+
+    # Correções de dados são instaladas aqui porque a V19 já roda depois do
+    # backend complementar/promoções no startup oficial.
+    install_commercial_intelligence_quantity_fix()
+    install_commercial_intelligence_dde_fix()
+    install_commercial_intelligence_promotion_export_details()
 
     page = getattr(ci, "PAGE_FILE", None)
     if not isinstance(page, Path):
@@ -17,6 +27,7 @@ def install_commercial_intelligence_ui_v19() -> None:
     except Exception:
         return
     if _MARKER in text:
+        install_commercial_intelligence_ui_v20()
         return
 
     css_anchor = "</style>"
@@ -111,7 +122,6 @@ def install_commercial_intelligence_ui_v19() -> None:
 
   function enforceExportOnly(){
     if(!MOBILE())return;
-    // Reverte a restrição anterior que removia a aba inteira no mobile.
     const promoTab=document.querySelector('.ci-main-tab[data-main="promotion"]');
     if(promoTab)promoTab.style.removeProperty('display');
     ensureChooser();
@@ -139,4 +149,6 @@ def install_commercial_intelligence_ui_v19() -> None:
         temp.write_text(text, encoding="utf-8")
         temp.replace(page)
     except Exception:
-        pass
+        return
+
+    install_commercial_intelligence_ui_v20()
