@@ -3,13 +3,7 @@
   if (window.__dismepeTermsMoreInstalled) return;
   window.__dismepeTermsMoreInstalled = true;
 
-  // O menu "Mais" recria a grade em diferentes momentos da abertura.
-  // Mantemos a entrada do Termo presente após qualquer reconstrução,
-  // sem alterar nem interceptar as demais ações do menu.
-  function appendTermsEntry() {
-    const grid = document.querySelector('#v21105MoreMenu .v21105-menu-grid');
-    if (!grid || grid.querySelector('#oneTermsMoreItem')) return;
-
+  function createItem() {
     const item = document.createElement('button');
     item.id = 'oneTermsMoreItem';
     item.type = 'button';
@@ -28,14 +22,37 @@
       window.location.assign('/termo/admin');
     });
 
-    grid.appendChild(item);
+    return item;
+  }
+
+  function ensurePersistentTermsEntry() {
+    const menu = document.getElementById('v21105MoreMenu');
+    if (!menu) return;
+
+    // Remove qualquer cópia antiga colocada dentro da grade volátil.
+    const oldItem = menu.querySelector('.v21105-menu-grid #oneTermsMoreItem');
+    if (oldItem) oldItem.remove();
+
+    let host = menu.querySelector('#oneTermsMorePersistent');
+    if (host) {
+      if (!host.querySelector('#oneTermsMoreItem')) host.appendChild(createItem());
+      return;
+    }
+
+    // O sistema recria .v21105-menu-grid durante a abertura. Por isso o Termo
+    // passa a viver em uma grade própria, irmã da grade dinâmica. Assim as
+    // atualizações dos outros atalhos não removem este item.
+    host = document.createElement('div');
+    host.id = 'oneTermsMorePersistent';
+    host.className = 'v21105-menu-grid one-terms-more-persistent';
+    host.setAttribute('data-persistent', 'terms');
+    host.appendChild(createItem());
+    menu.appendChild(host);
   }
 
   function keepTermsEntry() {
-    // A reconstrução do menu pode ocorrer no mesmo tick ou logo depois.
-    // Repetimos a verificação em janelas curtas; a função é idempotente.
-    [0, 30, 100, 250].forEach(function (delay) {
-      window.setTimeout(appendTermsEntry, delay);
+    [0, 30, 100, 250, 500].forEach(function (delay) {
+      window.setTimeout(ensurePersistentTermsEntry, delay);
     });
   }
 
@@ -44,25 +61,21 @@
     keepTermsEntry();
   }, true);
 
-  // Se a grade inteira ou seus itens forem recriados depois da abertura,
-  // recoloca imediatamente o Termo. Isso evita o ícone "sumir" enquanto
-  // o usuário está com o menu Mais aberto.
   const observer = new MutationObserver(function (mutations) {
     const menu = document.getElementById('v21105MoreMenu');
     if (!menu) return;
-    const grid = menu.querySelector('.v21105-menu-grid');
-    if (!grid || grid.querySelector('#oneTermsMoreItem')) return;
+    const host = menu.querySelector('#oneTermsMorePersistent');
+    if (host && host.querySelector('#oneTermsMoreItem')) return;
 
-    const relevant = mutations.some(function (mutation) {
-      return mutation.type === 'childList';
-    });
-    if (relevant) window.requestAnimationFrame(appendTermsEntry);
+    if (mutations.some(function (mutation) { return mutation.type === 'childList'; })) {
+      window.requestAnimationFrame(ensurePersistentTermsEntry);
+    }
   });
 
   function startObserver() {
     if (!document.body) return;
     observer.observe(document.body, { childList: true, subtree: true });
-    appendTermsEntry();
+    ensurePersistentTermsEntry();
   }
 
   if (document.readyState === 'loading') {
