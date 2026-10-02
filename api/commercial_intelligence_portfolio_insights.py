@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from calendar import monthrange
 from datetime import datetime
 from statistics import median
 from typing import Any
@@ -31,12 +32,33 @@ def _parse_date(value: Any) -> datetime | None:
     raw = str(value or "").strip()
     if not raw:
         return None
+
+    # O mapa complementar traz principalmente validade em MM/AAAA. Nesse
+    # formato a validade comercial vai até o último dia do mês informado.
+    try:
+        month_text, year_text = raw.split("/", 1)
+        if len(month_text) in (1, 2) and len(year_text) == 4:
+            month = int(month_text)
+            year = int(year_text)
+            if 1 <= month <= 12:
+                last_day = monthrange(year, month)[1]
+                return datetime(year, month, last_day, tzinfo=_TZ)
+    except (TypeError, ValueError):
+        pass
+
     for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d/%m/%y"):
         try:
             return datetime.strptime(raw[:10], fmt).replace(tzinfo=_TZ)
         except ValueError:
             continue
     return None
+
+
+def _limit_12_months(now: datetime) -> datetime:
+    year = now.year + (now.month - 1 + 12) // 12
+    month = (now.month - 1 + 12) % 12 + 1
+    day = min(now.day, monthrange(year, month)[1])
+    return now.replace(year=year, month=month, day=day)
 
 
 def install_commercial_intelligence_portfolio_insights() -> None:
@@ -58,9 +80,14 @@ def install_commercial_intelligence_portfolio_insights() -> None:
         expiry_raw = _first(row, _EXPIRY_KEYS)
         expiry = str(expiry_raw or "").strip()
         expiry_date = _parse_date(expiry_raw)
+        now = datetime.now(_TZ)
         days_expiry: int | None = None
+        expiry_near = False
+        expired = False
         if expiry_date is not None:
-            days_expiry = (expiry_date.date() - datetime.now(_TZ).date()).days
+            days_expiry = (expiry_date.date() - now.date()).days
+            expiry_near = now.date() <= expiry_date.date() <= _limit_12_months(now).date()
+            expired = expiry_date.date() < now.date()
 
         item["markupMedio"] = ci._round(markup, 2)
         item["temMarkup"] = bool(markup_raw not in (None, "") and markup > 0)
@@ -68,9 +95,9 @@ def install_commercial_intelligence_portfolio_insights() -> None:
         item["vencimento"] = expiry
         item["diasVencimento"] = days_expiry
         # Regra comercial: considera próximo do vencimento todo produto com
-        # validade entre hoje e os próximos 12 meses.
-        item["vencimentoProximo"] = bool(days_expiry is not None and 0 <= days_expiry <= 365)
-        item["vencido"] = bool(days_expiry is not None and days_expiry < 0)
+        # validade entre hoje e os próximos 12 meses de calendário.
+        item["vencimentoProximo"] = expiry_near
+        item["vencido"] = expired
         return item
 
     def analyze_with_insights(payload: dict[str, Any], row_meta: dict[str, Any]) -> dict[str, Any]:
