@@ -26,11 +26,11 @@ def install_commercial_intelligence_ui_v13() -> None:
     <div>
       <span class="promo-label">MAPA COMPLEMENTAR TEMPORÁRIO</span>
       <b id="complementStatus">Nenhum arquivo complementar carregado</b>
-      <small id="complementMeta">Cruza pelo código do produto.</small>
+      <small id="complementMeta">Cruza pelo código do produto. Pc.Custo será usado como custo médio da promoção.</small>
     </div>
   </div>
   <div class="complement-actions">
-    <input id="complementFile" type="file" accept=".xlsx,.csv" hidden>
+    <input id="complementFile" type="file" accept=".pdf,.xlsx,.csv,application/pdf" hidden>
     <button type="button" id="complementUpload" class="promo-btn"><i class="fa-solid fa-file-arrow-up"></i> Importar mapa complementar</button>
     <button type="button" id="complementRemove" class="promo-btn danger-btn hidden"><i class="fa-solid fa-trash"></i> Remover complemento</button>
   </div>
@@ -40,7 +40,7 @@ def install_commercial_intelligence_ui_v13() -> None:
         text = text.replace(promo_anchor, complement_bar + promo_anchor, 1)
 
     old_cols = "['acao','Ação'],['preco','Custo'],['promoPrice','Preço promoção']"
-    new_cols = "['acao','Ação'],['preco','Custo'],['lote','Lote'],['vencimento','Validade'],['quantidadeUltimaEntrada','Qtd. últ. entrada'],['promoPrice','Preço promoção']"
+    new_cols = "['acao','Ação'],['preco','Custo médio'],['lote','Lote'],['vencimento','Validade'],['quantidadeUltimaEntrada','Qtd. últ. entrada'],['promoPrice','Preço promoção']"
     if old_cols in text:
         text = text.replace(old_cols, new_cols, 1)
 
@@ -76,10 +76,10 @@ def install_commercial_intelligence_ui_v13() -> None:
   function renderStatus(d){
     const status=$('complementStatus'),meta=$('complementMeta'),remove=$('complementRemove');
     if(!status||!meta)return;
-    if(!d?.ativo){status.textContent='Nenhum arquivo complementar carregado';meta.textContent='Cruza pelo código do produto. Aceita Excel (.xlsx) e CSV.';remove?.classList.add('hidden');return;}
+    if(!d?.ativo){status.textContent='Nenhum arquivo complementar carregado';meta.textContent='Cruza pelo código. Aceita PDF, Excel e CSV. No PDF: Pc.Custo = custo médio, Qtd = última entrada e Venc. = validade.';remove?.classList.add('hidden');return;}
     status.textContent=d.arquivo||'Mapa complementar ativo';
     const when=d.enviadoEm?new Date(d.enviadoEm).toLocaleString('pt-BR'):'';
-    meta.textContent=`${Number(d.codigos||0).toLocaleString('pt-BR')} códigos${when?' · enviado em '+when:''}`;
+    meta.textContent=`${Number(d.codigos||0).toLocaleString('pt-BR')} códigos${when?' · enviado em '+when:''} · Pc.Custo usado no markup da promoção`;
     remove?.classList.remove('hidden');
   }
   async function loadStatus(){try{renderStatus(await api('/data/inteligencia-comercial/complemento'))}catch(e){console.error(e)}}
