@@ -75,7 +75,7 @@ body.ci-main-promotion .kpis{display:none!important}
     tabs.innerHTML=`
       <button type="button" class="ci-main-tab active" data-main="products" data-short="Produtos"><i class="fa-solid fa-boxes-stacked"></i><span>Produtos</span></button>
       <button type="button" class="ci-main-tab" data-main="stats" data-short="Estatísticas"><i class="fa-solid fa-chart-column"></i><span>Estatísticas</span></button>
-      <button type="button" class="ci-main-tab" data-main="promotion" data-short="Promoção"><i class="fa-solid fa-tags"></i><span>Montar promoção</span></button>`;
+      <button type="button" class="ci-main-tab" data-main="promotion" data-short="Montar Promoção"><i class="fa-solid fa-tags"></i><span>Montar Promoção</span></button>`;
     main.insertBefore(tabs,first);
 
     const products=document.createElement('section');
