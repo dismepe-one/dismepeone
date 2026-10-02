@@ -48,6 +48,9 @@ def install_commercial_intelligence_ui_v14() -> None:
       const p=Math.max(1,Math.min(99,Math.round((ev.loaded/ev.total)*100)));
       meta.textContent=`Enviando mapa complementar... ${p}%`;
     };
+    xhr.upload.onload=function(){
+      if(meta)meta.textContent='Arquivo enviado. Processando PDF...';
+    };
     xhr.onreadystatechange=function(){
       if(xhr.readyState!==4)return;
       bar?.classList.remove('loading');
