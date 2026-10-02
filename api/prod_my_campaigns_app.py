@@ -38,6 +38,7 @@ from .commercial_intelligence_ui_v15 import install_commercial_intelligence_ui_v
 from .commercial_intelligence_ui_v16 import install_commercial_intelligence_ui_v16
 from .commercial_intelligence_ui_v17 import install_commercial_intelligence_ui_v17
 from .commercial_intelligence_ui_v18 import install_commercial_intelligence_ui_v18
+from .commercial_intelligence_ui_v19 import install_commercial_intelligence_ui_v19
 from .industry_operational_sales_guard import install_industry_operational_sales_guard
 from .industry_competence_fields import install_industry_competence_fields
 from .industry_mes_ano_alias import install_industry_mes_ano_alias
@@ -162,6 +163,7 @@ install_commercial_intelligence_ui_v15()
 install_commercial_intelligence_ui_v16()
 install_commercial_intelligence_ui_v17()
 install_commercial_intelligence_ui_v18()
+install_commercial_intelligence_ui_v19()
 install_industry_operational_sales_guard()
 install_industry_competence_fields()
 install_industry_mes_ano_alias()
