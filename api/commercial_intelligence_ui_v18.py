@@ -83,8 +83,9 @@ def install_commercial_intelligence_ui_v18() -> None:
           td.classList.toggle('ci-mobile-product',i===1);
           const normalized=label.toLowerCase();
           const hidePromo=normalized.includes('preço promoção')||normalized.includes('markup promoção');
+          const hideComplementDuplicate=normalized==='preço médio'||normalized==='lote'||normalized==='validade'||normalized==='qtd. últ. entrada'||normalized==='qtd últ. entrada'||normalized==='qtd. última entrada';
           const hideHistory=/^(jul|ago|set|out|nov|dez|jan|fev|mar|abr|mai|jun)\b/i.test(normalized)||normalized==='histórico';
-          td.classList.toggle('ci-mobile-hide',hidePromo||hideHistory);
+          td.classList.toggle('ci-mobile-hide',hidePromo||hideComplementDuplicate||hideHistory);
         });
       });
     });
