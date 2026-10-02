@@ -15,11 +15,9 @@ def _qty_integer(value: Any) -> int:
     if isinstance(value, int):
         return max(0, value)
     if isinstance(value, float):
-        # Valores novos do parser já chegam inteiros. Para compatibilidade,
-        # preserva números sem fração e arredonda apenas valores numéricos reais.
         return max(0, int(round(value)))
     raw = str(value).strip()
-    # No relatório Qtd é unidade inteira e ponto/vírgula são separadores de milhar.
+    # No relatório Qtd é unidade inteira; ponto/vírgula são separadores de milhar.
     digits = re.sub(r"[^0-9-]", "", raw)
     if not digits or digits == "-":
         return 0
@@ -34,11 +32,11 @@ def install_commercial_intelligence_quantity_fix() -> None:
     if _INSTALLED:
         return
 
+    from . import commercial_intelligence as ci
     from . import commercial_intelligence_complement_pdf as pdfmod
-    from . import commercial_intelligence_complement as cc
 
     original_parse = pdfmod._parse_product_line
-    original_product = cc.install_commercial_intelligence_complement
+    original_product = ci._product
 
     def parse_product_line_integer_qty(line: str):
         parsed = original_parse(line)
@@ -67,8 +65,15 @@ def install_commercial_intelligence_quantity_fix() -> None:
         parsed["quantidadeUltimaEntrada"] = _qty_integer(qty_match.group(1) if qty_match else 0)
         return parsed
 
-    pdfmod._parse_product_line = parse_product_line_integer_qty
+    def product_with_integer_qty(row: dict[str, Any], labels: list[str]) -> dict[str, Any]:
+        item = original_product(row, labels)
+        item["quantidadeUltimaEntrada"] = _qty_integer(item.get("quantidadeUltimaEntrada"))
+        lots = item.get("lotesComplemento") if isinstance(item.get("lotesComplemento"), list) else []
+        for lot in lots:
+            if isinstance(lot, dict):
+                lot["quantidadeUltimaEntrada"] = _qty_integer(lot.get("quantidadeUltimaEntrada"))
+        return item
 
-    # O parser resiliente importa _parse_product_line em tempo de execução;
-    # portanto passa a usar automaticamente esta versão corrigida.
+    pdfmod._parse_product_line = parse_product_line_integer_qty
+    ci._product = product_with_integer_qty
     _INSTALLED = True
