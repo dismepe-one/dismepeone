@@ -26,6 +26,14 @@ def install_commercial_intelligence_ui_v20() -> None:
         "${String(Math.max(0,Math.round(Number(x.quantidadeUltimaEntrada||0))))}",
     )
 
+    # DDE é um indicador em dias e deve ser exibido sem casas decimais.
+    # Mantém o valor numérico original para cálculos e ordenação; altera
+    # somente a apresentação na tabela.
+    text = text.replace(
+        "<b>${fmt(x.dde)}</b>",
+        "<b>${String(Math.round(Number(x.dde||0)))}</b>",
+    )
+
     marker = "\n<!-- " + _MARKER + " -->\n"
     pos = text.lower().rfind("</body>")
     if pos >= 0:
