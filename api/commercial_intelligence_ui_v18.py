@@ -6,6 +6,11 @@ from pathlib import Path
 _MARKER = "DISMEPE_COMMERCIAL_INTELLIGENCE_UI_V18"
 
 
+def _install_next_layer() -> None:
+    from .commercial_intelligence_ui_v19 import install_commercial_intelligence_ui_v19
+    install_commercial_intelligence_ui_v19()
+
+
 def install_commercial_intelligence_ui_v18() -> None:
     from . import commercial_intelligence as ci
 
@@ -17,6 +22,7 @@ def install_commercial_intelligence_ui_v18() -> None:
     except Exception:
         return
     if _MARKER in text:
+        _install_next_layer()
         return
 
     css_anchor = "</style>"
@@ -121,4 +127,6 @@ def install_commercial_intelligence_ui_v18() -> None:
         temp.write_text(text, encoding="utf-8")
         temp.replace(page)
     except Exception:
-        pass
+        return
+
+    _install_next_layer()
